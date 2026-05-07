@@ -6,6 +6,70 @@ Newest sessions at the top.
 
 ---
 
+## Session 5 — 2026-05-07 (implementation)
+
+**Goal:** Stage 2 (Dell end-to-end slice) implementation + six follow-up decisions applied on top of the subagent's first pass.
+
+**Outcome:** Stage 2 complete and verified. Live refresh against the Alienware Area-51 PDP succeeded end-to-end through the full pipeline: scrapers-lib fetch → Dell bridge → catalog auto-add → cross-tile merge → diff → write/queue. All six user-locked decisions are applied and reflected in code, docs, and tests. 58/58 tests pass (42 baseline + 16 new). Ready for Stage 3 (drop in `bridge/{hp,lenovo,asus}.py`).
+
+### What was built / changed
+
+- **Bridge layer.**
+  - `bridge/types.py` — `CandidateProduct` gains a `year_was_inferred: bool` flag (Decision 1). Not stored in the DB; threads through to the runner so the queue type can be picked correctly.
+  - `bridge/helpers.py` — added the static `GPU_TO_BOARD` map and `lookup_board(gpu_model)` (Decision 5). Vendor prefix stripping + case-insensitive matching baked in.
+  - `bridge/dell.py` — `_build_boards` rewritten: groups GPUs in a tile by `lookup_board(...)` instead of emitting one MB# per array index. Unmapped GPUs surface with `label: null` and the GPU bundle marked `needs-review`. Sets `cand.year_was_inferred` from `derive_year`'s second return. (Decision 4 confirmed already correct — the adapter wattage fallback to "Dimensions & Weight" was already present.)
+- **Ingest.**
+  - `ingest/runner.py` — new `ingest_product(conn, candidates)` entry point that merges N candidates sharing one PK, then calls `ingest()` against the merged result (single transaction). Cross-tile merge unions the eight list-of-offerings columns by per-column identity keys (CPU model name, GPU label+name set, display res+panel+refresh+size, etc.). `boards` has its own special-case unioning that collapses same-label entries and dedupes their GPU lists. `IngestReport` gains a `year_inferred` counter; `_diff_scalar` checks `year_was_inferred` when the field is `vendor_full_name` and routes to the new `year_inferred` queue type instead of `low_confidence_extraction`.
+  - `cli/refresh.py` — switched from per-snapshot `ingest()` to `ingest_product()` after grouping snapshots by PK. Per-product print line lists the contributing tiles.
+- **Docs.**
+  - `ARCHITECTURE.md` — `review_queue.conflict_type` enum extended with `year_inferred`.
+  - `DATA_MODEL.md` — new "GPU → Board mapping (static)" subsection documenting the table and the unmapped-GPU rule.
+- **Tests.**
+  - `tests/bridge/test_helpers.py` — six `lookup_board` cases (all three tiers, vendor-prefix stripping, case insensitivity, unmapped fallback to None).
+  - `tests/bridge/test_dell.py` — three new cases: boards label coming from the static map (live snapshot), `year_was_inferred=True` set on live snapshots, two-GPU 'or' string in one tile collapsing into one MB1 entry. The synthetic test now asserts `boards[0]["label"]["value"] == "MB1"`.
+  - `tests/ingest/test_runner.py` — six new cases: `year_inferred` routing for inferred-year candidates, the same shape with `year_was_inferred=False` still routes to `low_confidence_extraction`, cross-tile CPU union, cross-tile boards union with dedupe, needs-review offerings stay separate from verified ones, single-candidate fallthrough, mismatched-PK error.
+- **Live verification.** Wiped `competitive.db`, re-ran `db-init`, re-ran the live `refresh` against the Alienware Area-51 URL. Three snapshots returned, merged into one product row, results below.
+- **Late-day addition: `storage_max_gb`.** Storage section was asymmetric with Memory (Memory had `memory_max_gb` ceiling + slot info; Storage had only `storage_slots`). Added a `storage_max_gb` scalar column on `products` to mirror Memory's shape. Bridge extracts the maximum capacity from Dell's "Storage" spec (parses TB/GB tokens; 1 TB → 1000 GB, no silent unit conversion on raw GB). Cross-tile merge for this field uses `max()` rather than last-writer-wins — three live tiles publishing 1 TB / 2 TB / 2 TB merge to 2000 GB. Stage 6 ceiling-merge candidates list (`memory_max_gb`, `storage_max_gb`, `memory_speed_mts`) noted in `ingest/runner.py` next to `_CEILING_MERGE_SCALARS` as a forward-compat hook; only `storage_max_gb` uses the new path today. Schema, types, bridge, runner, DATA_MODEL.md, and tests updated; 61/61 tests pass; live smoke against Area-51 confirmed `storage_max_gb=2000` (verified) with queue counts unchanged (4 `new_chip_unverified` + 1 `year_inferred`).
+
+### Implementation decisions resolved this session
+
+- **Decision 1 — `year_inferred` queue type.** Implemented as a dedicated conflict_type. `CandidateProduct.year_was_inferred` flows from the Dell parser into the runner, which routes the `vendor_full_name` review row to `year_inferred` instead of the generic low-confidence bucket. The cell-level status on `vendor_full_name` stays `needs-review` as required.
+- **Decision 2 — Alienware naming (no change).** Confirmed: `sub_brand = "Alienware"`, `series = "Area-51"`. Existing helper tests already assert this; live refresh produces the same.
+- **Decision 3 — Cross-tile merge for option-list fields.** New `ingest_product` entry point unions all eight offerings columns by identity key. Scalars stay one-per-snapshot (first wins). Needs-review offerings are NOT collapsed with verified ones — they stay separate in the merged list. Single-tile callers can keep using plain `ingest()`.
+- **Decision 4 — Adapter wattage source (no change).** Confirmed: `bridge/dell.py` already extracts adapter wattage from "Dimensions & Weight" when "Power Supply" is missing. Logic intact, no edit.
+- **Decision 5 — Static GPU → board map.** `GPU_TO_BOARD` and `lookup_board` live in `bridge/helpers.py`. Dell parser groups GPUs by board label per tile; cross-tile merge collapses same-label boards across tiles. Unmapped GPUs route through the existing `low_confidence_extraction` queue (and `new_chip_unverified` via catalog auto-add) — no new queue type per the user's explicit "keep it simple" rule.
+- **Decision 6 — N/A.** Resolved by Decision 1.
+
+### Live re-verification (Alienware Area-51 AA18250)
+
+Pre-state (before this session's changes, from prior smoke test):
+- `value_disagreement: 4`, `low_confidence_extraction: 3`, `new_chip_unverified: 4`. Three boards entries (one per tile). Two of three were `MB2` from the per-tile counter, one was `MB1`. CPU offerings were not unioned.
+
+Post-state (after Decisions 1–5):
+- `value_disagreement: 0`, `low_confidence_extraction: 0`, `year_inferred: 1`, `new_chip_unverified: 4`.
+- `boards`: ONE entry, `label: "MB1"`, `gpus: [RTX 5070 Ti, RTX 5090]` — both GPUs unioned across tiles.
+- `cpu_offerings`: 2 unique CPUs (`Core Ultra 9 290HX Plus`, `Core Ultra 9 275HX`).
+- Catalog auto-add fired 4 times (2 CPUs + 2 GPUs), as expected.
+
+**Note on the `year_inferred` count.** The user's expectation was `~3` (one per snapshot). Got `1`. That is the correct behavior under cross-tile merge: three tiles for one product collapse into a single ingest, so `vendor_full_name` is enqueued once. Three would have meant we were still doing per-snapshot writes, which Decision 3 explicitly moves us off.
+
+### Course corrections worth remembering
+
+- **The original Stage 2 subagent emitted "one board per tile, label = MB{idx+1}".** That choice surfaces here as a bug: three live tiles produced `MB1` / `MB2` / `MB3` with the same GPU on each, which is meaningless. The static-map fix (Decision 5) is the right shape, and it was also a re-ask — the user had already said in Session 1 that motherboards are 1:N with GPUs at a *power class*, and the per-tile counter quietly broke that. Lesson: when a "stage" subagent's output doesn't match an earlier locked decision, treat it as a regression, not a new design question.
+- **`value_disagreement` was masking a category error.** The 4 pre-state value_disagreement rows weren't real conflicts; they were three Dell tiles each writing their own version of the same offerings list and the runner index-wise diffing. Decision 3 (cross-tile merge) made the category error vanish. The diff path itself is fine — the input to it just wasn't the right shape.
+- **`year_inferred` is intentionally per-product, not per-snapshot.** Easy to mis-spec as "one entry per tile." The right semantic is: the *product*'s year is suspect. One row per product is the correct cardinality once cross-tile merge is in place.
+- **No new queue type for unmapped GPUs.** The user explicitly rejected adding an `unmapped_gpu` queue type. The existing `low_confidence_extraction` plus `new_chip_unverified` paths cover the case without proliferating queue types. Worth remembering when Lenovo/HP add their own GPU lookups.
+- **`ingest_product` vs `ingest`.** Both are kept. `ingest()` stays as the per-candidate primitive (used heavily by tests and by anything that genuinely has one snapshot). `ingest_product()` is the right entry point for the CLI and any future caller that wants atomic cross-tile semantics. Don't deprecate `ingest()` — it's the simplest thing that could possibly work.
+
+### Where we left off (pickup pointers for next session)
+
+- **Stage 3 — drop in `bridge/{hp,lenovo,asus}.py`.** The dispatcher routes by `snapshot.source`, so adding a new vendor parser is a single file plus a registry entry in `bridge/dispatcher.py`. No other code changes needed. HP's "line 0 = base / rest = optional" convention is already documented in `ARCHITECTURE.md`.
+- **`scrapers-lib` Acer/MSI Tier 2** — still upstream-deferred; not blocking.
+- **Stage 4 — view layer + `inspect-product` CLI** comes after Stage 3.
+- **Live competitive.db** — current state from this session's smoke test. Not gitignore'd; carries the verified Area-51 row plus 5 queue entries (4 catalog stubs + 1 year_inferred). Wipe before the next live refresh if you want a clean slate.
+
+---
+
 ## Session 4 — 2026-05-07 (implementation)
 
 **Goal:** Begin Stage 1 implementation per `TASKS.md` — foundation: repo bootstrap, schema, connection layer, provenance-bundle helpers, `db-init` CLI.

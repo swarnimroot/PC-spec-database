@@ -93,6 +93,27 @@ Each product identified by `(model_code, year)`.
 
 **Trade-off accepted:** one `tgp_max` per board collapses per-GPU TGP variance within a board. (E.g., MB1 with 5090 at 175W, 5080 at 150W, 5070 Ti at 140W — only the 175W ceiling is stored.)
 
+#### GPU → Board mapping (static)
+
+Vendors don't publish per-product board labels. The bridge layer assigns labels deterministically from the GPU's power class using the table below. Cross-tile, all GPUs in the same tier collapse into one boards entry.
+
+| GPU model | Board |
+|---|---|
+| RTX 5070 Ti | MB1 |
+| RTX 5080 | MB1 |
+| RTX 5090 | MB1 |
+| RTX 5050 | MB2 |
+| RTX 5060 | MB2 |
+| RTX 5070 | MB2 |
+| RTX 3050 | MB3 |
+| RTX 4050 | MB3 |
+
+Implemented as `bridge/helpers.GPU_TO_BOARD` plus `bridge/helpers.lookup_board(gpu_model)`. Match is case-insensitive on the canonical model token (NVIDIA / GeForce / AMD / Radeon prefixes are stripped before lookup).
+
+**Unmapped GPUs:** the bridge emits a boards entry with `label: null` and the GPU bundle marked `needs-review`. The runner's existing `low_confidence_extraction` queue (and `new_chip_unverified` via catalog auto-add) covers it — no separate "unmapped GPU" queue type. Add the GPU to the table when its power class is known.
+
+`tpp_max` and `tgp_max` stay `vendor-doesn't-publish` for Dell because Dell never exposes them; future Lenovo/HP parsers may populate the values directly.
+
 ### Display
 
 | Field | Type | Notes |
@@ -145,9 +166,12 @@ Each product identified by `(model_code, year)`.
 
 ### Storage
 
+(Mirrors the Memory section's shape: a list-of-slots field plus a single platform-level capacity ceiling.)
+
 | Field | Type | Notes |
 |---|---|---|
 | `storage_slots` | list of slot entries | Length = number of physical slots. Mixed-gen configs preserved. |
+| `storage_max_gb` | number | Single value: maximum published storage capacity, in GB. Platform ceiling — parallels `memory_max_gb`. 1 TB → 1000 GB; if the vendor publishes "1024GB" we keep 1024 (no silent unit conversion). |
 
 **Each slot entry:**
 
@@ -294,7 +318,7 @@ Every cell carries an attached provenance record + status flag. List-of-offering
 | **Tier flag** (`base` / `optional`) | Battery, keyboard, adapter, camera, display |
 | **Free-form text** (filterability not worth entry overhead) | TIM, keyboard description, lighting |
 | **Structured / categorical** (filterable) | Camera, audio, display, I/O port versions, cover materials |
-| **Single value per product** | Memory, network, dimensions, weight, audio, thermals, design |
+| **Single value per product** | Memory, storage (`storage_max_gb`), network, dimensions, weight, audio, thermals, design |
 | **Catalogs** (chip-level data) | CPU, GPU only |
 
 ---

@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS products (
 
     -- Storage
     storage_slots    TEXT,
+    storage_max_gb   TEXT,
 
     -- Network
     wifi_standard      TEXT,

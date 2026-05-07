@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from .cli import db_init
+from .cli import db_init, refresh
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -15,8 +15,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("--path", default="competitive.db", help="Path to the SQLite DB file.")
     p_init.set_defaults(func=db_init.main)
 
+    refresh.add_subparser(sub)
+
     # Future subcommands wired in later stages:
-    #   refresh, resolve, manual-edit, find-empty, find-conflicts, inspect-product
+    #   resolve, manual-edit, find-empty, find-conflicts, inspect-product
 
     return parser
 

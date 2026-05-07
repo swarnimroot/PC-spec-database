@@ -7,6 +7,15 @@ name = "competitive-database"
 version = "0.1.0"
 description = "Competitive gaming-laptop spec database (local SQLite)."
 requires-python = ">=3.12"
+# scrapers-lib is a sibling repo, not on PyPI. Install it editable from
+# the local checkout AFTER installing this project:
+#     pip install -e .
+#     pip install -e ../scrapers-lib
+# (We intentionally keep `dependencies` empty so the project can be
+# imported and tested without scrapers-lib for the parts that don't need
+# it — e.g. db.helpers + ingest.runner unit tests with a synthetic
+# CandidateProduct. The bridge.dell parser, the refresh CLI, and the
+# ProductSnapshot fixture loader all do require scrapers-lib at runtime.)
 dependencies = []
 
 [project.optional-dependencies]

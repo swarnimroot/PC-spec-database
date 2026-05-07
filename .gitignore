@@ -11,3 +11,4 @@ competitive.db-shm
 competitive.db-wal
 .coverage
 .claude/
+.profiles/
