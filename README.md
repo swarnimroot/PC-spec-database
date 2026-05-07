@@ -6,18 +6,17 @@ A persistent, queryable database of competitor gaming-laptop specs from Dell, HP
 
 ## Status
 
-**Phase: Architecture locked — ready for Stage 1 implementation.** Schema-ready, engine locked, `scrapers-lib` audited, `ARCHITECTURE.md` + `TASKS.md` written.
+**Phase: Data layer — Stages 1–2 complete; Stage 3 next.** Foundation, schema, provenance helpers, and the Dell end-to-end slice are implemented and tested. Live refresh against the Alienware Area-51 writes a real product row with cross-tile-merged offerings, provenance on every populated cell, and the review queue functioning as designed.
 
 - All 16 field categories from the source 80-column Excel (`Competitor Columns.xlsx`) are mapped to a data shape.
 - Schema connective tissue (catalog references, unknown-chip handling, provenance record format, naming, enum policy) is locked.
 - Database engine: **SQLite (local).** One file on disk, managed via DB Browser for SQLite. Migration to hosted Postgres reserved for if/when team access becomes real.
-- `scrapers-lib` audit complete. Tier 2 manufacturer-page scrapers exist for Dell, HP, Lenovo, ASUS; Acer and MSI deferred upstream. Output is text-per-category — a project-side bridge layer is required to parse it into the DATA_MODEL shape.
-- Implementation has not started.
+- `scrapers-lib` Tier 2 fetchers exist for Dell, HP, Lenovo, ASUS; Acer and MSI deferred upstream. Installed editable from the sibling repo.
+- Six Stage 2 follow-up decisions resolved (year handling, naming, cross-tile merge, adapter source, boards modeling, storage parity). See `SESSION_LOG.md` Session 5 for detail.
 
 **Immediate next phase:**
-1. Stage 1 (foundation) per `TASKS.md` — repo bootstrap, `db/schema.sql`, `db/helpers.py` provenance-bundle read/write.
-2. Stage 2 (Dell end-to-end slice) — the smallest path that proves the architecture.
-3. Stages 3–7 follow per `TASKS.md`.
+1. Stage 3 (HP / Lenovo / ASUS bridge parsers) per `TASKS.md` — drop-in additions; the dispatcher routes by `snapshot.source`.
+2. Stages 4–7 follow per `TASKS.md`. Setup instructions and CLI reference land in Stage 7 (polish).
 
 ---
 

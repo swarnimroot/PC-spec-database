@@ -40,7 +40,7 @@ The smallest path that proves the architecture: fetch one Dell product, parse, w
 | T2.8 | `cli/refresh.py` + `__main__.py` wiring — CLI entry for `refresh --brand <brand> --model <model>` and `refresh --all` |
 | T2.9 | Live smoke test — refresh one Dell product end-to-end against the live site; inspect the DB to verify shape |
 
-Stage exit criterion: `python -m competitive_database refresh --brand dell --model alienware-m18` produces a valid DB row with provenance bundles on every populated cell.
+Stage exit criterion: `python -m competitive_database refresh --brand dell --model alienware-area-51-aa18250-gaming-laptop` produces a valid DB row with provenance bundles on every populated cell.
 
 ---
 
