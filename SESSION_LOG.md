@@ -6,6 +6,44 @@ Newest sessions at the top.
 
 ---
 
+## Session 4 — 2026-05-07 (implementation)
+
+**Goal:** Begin Stage 1 implementation per `TASKS.md` — foundation: repo bootstrap, schema, connection layer, provenance-bundle helpers, `db-init` CLI.
+
+**Outcome:** Stage 1 complete. Empty DB initializes cleanly via `python -m competitive_database db-init`; helpers round-trip both scalar bundles and list-of-offerings bundles. 5/5 tests pass. Ready for Stage 2 (Dell end-to-end slice).
+
+### What was built
+
+- **`pyproject.toml`** — Python 3.12+, no runtime deps, `pytest>=8` as the only dev dep.
+- **`.gitignore`** — excludes `competitive.db` (and `-shm`/`-wal`), `__pycache__`, virtualenvs, build artifacts.
+- **Package skeleton** — only Stage 1 modules (`db/`, `cli/db_init.py`, `__main__.py`); `bridge/`, `ingest/`, `views/`, and other CLI modules deferred to Stage 2+.
+- **`db/schema.sql`** — four tables (`cpu_catalog`, `gpu_catalog`, `products`, `review_queue`) + 10 indexes. `IF NOT EXISTS` throughout, so re-running is safe.
+- **`db/connection.py`** — `connect()`, `transaction()` context manager, `apply_schema()`.
+- **`db/helpers.py`** — three bundle factories (scraped / manual / vendor-doesn't-publish) + scalar read/write + offerings read/write. Single write gateway for the rest of the project.
+- **`db-init` CLI** — wired through `competitive_database/__main__.py`; other subcommands are stubbed-out comments awaiting Stage 2.
+- **`tests/db/test_roundtrip.py`** — 5 tests covering schema apply, scraped scalar bundle, manual scalar bundle, two-offering `display_offerings` list, and `None` returns for missing/unwritten cells.
+
+### Implementation decisions resolved this session
+
+- **Identity-field shape — Option A.** `products.model_code` (TEXT) and `products.year` (INTEGER) are plain columns forming the composite primary key. Every other identity field — `vendor_full_name`, `brand`, `sub_brand`, `series`, `status`, `segment` — keeps a JSON provenance bundle. The two PK columns are mechanically derived from the vendor full name, so the meaningful provenance still lives on `vendor_full_name`. User chose A after a plain-language framing of the alternatives (skip provenance on labels only / skip on all identity / duplicate the PK columns).
+- **I/O fields split into separate scalar columns.** Instead of a single structured `usbc_thunderbolt: {count, version}` column, the schema uses `usbc_thunderbolt_count` and `usbc_thunderbolt_version` as separate scalar bundle columns. Same for `usbc_non_thunderbolt`, `usba`, `hdmi`. Keeps the "scalar bundle" pattern uniform across the table; avoids needing a third storage shape; makes "all laptops with TB5" trivial to filter.
+- **Catalog row-level status.** `cpu_catalog` and `gpu_catalog` each carry a plain `catalog_status TEXT NOT NULL DEFAULT 'needs-review'` column. Per-cell statuses still live inside the JSON bundles; `catalog_status` is the row-level state for stub-vs-vouched (per the catalog auto-add policy).
+- **pytest version range left open (`>=8`).** No upper cap. Pytest is famously stable across major versions; capping is busywork on a solo project. (Currently resolves to pytest 9.0.3.)
+- **Manual bundles keep `source_note: null` when unset.** Predictable shape across every manual cell, easier on future code (manual-edit CLI, view layer). Tradeoff (slightly larger storage when no note) is invisible in practice.
+
+### Course corrections worth remembering
+
+- **The user is non-technical — frame option questions in outcomes, not mechanics.** First Option A/B/C explanation leaned on the "primary key" word; user pushed back ("too technical"). Reframed in terms of "do you want the system to remember when/why you marked something discontinued" — that landed. Same lesson for the pytest-cap and bundle-shape questions: lead with the day-to-day impact, mechanics are an aside.
+- **Delegate implementation to subagents to save context.** User asked explicitly. The general-purpose agent ran the full Stage 1 build + tests and returned a 250-word report. Continue this pattern for Stage 2+ (each stage is a clean self-contained delegation target).
+
+### Where we left off (pickup pointers for next session)
+
+- **Recommended next-session priority: Stage 2 — Dell end-to-end slice** per `TASKS.md`. Smallest path that proves the architecture: fetch one Dell product via `scrapers-lib` → parse via `bridge/dell.py` → write to DB via the helpers → read back. Deliverables: `bridge/types.py`, `bridge/helpers.py`, Dell test fixtures, `bridge/dell.py`, `bridge/dispatcher.py`, `ingest/catalog_resolve.py`, `ingest/runner.py`, `cli/refresh.py` + `__main__.py` wiring, live smoke test.
+- **scrapers-lib will need to be installed/imported in Stage 2.** Decide install strategy (sibling-repo path install vs. PyPI vs. submodule) at the start of Stage 2.
+- Stage 1 exit criterion: empty DB initialized; helpers round-trip both bundle shapes. **Met.**
+
+---
+
 ## Session 3 — 2026-05-07
 
 **Goal:** Outline `ARCHITECTURE.md`. Walk through the open design questions. Propose `TASKS.md`.
