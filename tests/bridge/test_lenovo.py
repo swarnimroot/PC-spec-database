@@ -297,6 +297,21 @@ def test_parse_live_design_top_and_bottom_aluminum():
     assert "RGB" in cand.lighting["value"]
 
 
+def test_parse_live_cpu_chip_specs_extracted_from_psref_attrs():
+    """PSREF publishes per-CPU ``Cores`` / ``Base Frequency`` /
+    ``Max Frequency`` attributes inside the row; we map them onto the
+    matching ``cpu_catalog`` columns (cores, base_clock, boost_clock)
+    so ``catalog_resolve`` can seed."""
+    snap = _load_snapshot(LIVE_LEGION)
+    cand = lenovo_bridge.parse(snap)
+
+    assert "Ryzen 9 9955HX" in cand.cpu_chip_specs
+    specs = cand.cpu_chip_specs["Ryzen 9 9955HX"]
+    assert specs["cores"] == "16"
+    assert specs["base_clock"] == "2.5GHz"
+    assert specs["boost_clock"] == "5.4GHz"
+
+
 def test_parse_live_thermals_marked_vendor_doesnt_publish():
     """PSREF doesn't publish thermal_design / TIM / fan_count."""
     snap = _load_snapshot(LIVE_LEGION)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from scrapers_lib import ProductSnapshot
 
+from . import asus as asus_bridge
 from . import dell as dell_bridge
 from . import hp as hp_bridge
 from . import lenovo as lenovo_bridge
@@ -18,7 +19,7 @@ _PARSERS = {
     "dell": dell_bridge.parse,
     "hp": hp_bridge.parse,
     "lenovo": lenovo_bridge.parse,
-    # Stage 3+ adds: "asus": ...
+    "asus": asus_bridge.parse,
 }
 
 

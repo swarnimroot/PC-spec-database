@@ -1,31 +1,47 @@
-"""HP parser: ``ProductSnapshot`` → ``CandidateProduct``.
+"""ASUS parser: ``ProductSnapshot`` → ``CandidateProduct``.
 
-HP exposes a flat ``specs: dict[str, str]`` flattened from the PDP's
-config-picker plus the async tech-specs hydration endpoint. Multi-line
-spec values follow HP's "line 0 = configured default, rest = upgrade
-options" convention — we map line 0 → ``tier: 'base'`` and every
-subsequent line → ``tier: 'optional'`` via :func:`helpers.tier_for_index`.
+ASUS publishes its ROG marketing spec page as a flat ``specs: dict[str,
+str]`` keyed by the page's ``<h2>`` section titles (single-level keys —
+no hierarchical paths like Lenovo, no combined CPU+GPU+RAM line like
+HP). Per-SKU variant rows under one h2 are newline-joined inside the
+spec value, deduplicated in first-occurrence order — so a key like
+``Graphics`` may carry one line ("RTX 5070 Ti …") or multiple lines
+when ASUS ships several GPU SKUs.
 
-A few HP-specific quirks the parser absorbs:
+A few ASUS-specific quirks the parser absorbs:
 
-* The "Processor, graphics & memory" key bundles CPU + GPU + RAM in a
-  single ``+``-separated string per upgrade option. We split per option,
-  then per-component within an option.
-* The "External I/O Ports" key uses leading-count lines
-  (``"2 USB Type-A ..."``) — same shape Dell uses, just under a
-  different key.
-* HP rarely publishes board-level TPP/TGP — those stay
-  ``vendor-doesn't-publish`` like Dell, with the same static GPU →
-  board map (Decision 5) supplying labels.
+* The ``I/O Ports`` value lists every port on **one** line, separated
+  by spaces (``"1x 3.5mm Combo Audio Jack 1x HDMI 2.1 FRL 2x USB 3.2
+  Gen 2 Type-A …"``). Neither HP's per-line nor Lenovo's ``\n``-joined
+  shape applies — we tokenize by leading-count anchors (``\bN[xX]\b``)
+  and walk the resulting segments.
+* The ``Memory`` value's first line is sometimes prose-only
+  (``"Support dual channel memory"``) before the actual capacity line.
+  We scan every line for a GB token and pick the maximum.
+* ASUS publishes per-GPU TGP inside the Graphics row as marketing
+  prose: ``"… Manual mode: 1497MHz at 140W* …"``. Manual mode is the
+  unlocked ceiling, so we read the manual-mode wattage as the per-GPU
+  TGP and collapse to ``tgp_max`` per board (max across the board's
+  GPUs), mirroring the Lenovo Session 7 decision. Falls back to the
+  Turbo-mode wattage if Manual mode isn't published.
+* Dimensions are published in **cm** with H as a tilde range
+  (``"35.4 x 24.6 x 1.49 ~ 1.79 cm"``); we convert to mm. Weight is a
+  single value (``"1.95 Kg (4.30 lbs)"``) → ``weight_kg_min`` only,
+  ``weight_kg_max`` stays ``vendor-doesn't-publish`` (mirrors HP).
+* USB-C signaling rate translation follows the HP / Lenovo
+  ``(value, status)`` tuple pattern — unambiguous rates land
+  ``verified``; ``20Gbps`` / ``80Gbps`` attach a best-guess version
+  with ``status: 'needs-review'``.
 
 This module does NOT touch the database.
 
-Status routing (per ARCHITECTURE.md §Provenance shape) matches Dell:
+Status routing (per ARCHITECTURE.md §Provenance shape) matches the
+other vendors:
 
 * High confidence → ``status: 'verified'``.
 * Regex matched but value smells off → ``status: 'needs-review'`` with
   the value still attached. The runner will queue, not write.
-* We looked for the field, HP didn't publish → ``status:
+* We looked for the field, ASUS didn't publish → ``status:
   'vendor-doesn't-publish'`` with ``value: null``.
 * Fields we don't even attempt → omitted from the candidate entirely.
 """
@@ -45,7 +61,7 @@ from .types import Bundle, CandidateProduct, OfferingsList
 logger = logging.getLogger(__name__)
 
 
-SCRAPER_ID = "hp.fetch_hp_product"
+SCRAPER_ID = "asus.fetch_asus_product"
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +70,7 @@ SCRAPER_ID = "hp.fetch_hp_product"
 
 
 def parse(snapshot: ProductSnapshot) -> CandidateProduct:
-    """Decode an HP snapshot into a :class:`CandidateProduct`.
+    """Decode an ASUS snapshot into a :class:`CandidateProduct`.
 
     The snapshot's ``url``, ``fetched_at``, and ``title`` are used to derive
     identity fields and stamp every emitted bundle.
@@ -64,15 +80,15 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
     source_url = snapshot.url
 
     # --- Identity --------------------------------------------------------
-    model_code = _derive_hp_model_code(snapshot.title or "", snapshot.url or "")
+    model_code = _derive_asus_model_code(snapshot.title or "", snapshot.url or "")
     year, year_inferred = h.derive_year(
         snapshot.title or "",
         snapshot.url or "",
         snapshot.fetched_at,
     )
 
-    sub_brand = _derive_hp_sub_brand(snapshot.title or "", snapshot.url or "")
-    series = _derive_hp_series(snapshot.title or "", snapshot.url or "")
+    sub_brand = _derive_asus_sub_brand(snapshot.title or "", snapshot.url or "")
+    series = _derive_asus_series(snapshot.title or "", snapshot.url or "")
 
     cand = CandidateProduct(model_code=model_code, year=year)
     cand.year_was_inferred = year_inferred
@@ -88,7 +104,7 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
         captured_at,
         status="needs-review" if year_inferred else "verified",
     )
-    cand.brand = _scraped_bundle("HP", source_url, captured_at)
+    cand.brand = _scraped_bundle("ASUS", source_url, captured_at)
     if sub_brand:
         cand.sub_brand = _scraped_bundle(sub_brand, source_url, captured_at)
     if series:
@@ -100,32 +116,37 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
             f"flagged needs-review"
         )
 
-    # --- CPU + GPU + Memory (HP's combined "Processor, graphics & memory")
-    pgm_text = specs.get("Processor, graphics & memory")
-    pgm_options = _split_pgm_options(pgm_text)
-
-    cand.cpu_offerings = _build_cpu_offerings_from_pgm(
-        pgm_options, source_url, captured_at
-    )
-    cand.boards = _build_boards_from_pgm(pgm_options, source_url, captured_at)
+    # --- CPU ------------------------------------------------------------
+    cpu_text = specs.get("Processor")
+    cand.cpu_offerings = _build_cpu_offerings(cpu_text, source_url, captured_at)
 
     # --- CPU chip specs (catalog seeding) ------------------------------
-    # HP's combined PG&M string carries per-CPU core counts as
-    # ``"... 16 cores, 16 threads ..."``. Skip everything else for HP —
-    # they don't publish more on the PDP. ``catalog_resolve`` decides
-    # whether to seed the catalog cell or queue a conflict.
-    cand.cpu_chip_specs = _build_cpu_chip_specs_from_pgm(pgm_options)
+    # ASUS publishes NPU TOPS in a dedicated ``Neural Processor`` h2 and
+    # core count inside the Processor prose. Both are per-laptop but
+    # apply to whichever CPU SKUs the laptop ships with — we attach to
+    # every CPU model name in ``cpu_offerings``. ``catalog_resolve``
+    # decides whether to seed the catalog cells or queue a conflict.
+    npu_text = specs.get("Neural Processor")
+    cand.cpu_chip_specs = _build_cpu_chip_specs(
+        cand.cpu_offerings, cpu_text, npu_text
+    )
+
+    # --- GPU + boards ---------------------------------------------------
+    gpu_text = specs.get("Graphics")
+    cand.boards = _build_boards(gpu_text, source_url, captured_at)
 
     # --- Memory ---------------------------------------------------------
-    # HP publishes the per-option RAM size in the combined PG&M line; we
-    # take the maximum advertised RAM across options as the platform
-    # ceiling. Memory type / speed / slots / overclocking are not
-    # consistently published → vendor-doesn't-publish.
-    _populate_memory(cand, pgm_options, source_url, captured_at)
+    mem_text = specs.get("Memory")
+    _populate_memory(cand, mem_text, source_url, captured_at)
 
     # --- Storage --------------------------------------------------------
     storage_text = specs.get("Storage")
-    cand.storage_slots = _build_storage_slots(storage_text, source_url, captured_at)
+    slots_text = specs.get("Expansion Slots (includes used)") or specs.get(
+        "Expansion Slots"
+    )
+    cand.storage_slots = _build_storage_slots(
+        storage_text, slots_text, source_url, captured_at
+    )
     if storage_text is not None:
         cand.storage_max_gb = _build_storage_max_gb(
             storage_text, source_url, captured_at
@@ -138,61 +159,67 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
     )
 
     # --- Battery --------------------------------------------------------
-    battery_text = specs.get("Primary battery") or specs.get("Battery")
+    battery_text = specs.get("Battery")
     cand.battery_offerings = _build_battery_offerings(
         battery_text, source_url, captured_at
     )
 
     # --- Network --------------------------------------------------------
-    wireless_text = specs.get("Wireless technology") or specs.get("Wireless")
-    ports_text = specs.get("External I/O Ports") or specs.get("Ports")
+    wireless_text = specs.get("Network and Communication") or specs.get("Wireless")
+    ports_text = specs.get("I/O Ports") or specs.get("Ports")
     _populate_network(cand, wireless_text, ports_text, source_url, captured_at)
 
     # --- I/O ------------------------------------------------------------
     _populate_io(cand, ports_text, source_url, captured_at)
 
     # --- Adapter --------------------------------------------------------
-    psu_text = specs.get("Power supply") or specs.get("Power Supply")
+    psu_text = specs.get("Power Supply") or specs.get("Power Adapter")
     cand.adapter_offerings = _build_adapter_offerings(
         psu_text, source_url, captured_at
     )
     if psu_text:
-        # HP's Power supply string sometimes carries the connector type
-        # (USB Type-C / barrel). Pull it out when present.
         connector = _detect_adapter_connector(psu_text)
         cand.adapter_connector = _maybe_bundle(connector, source_url, captured_at)
 
     # --- Camera ---------------------------------------------------------
-    webcam_text = specs.get("Webcam") or specs.get("Camera")
+    camera_text = specs.get("Camera")
     cand.camera_offerings = _build_camera_offerings(
-        webcam_text, source_url, captured_at
+        camera_text, source_url, captured_at
     )
 
     # --- Audio ----------------------------------------------------------
-    audio_text = specs.get("Audio Features") or specs.get("Audio")
+    audio_text = specs.get("Audio")
     _populate_audio(cand, audio_text, source_url, captured_at)
 
     # --- Keyboard -------------------------------------------------------
-    kb_text = specs.get("Keyboard")
+    kb_text = specs.get("Keyboard and Touchpad") or specs.get("Keyboard")
     cand.keyboard_offerings = _build_keyboard_offerings(
         kb_text, source_url, captured_at
     )
 
     # --- Dimensions / Weight -------------------------------------------
-    dim_text = specs.get("Dimensions (W X D X H)") or specs.get("Dimensions")
+    dim_text = specs.get("Dimensions (W x D x H)") or specs.get("Dimensions")
     weight_text = specs.get("Weight")
     _populate_dimensions(cand, dim_text, weight_text, source_url, captured_at)
 
     # --- Design ---------------------------------------------------------
-    # HP doesn't publish A/C/D cover materials in a structured way on the
-    # PDP — record we checked.
+    # ROG spec pages don't structurally publish A / C / D cover materials —
+    # ASUS marketing prose mentions chassis materials in the highlights
+    # section, but the h2-anchored spec sheet doesn't carry a dedicated
+    # cover-material key. Record we checked.
     cand.a_cover_material = _vdp_bundle(source_url, captured_at)
     cand.c_cover_material = _vdp_bundle(source_url, captured_at)
     cand.d_cover_material = _vdp_bundle(source_url, captured_at)
     cand.thermal_shelf = _vdp_bundle(source_url, captured_at)
-    cand.lighting = _vdp_bundle(source_url, captured_at)
 
-    # --- Thermals (HP rarely publishes these on the PDP) --------------
+    lighting_text = specs.get("Device Lighting")
+    cand.lighting = _maybe_bundle(
+        lighting_text.strip() if lighting_text else None,
+        source_url,
+        captured_at,
+    )
+
+    # --- Thermals (ASUS doesn't publish these structurally on the spec page)
     cand.thermal_design = _vdp_bundle(source_url, captured_at)
     cand.thermal_material = _vdp_bundle(source_url, captured_at)
     cand.tim = _vdp_bundle(source_url, captured_at)
@@ -202,8 +229,8 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
 
 
 # ---------------------------------------------------------------------------
-# Bundle factories (mirror Dell — kept local to keep the bridge import-light
-# and bundle-shape consistent with the docs).
+# Bundle factories (mirror Dell/HP/Lenovo — kept local to keep the bridge
+# import-light and bundle-shape consistent with the docs).
 # ---------------------------------------------------------------------------
 
 
@@ -243,97 +270,116 @@ def _maybe_bundle(
 
 
 # ---------------------------------------------------------------------------
-# HP identity
+# ASUS identity
 # ---------------------------------------------------------------------------
 
 
-# HP model codes show up as "14t-fb100" (CTO codes), "14-fb0097nr"
-# (specific SKUs), or as standalone tokens like "fb0097nr". The regex is
-# permissive: pull a "<digits><optional letter>-<letters><digits>..." or
-# a bare "<letters><digits><letters>" model token from the title or URL.
-_HP_MODEL_CODE_RE = re.compile(
-    r"\b(\d{2,3}[a-z]?[- ]?[a-z]{2}\d{3,4}\w*)\b",
-    re.IGNORECASE,
-)
+# ASUS ROG slugs look like ``rog-zephyrus-g16-2026`` /
+# ``rog-strix-scar-18-2025`` / ``rog-flow-z13-2025``. The slug is itself
+# the most stable PK token ASUS publishes — there's no Dell-style
+# alphanumeric model code on the marketing spec page. We use the URL
+# slug as the model_code, which keeps it unique within the (model_code,
+# year) PK and matches what the scraper's ``source_id`` already carries.
+def _derive_asus_model_code(title: str, url: str) -> str:
+    """Pull the model-code token out of an ASUS title or URL.
 
-
-def _derive_hp_model_code(title: str, url: str) -> str:
-    """Pull the model-code token out of an HP title or URL.
-
-    Examples:
-        ``"OMEN Transcend Gaming Laptop 14t-fb100, 14\""`` → ``"14t-fb100"``
-        ``"OMEN Transcend Laptop 14-fb0097nr"`` → ``"14-fb0097nr"``
-
-    Falls back to the URL's last path segment when no code matches in the
-    title or URL slug — the slug always exists and gives the runner a
-    stable PK to work with.
+    The slug from the URL's last path segment (or second-to-last when
+    ``/spec`` is the trailing segment) is the canonical identity. Falls
+    back to a slug-form of the title when no URL is given.
     """
-    haystack = (title or "") + " " + (url or "")
-    m = _HP_MODEL_CODE_RE.search(haystack)
-    if m is not None:
-        return m.group(1).lower()
     if url:
-        return url.rstrip("/").rsplit("/", 1)[-1].lower()
+        slug = url.rstrip("/").rsplit("/", 1)[-1].lower()
+        # Drop the trailing ``/spec`` segment when present.
+        if slug == "spec":
+            slug = url.rstrip("/").rsplit("/", 2)[-2].lower()
+        # Strip query / fragment.
+        slug = slug.split("?", 1)[0].split("#", 1)[0]
+        if slug:
+            return slug
+    if title:
+        return re.sub(r"[^a-z0-9-]+", "-", title.lower()).strip("-")
     return ""
 
 
 # Sub-brand → recognized name patterns. Order matters: more specific first.
-_HP_SUB_BRANDS = (
-    ("omen", "OMEN"),
-    ("victus", "Victus"),
+# ROG (Republic of Gamers) is ASUS's gaming flagship; TUF Gaming is the
+# entry tier; ProArt and ZenBook are creator / productivity (not gaming
+# targets, but the parser must still return something stable if pointed
+# at one by accident).
+_ASUS_SUB_BRANDS = (
+    ("rog", "ROG"),
+    ("tuf", "TUF Gaming"),
+    ("proart", "ProArt"),
+    ("zenbook", "Zenbook"),
+    ("vivobook", "Vivobook"),
 )
 
 
-def _derive_hp_sub_brand(title: str, url: str) -> Optional[str]:
-    """Return ``"OMEN"`` / ``"Victus"`` / ``None``.
+def _derive_asus_sub_brand(title: str, url: str) -> Optional[str]:
+    """Return ``"ROG"`` / ``"TUF Gaming"`` / etc. / ``None``.
 
-    HP's PDP titles consistently lead with the sub-brand for gaming
-    products (``"OMEN Transcend ..."``, ``"Victus 16 ..."``). Non-gaming
-    consumer PDPs (Pavilion, Envy, OmniBook) return ``None`` — gaming
-    laptops are this DB's only scope.
+    ASUS marketing titles consistently lead with the sub-brand for ROG /
+    TUF gaming products (``"ROG Zephyrus G16 (2026)"``). Slug form
+    carries the same prefix (``rog-zephyrus-…``).
     """
     haystack = ((title or "") + " " + (url or "")).lower()
-    for needle, label in _HP_SUB_BRANDS:
+    for needle, label in _ASUS_SUB_BRANDS:
         if needle in haystack:
             return label
     return None
 
 
-# Recognized HP gaming series families. We pair the family name with the
-# product's screen-size token (14, 16, 18) when one is published in the
-# title or URL — e.g., ``"Transcend 14"`` / ``"Max 16"``. Falls back to
-# the family name alone when no size token is present.
-_HP_SERIES_FAMILIES = ("Transcend", "Max")
-_HP_SERIES_SIZE_RE = re.compile(r"\b(14|16|18)\b")
+# Recognized ROG series families. We pair the family name with the
+# product's screen-size token (13, 14, 16, 18) where one is published
+# in the title or URL — e.g. ``"Zephyrus G16"`` / ``"Strix G18"``.
+# Falls back to the family name alone when no size token is present.
+# Order: most specific first so ``Zephyrus Duo`` wins over ``Zephyrus``.
+_ASUS_SERIES_FAMILIES = (
+    "Zephyrus Duo",
+    "Zephyrus",
+    "Strix Scar",
+    "Strix",
+    "Flow",
+    "TUF",
+)
+_ASUS_SERIES_SIZE_RE = re.compile(
+    r"\b[GA]?(13|14|15|16|17|18)\b",
+    re.IGNORECASE,
+)
 
 
-def _derive_hp_series(title: str, url: str) -> Optional[str]:
-    """Return e.g. ``"Transcend 14"`` / ``"Max 16"`` / ``"Transcend"`` / ``None``.
+def _derive_asus_series(title: str, url: str) -> Optional[str]:
+    """Return e.g. ``"Zephyrus G16"`` / ``"Strix G18"`` / ``"Zephyrus"`` / ``None``.
 
     The family name comes from the title or URL; the size token is the
-    first ``14`` / ``16`` / ``18`` we find in the same haystack — that's
-    how HP names its gaming lines (Transcend 14 vs Transcend 16, Max 16
-    vs Max 18). When no size token is present we fall back to just the
-    family name so callers always get a stable string.
+    first ``13`` / ``14`` / ``16`` / ``18`` we find following the family.
+    Hyphens / underscores in the URL slug carry the same separator force
+    as spaces; we collapse them so ``rog-zephyrus-g16-2026`` reads as a
+    single phrase.
     """
-    # Hyphens in the URL slug carry the same separator force as spaces;
-    # collapse them so ``omen-transcend-14-inch`` reads as a single phrase.
     haystack_raw = (title or "") + " " + (url or "")
     haystack_norm = re.sub(r"[-_]+", " ", haystack_raw)
     haystack = haystack_norm.lower()
-    for family in _HP_SERIES_FAMILIES:
+    for family in _ASUS_SERIES_FAMILIES:
         if family.lower() in haystack:
-            # Prefer a size token that immediately follows the family name.
             after = haystack.split(family.lower(), 1)[1]
-            m = _HP_SERIES_SIZE_RE.search(after)
+            m = _ASUS_SERIES_SIZE_RE.search(after)
             if m is not None:
+                # Reconstruct the prefix letter (G14/G16/G18) when present;
+                # it's the ROG sub-line letter and is part of the canonical
+                # series name (``Zephyrus G16`` not ``Zephyrus 16``).
+                size_match = re.search(
+                    r"\b([gax])(\d{2})\b", after, re.IGNORECASE
+                )
+                if size_match is not None:
+                    return f"{family} {size_match.group(1).upper()}{size_match.group(2)}"
                 return f"{family} {m.group(1)}"
             return family
     return None
 
 
 # ---------------------------------------------------------------------------
-# Trademark stripping (shared with Dell)
+# Trademark / whitespace helpers
 # ---------------------------------------------------------------------------
 
 
@@ -348,26 +394,13 @@ def _normalize_ws(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip())
 
 
-# Strip HP's trailing footnote anchors (e.g. ``<a ...>[19,42]</a>``) before
-# regexing. The async hydration HTML carries them inline.
-_FOOTNOTE_ANCHOR_RE = re.compile(
-    r"<a\s+[^>]*class=['\"]footerLink['\"][^>]*>.*?</a>",
-    re.IGNORECASE | re.DOTALL,
-)
-
-
-def _strip_footnotes(text: str) -> str:
-    return _FOOTNOTE_ANCHOR_RE.sub("", text or "")
-
-
 # ---------------------------------------------------------------------------
-# CPU / GPU / Memory (HP's combined "Processor, graphics & memory")
+# CPU
 # ---------------------------------------------------------------------------
 
 
-# HP's combined string is ``CPU + GPU + RAM`` per option, joined by ``+``.
-# Each option lives on its own newline-separated line. We split per line,
-# then per ``+`` to recover the three components.
+# Recognized CPU name forms, after stripping trademark symbols. Mirrors
+# Dell/HP/Lenovo so catalog keys agree.
 _CPU_NAME_RE = re.compile(
     r"(?:Intel\s+)?"
     r"(?:Core\s+(?:Ultra\s+)?(?:[i]?\d{1,2})(?:\s+processor)?\s+\S+(?:\s+Plus)?"
@@ -377,50 +410,40 @@ _CPU_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 
-_GPU_NAME_RE = re.compile(
-    r"(NVIDIA\s+GeForce\s+RTX\s*\d+(?:\s*Ti)?(?:\s*SUPER)?"
-    r"|RTX\s*\d+(?:\s*Ti)?(?:\s*SUPER)?"
-    r"|AMD\s+Radeon\s+RX\s*\d+\w*"
-    r"|Intel\s+Arc\s+\w+)",
-    re.IGNORECASE,
-)
 
-
-def _split_pgm_options(text: Optional[str]) -> list[str]:
-    """Split the "Processor, graphics & memory" key into one line per option.
-
-    Returns an empty list when ``text`` is None or whitespace-only. The
-    list preserves HP's line ordering — caller relies on line 0 being the
-    base configuration (per HP's convention) and any later lines being
-    upgrade options.
-    """
-    if not text:
-        return []
-    return h.split_options(_strip_tm(_strip_footnotes(text)))
-
-
-def _build_cpu_offerings_from_pgm(
-    options: list[str], source_url: str, captured_at: str
+def _build_cpu_offerings(
+    text: Optional[str], source_url: str, captured_at: str
 ) -> Optional[OfferingsList]:
-    """Pull each option's CPU model from the combined PG&M string.
+    """Pull each line's CPU model out of ASUS's Processor value.
 
-    Multiple options may name the same CPU (HP often varies GPU and RAM
-    while holding the CPU constant); we dedupe on the canonical CPU
-    name, keeping the first-seen bundle (which carries provenance).
+    Multiple lines may name the same CPU; we dedupe on the canonical
+    CPU name, keeping the first-seen bundle (which carries provenance).
+
+    ASUS sometimes appends NPU-only prose to the CPU line, separated
+    by ``;`` (e.g. ``"Intel Core Ultra 9 386H 2.1 GHz; Intel NPU up
+    to 50TOPS"``). The NPU clause is not a CPU offering; we drop any
+    piece whose only token is an Intel NPU description.
     """
-    if not options:
+    if text is None:
         return None
+    if not text.strip():
+        return [{"model": _vdp_bundle(source_url, captured_at)}]
     seen: set[str] = set()
     offerings: OfferingsList = []
-    for piece in options:
+    for piece in h.split_options(_strip_tm(text)):
+        # Drop NPU-only pieces — ASUS publishes the NPU line separately
+        # under the ``Neural Processor`` h2; when it leaks into the
+        # Processor key it's marketing prose, not a CPU SKU.
+        if _is_npu_only(piece):
+            continue
         m = _CPU_NAME_RE.search(piece)
         if m is not None:
             model = _normalize_cpu_model(m.group(0))
             status = "verified"
         else:
-            # Couldn't lock down a canonical model — keep the raw piece's
-            # leading token but flag it for review.
-            model = _normalize_ws(piece.split("+", 1)[0])
+            # Couldn't lock down a canonical model — keep the leading
+            # token but flag it for review.
+            model = _normalize_ws(piece.split(";", 1)[0])
             status = "needs-review"
         if model in seen:
             continue
@@ -431,11 +454,24 @@ def _build_cpu_offerings_from_pgm(
     return offerings or None
 
 
+def _is_npu_only(piece: str) -> bool:
+    """True when ``piece`` is just an NPU description (``"Intel NPU up to 50TOPS"``).
+
+    Filters NPU prose that ASUS sometimes joins onto the CPU line via
+    ``;`` separators. A piece counts as NPU-only when ``NPU`` /
+    ``TOPS`` appear and no canonical CPU model regex matches.
+    """
+    low = piece.lower()
+    if "npu" not in low and "tops" not in low:
+        return False
+    return _CPU_NAME_RE.search(piece) is None
+
+
 def _normalize_cpu_model(raw: str) -> str:
     """Drop the noise-word "processor" and Intel/AMD prefix so catalog keys agree.
 
-    Mirrors Dell's ``_normalize_cpu_model``. Kept local rather than shared
-    so the per-vendor parser stays self-contained.
+    Mirrors Dell/HP/Lenovo's ``_normalize_cpu_model``. Kept local rather
+    than shared so the per-vendor parser stays self-contained.
     """
     s = _normalize_ws(raw)
     s = re.sub(r"^Intel\s+", "", s, flags=re.IGNORECASE)
@@ -444,55 +480,135 @@ def _normalize_cpu_model(raw: str) -> str:
     return s.strip()
 
 
-# HP publishes core count inside the PG&M parenthetical
-# (``"... 16 cores, 16 threads ..."``). We anchor on the literal word
-# ``cores`` to avoid picking up the chip's model number.
-_HP_CORES_RE = re.compile(r"(\d+)\s*cores?\b", re.IGNORECASE)
+# ASUS publishes NPU TOPS as ``"50TOPS"`` / ``"50 TOPS"`` / ``"up to
+# 50TOPS"``. Skip clocks for now — ASUS publishes "up to X GHz" which
+# is boost only and ambiguous between base/boost.
+_NPU_TOPS_RE = re.compile(r"(\d+(?:\.\d+)?)\s*TOPS\b", re.IGNORECASE)
+# Cores token inside the Processor prose: ``"... 16 cores, 16 Threads"``
+# / ``"24 cores"``. We anchor on the literal word ``cores`` to avoid
+# picking up the chip's model number (e.g. ``"285HX"``).
+_CORES_RE = re.compile(r"(\d+)\s*cores?\b", re.IGNORECASE)
 
 
-def _build_cpu_chip_specs_from_pgm(
-    options: list[str],
+def _build_cpu_chip_specs(
+    cpu_offerings: Optional[OfferingsList],
+    cpu_text: Optional[str],
+    npu_text: Optional[str],
 ) -> dict[str, dict[str, Optional[str]]]:
-    """Extract per-CPU core counts from the combined PG&M lines.
+    """Extract chip-level specs from the laptop spec page for catalog seeding.
 
-    Each option's leading clause names the CPU; the parenthetical that
-    follows carries the core count. We attach ``cores`` to each
-    canonical CPU name. Returns ``{}`` when no cores token was parsed.
+    ASUS publishes NPU TOPS in the dedicated ``Neural Processor`` h2 and
+    core count in the Processor prose. Both apply to the laptop SKU as
+    a whole; we attach the same values to every CPU model name listed
+    on the page (the runner's catalog resolver per-cell rules handle
+    cross-vendor conflicts).
+
+    Returns ``{}`` when no specs were extracted.
     """
-    if not options:
+    if not cpu_offerings:
+        return {}
+    npu_val = _extract_asus_npu_tops(npu_text or cpu_text or "")
+    cores_val = _extract_asus_cores(cpu_text or "")
+    if npu_val is None and cores_val is None:
         return {}
     out: dict[str, dict[str, Optional[str]]] = {}
-    for piece in options:
-        m = _CPU_NAME_RE.search(piece)
-        if m is None:
+    for offering in cpu_offerings:
+        model_bundle = offering.get("model")
+        if not isinstance(model_bundle, dict):
             continue
-        model = _normalize_cpu_model(m.group(0))
-        # Search the piece (the parenthetical sits next to the CPU
-        # token in HP's combined string).
-        cm = _HP_CORES_RE.search(piece)
-        if cm is None:
+        model = model_bundle.get("value")
+        if not model:
             continue
-        if model not in out:
-            out[model] = {"cores": cm.group(1)}
+        specs: dict[str, Optional[str]] = {}
+        if npu_val is not None:
+            specs["npu_tops"] = npu_val
+        if cores_val is not None:
+            specs["cores"] = cores_val
+        if specs:
+            out[str(model)] = specs
     return out
 
 
-def _build_boards_from_pgm(
-    options: list[str], source_url: str, captured_at: str
-) -> Optional[OfferingsList]:
-    """Group GPUs from the combined PG&M lines by their static board label.
-
-    Per Decision 5, board labels come from the static ``GPU_TO_BOARD`` map.
-    Unmapped GPUs emit a board with ``label: null`` and the GPU bundle
-    marked ``needs-review``. HP doesn't publish board-level TPP/TGP — both
-    stay ``vendor-doesn't-publish``.
-    """
-    if not options:
+def _extract_asus_npu_tops(text: str) -> Optional[str]:
+    """Pull the NPU TOPS number out of an ASUS spec value as a string."""
+    if not text:
         return None
+    m = _NPU_TOPS_RE.search(text)
+    if m is None:
+        return None
+    raw = m.group(1)
+    # Drop trailing ``.0`` so ``50.0`` → ``"50"`` while preserving
+    # genuine fractional values.
+    try:
+        f = float(raw)
+        if f == int(f):
+            return str(int(f))
+        return raw
+    except ValueError:
+        return raw
+
+
+def _extract_asus_cores(text: str) -> Optional[str]:
+    """Pull the ``N cores`` count out of ASUS's Processor prose."""
+    if not text:
+        return None
+    m = _CORES_RE.search(text)
+    if m is None:
+        return None
+    return m.group(1)
+
+
+# ---------------------------------------------------------------------------
+# GPU / boards
+# ---------------------------------------------------------------------------
+
+
+_GPU_NAME_RE = re.compile(
+    r"(NVIDIA\s+GeForce\s+RTX\s*\d+(?:\s*Ti)?(?:\s*SUPER)?"
+    r"|RTX\s*\d+(?:\s*Ti)?(?:\s*SUPER)?"
+    r"|AMD\s+Radeon\s+RX\s*\d+\w*"
+    r"|Intel\s+Arc\s+\w+)",
+    re.IGNORECASE,
+)
+
+
+# ASUS publishes per-GPU TGP as marketing prose:
+#   "Manual mode: 1497MHz at 140W* (1447MHz Boost Clock+50MHz OC, 115W+25W…)"
+#   "Turbo mode: 1497MHz at 125W* …"
+# Manual mode is the unlocked ceiling, so we prefer that wattage. The
+# regex captures the wattage immediately after ``at`` so we don't pick
+# up the parenthetical "115W+25W" Dynamic Boost split.
+_TGP_MANUAL_RE = re.compile(
+    r"manual\s+mode\s*:\s*[^()]*?at\s+(\d+)\s*W",
+    re.IGNORECASE,
+)
+_TGP_TURBO_RE = re.compile(
+    r"turbo\s+mode\s*:\s*[^()]*?at\s+(\d+)\s*W",
+    re.IGNORECASE,
+)
+
+
+def _build_boards(
+    text: Optional[str], source_url: str, captured_at: str
+) -> Optional[OfferingsList]:
+    """Group GPUs in the Graphics value by their static board label.
+
+    Per Decision 5: board labels come from the static ``GPU_TO_BOARD`` map.
+    Unmapped GPUs emit a board with ``label: null`` and the GPU bundle
+    marked ``needs-review``. ASUS publishes per-GPU TGP inside the row
+    as ``Manual mode: … at NW`` (and ``Turbo mode: … at NW``); we read
+    Manual mode (the unlocked ceiling) and collapse to ``tgp_max`` per
+    board by taking the max — same convention as Lenovo. Status stays
+    ``verified`` (the wattage is right there in the published row).
+    """
+    if text is None:
+        return None
+    pieces = h.split_options(_strip_tm(text))
     by_label: dict[Optional[str], list[Bundle]] = {}
     label_order: list[Optional[str]] = []
     seen_gpu_names: dict[Optional[str], set[str]] = {}
-    for piece in options:
+    tgp_max_by_label: dict[Optional[str], Optional[int]] = {}
+    for piece in pieces:
         m = _GPU_NAME_RE.search(piece)
         if m is not None:
             canonical = _canonicalize_gpu(m.group(1))
@@ -509,15 +625,25 @@ def _build_boards_from_pgm(
             name = canonical
         else:
             label = None
-            name = _normalize_ws(piece)
+            name = _normalize_ws(piece.split(";", 1)[0])
             gpu_bundle = _scraped_bundle(
                 name, source_url, captured_at, status="needs-review"
             )
+
+        # Per-GPU TGP: prefer Manual mode (unlocked ceiling). Fall back
+        # to Turbo mode wattage if Manual isn't published. ASUS always
+        # publishes at least one of the two for ROG laptops.
+        tgp_val = _extract_asus_tgp(piece)
+
         if label not in by_label:
             by_label[label] = []
             label_order.append(label)
             seen_gpu_names[label] = set()
-        # Within one tile multiple options often name the same GPU; dedupe.
+            tgp_max_by_label[label] = None
+        if tgp_val is not None:
+            cur = tgp_max_by_label[label]
+            if cur is None or tgp_val > cur:
+                tgp_max_by_label[label] = tgp_val
         if name in seen_gpu_names[label]:
             continue
         seen_gpu_names[label].add(name)
@@ -531,19 +657,41 @@ def _build_boards_from_pgm(
             )
         else:
             label_bundle = _scraped_bundle(label, source_url, captured_at)
+        tgp_max_value = tgp_max_by_label[label]
+        if tgp_max_value is None:
+            tgp_bundle = _vdp_bundle(source_url, captured_at)
+        else:
+            tgp_bundle = _scraped_bundle(tgp_max_value, source_url, captured_at)
         boards.append(
             {
                 "label": label_bundle,
                 "tpp_max": _vdp_bundle(source_url, captured_at),
-                "tgp_max": _vdp_bundle(source_url, captured_at),
+                "tgp_max": tgp_bundle,
                 "gpus": by_label[label],
             }
         )
     return boards or None
 
 
+def _extract_asus_tgp(piece: str) -> Optional[int]:
+    """Extract per-GPU TGP wattage from one Graphics row.
+
+    Prefers ``Manual mode: … at NW`` (unlocked ceiling); falls back to
+    ``Turbo mode: … at NW``. Returns ``None`` when neither is present.
+    """
+    m = _TGP_MANUAL_RE.search(piece)
+    if m is None:
+        m = _TGP_TURBO_RE.search(piece)
+    if m is None:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
+
+
 def _canonicalize_gpu(raw: str) -> str:
-    """Strip "NVIDIA GeForce" prefix; keep "RTX 5090"."""
+    """Strip "NVIDIA GeForce" / "AMD Radeon" prefix; keep "RTX 5090"."""
     cleaned = _normalize_ws(raw)
     cleaned = re.sub(r"^(NVIDIA\s+GeForce\s+)", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"^(AMD\s+)", "", cleaned, flags=re.IGNORECASE)
@@ -551,23 +699,36 @@ def _canonicalize_gpu(raw: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Memory (HP doesn't carry a dedicated Memory key on gaming PDPs;
-# RAM size comes from the combined PG&M string)
+# Memory
 # ---------------------------------------------------------------------------
 
 
-# Pull "16 GB(onboard)" / "32 GB" / "64GB" tokens out of the PG&M line.
-_PGM_RAM_RE = re.compile(r"(\d{1,3})\s*GB\b", re.IGNORECASE)
+_MEM_TYPE_RE = re.compile(r"\b(DDR5|DDR4|LPDDR5X|LPDDR5|LPDDR4X)\b", re.IGNORECASE)
+_MEM_GB_RE = re.compile(r"(\d{1,3})\s*GB\b", re.IGNORECASE)
+# ASUS publishes memory speed as a bare 4-digit number after the type
+# token, with no MT/s unit (``"LPDDR5X 8533"``). The shared
+# ``parse_mts`` helper requires the explicit unit, so we have a
+# dedicated regex that anchors on the type token.
+_MEM_SPEED_AFTER_TYPE_RE = re.compile(
+    r"(?:DDR5|DDR4|LPDDR5X|LPDDR5|LPDDR4X)[^\n]*?(\d{4,5})\b",
+    re.IGNORECASE,
+)
 
 
 def _populate_memory(
     cand: CandidateProduct,
-    options: list[str],
+    text: Optional[str],
     source_url: str,
     captured_at: str,
 ) -> None:
-    if not options:
-        # No Memory or PG&M key → record we checked.
+    """Populate the five memory bundles from ASUS's Memory value.
+
+    ASUS's Memory value sometimes leads with a prose-only line
+    (``"Support dual channel memory"``) before the actual capacity
+    line; we scan every line for a GB token and pick the maximum.
+    Onboard / soldered language → 0 slots.
+    """
+    if not text:
         cand.memory_max_gb = _vdp_bundle(source_url, captured_at)
         cand.memory_speed_mts = _vdp_bundle(source_url, captured_at)
         cand.memory_slots = _vdp_bundle(source_url, captured_at)
@@ -575,30 +736,42 @@ def _populate_memory(
         cand.memory_overclocking = _vdp_bundle(source_url, captured_at)
         return
 
+    cleaned = _strip_tm(text)
     capacities: list[int] = []
-    onboard_seen = False
-    for piece in options:
-        for m in _PGM_RAM_RE.finditer(piece):
-            try:
-                capacities.append(int(m.group(1)))
-            except ValueError:
-                pass
-        if "onboard" in piece.lower() or "soldered" in piece.lower():
-            onboard_seen = True
+    for m in _MEM_GB_RE.finditer(cleaned):
+        try:
+            capacities.append(int(m.group(1)))
+        except ValueError:
+            pass
     max_gb = max(capacities) if capacities else None
     cand.memory_max_gb = _maybe_bundle(max_gb, source_url, captured_at)
 
-    # HP gaming PDPs almost never publish memory speed / type / OC support
-    # in a structured form — record we checked.
-    cand.memory_speed_mts = _vdp_bundle(source_url, captured_at)
-    cand.memory_type = _vdp_bundle(source_url, captured_at)
-    cand.memory_overclocking = _vdp_bundle(source_url, captured_at)
+    # Try the explicit MT/s / MHz form first, then fall back to ASUS's
+    # ``"<TYPE> <speed>"`` shape (``"LPDDR5X 8533"``).
+    speed_val = h.parse_mts(cleaned)
+    if speed_val is None:
+        m_speed = _MEM_SPEED_AFTER_TYPE_RE.search(cleaned)
+        if m_speed is not None:
+            try:
+                speed_val = int(m_speed.group(1))
+            except ValueError:
+                speed_val = None
+    cand.memory_speed_mts = _maybe_bundle(speed_val, source_url, captured_at)
 
-    # Onboard / soldered → 0 slots; otherwise we don't know.
-    if onboard_seen:
+    m = _MEM_TYPE_RE.search(cleaned)
+    type_val = m.group(1).upper() if m else None
+    cand.memory_type = _maybe_bundle(type_val, source_url, captured_at)
+
+    low = cleaned.lower()
+    if "on board" in low or "onboard" in low or "soldered" in low:
         cand.memory_slots = _scraped_bundle(0, source_url, captured_at)
     else:
+        # ASUS doesn't publish a slot count on socketed configs in the
+        # spec sheet either — record we checked.
         cand.memory_slots = _vdp_bundle(source_url, captured_at)
+
+    # ASUS spec pages don't structurally publish memory overclocking.
+    cand.memory_overclocking = _vdp_bundle(source_url, captured_at)
 
 
 # ---------------------------------------------------------------------------
@@ -606,42 +779,72 @@ def _populate_memory(
 # ---------------------------------------------------------------------------
 
 
-_STORAGE_GEN_RE = re.compile(
-    r"(?:PCIe\s*Gen\s*(\d)|Gen\s*(\d)\s*PCIe|PCIe\s*(\d)|Gen(\d))",
+# ASUS publishes storage gen as ``"PCIe® 4.0 NVMe™"`` / ``"PCIe® 5.0"``.
+_STORAGE_GEN_ASUS_RE = re.compile(
+    r"PCIe[^,\n]*?(\d)\.0",
     re.IGNORECASE,
 )
-# HP shorthand "(4x4 SSD)" / "(5x4 SSD)" — first digit = PCIe gen, second
-# = lane count. We only need the gen, so capture the leading digit.
-_STORAGE_HP_LANES_RE = re.compile(r"\((\d)\s*x\s*\d\s*SSD\)", re.IGNORECASE)
+# Slot-count form: ``"2x M.2 PCIe"`` (in the Expansion Slots key).
+_SLOT_COUNT_RE = re.compile(r"(\d+)\s*[xX×]\s*M\.2", re.IGNORECASE)
 
 
 def _build_storage_slots(
-    text: Optional[str], source_url: str, captured_at: str
+    storage_text: Optional[str],
+    slots_text: Optional[str],
+    source_url: str,
+    captured_at: str,
 ) -> Optional[OfferingsList]:
-    if text is None:
+    """Build storage_slots offerings from ASUS's two Storage-related keys.
+
+    The ``Storage`` key carries one drive offering per line
+    (``"1TB PCIe® 4.0 NVMe™ M.2 Performance SSD"``); each line carries
+    its PCIe gen. The ``Expansion Slots (includes used)`` key carries
+    the slot count summary (``"2x M.2 PCIe"``). When the slot count
+    exceeds the offering count we pad with the lowest-gen offering's
+    gen (matches ASUS's "all slots same gen" common case).
+    """
+    if storage_text is None and slots_text is None:
         return None
-    pieces = h.split_options(_strip_tm(_strip_footnotes(text)))
-    slots: OfferingsList = []
-    for piece in pieces:
-        m = _STORAGE_GEN_RE.search(piece)
-        gen: Optional[int] = None
-        if m is not None:
-            for g in m.groups():
-                if g is not None:
-                    try:
-                        gen = int(g)
-                    except ValueError:
-                        gen = None
-                    break
-        if gen is None:
-            m2 = _STORAGE_HP_LANES_RE.search(piece)
-            if m2 is not None:
+
+    offering_gens: list[Optional[int]] = []
+    if storage_text:
+        for piece in h.split_options(_strip_tm(storage_text)):
+            m = _STORAGE_GEN_ASUS_RE.search(piece)
+            gen: Optional[int] = None
+            if m is not None:
                 try:
-                    gen = int(m2.group(1))
+                    gen = int(m.group(1))
                 except ValueError:
                     gen = None
-        slots.append({"gen": _maybe_bundle(gen, source_url, captured_at)})
-    return slots or None
+            offering_gens.append(gen)
+
+    slot_count: Optional[int] = None
+    if slots_text:
+        m = _SLOT_COUNT_RE.search(slots_text)
+        if m is not None:
+            try:
+                slot_count = int(m.group(1))
+            except ValueError:
+                slot_count = None
+
+    # Use the slot count when published, otherwise emit one entry per
+    # storage offering line.
+    if slot_count is not None:
+        slots: OfferingsList = []
+        # Pad with the first published gen (ASUS pages typically list one
+        # gen across all slots) when slot count exceeds offering count.
+        fill_gen = offering_gens[0] if offering_gens else None
+        for i in range(slot_count):
+            gen = offering_gens[i] if i < len(offering_gens) else fill_gen
+            slots.append({"gen": _maybe_bundle(gen, source_url, captured_at)})
+        return slots or None
+
+    if offering_gens:
+        return [
+            {"gen": _maybe_bundle(g, source_url, captured_at)} for g in offering_gens
+        ] or None
+
+    return None
 
 
 _STORAGE_TB_RE = re.compile(r"(\d+(?:\.\d+)?)\s*TB\b", re.IGNORECASE)
@@ -653,12 +856,12 @@ def _build_storage_max_gb(
 ) -> Bundle:
     """Extract the maximum published storage capacity, in GB.
 
-    Same logic as Dell: collect every TB / GB token; 1 TB → 1000 GB; the
-    largest wins. ``vendor-doesn't-publish`` when the Storage key existed
-    but no capacity number could be parsed.
+    Same logic as Dell/HP/Lenovo: collect every TB / GB token; 1 TB →
+    1000 GB; the largest wins. ``vendor-doesn't-publish`` when the
+    Storage key existed but no capacity number could be parsed.
     """
     capacities_gb: list[float] = []
-    cleaned = _strip_footnotes(text)
+    cleaned = _strip_tm(text)
     for m in _STORAGE_TB_RE.finditer(cleaned):
         try:
             capacities_gb.append(float(m.group(1)) * 1000)
@@ -695,11 +898,6 @@ _RES_LABEL_RE = re.compile(
     r"\b(QHD\+?|UHD\+?|FHD\+?|WUXGA|WQXGA|WQUXGA|2\.5K|3K|4K)\b",
     re.IGNORECASE,
 )
-# HP publishes "48-120 Hz" (VRR range) — pick the maximum.
-_HZ_RANGE_RE = re.compile(r"(\d{2,4})\s*-\s*(\d{2,4})\s*Hz\b", re.IGNORECASE)
-# HP publishes peak nits as "HDR 500 nits" — prefer the HDR figure if both
-# SDR and HDR are listed; otherwise fall back to any nits token.
-_HDR_NITS_RE = re.compile(r"HDR\s*(\d{2,4})\s*nits?\b", re.IGNORECASE)
 
 
 def _build_display_offerings(
@@ -707,7 +905,7 @@ def _build_display_offerings(
 ) -> Optional[OfferingsList]:
     if text is None:
         return None
-    pieces = h.split_options(_strip_tm(_strip_footnotes(text)))
+    pieces = h.split_options(_strip_tm(text))
     offerings: OfferingsList = []
     for idx, piece in enumerate(pieces):
         offerings.append(_parse_one_display(piece, idx, source_url, captured_at))
@@ -729,29 +927,13 @@ def _parse_one_display(
         h.parse_resolution_pixels(piece), source_url, captured_at
     )
 
-    # HP publishes refresh as "48-120 Hz" (VRR range) — take the high end.
-    hz_range_m = _HZ_RANGE_RE.search(piece)
-    if hz_range_m is not None:
-        try:
-            refresh_val: Optional[int] = int(hz_range_m.group(2))
-        except ValueError:
-            refresh_val = None
-    else:
-        refresh_val = h.parse_hz(piece)
-    out["refresh_rate_hz"] = _maybe_bundle(refresh_val, source_url, captured_at)
-
-    # Prefer HDR nits over SDR nits when both are listed.
-    hdr_nits_m = _HDR_NITS_RE.search(piece)
-    if hdr_nits_m is not None:
-        try:
-            nits_val: Optional[int] = int(hdr_nits_m.group(1))
-        except ValueError:
-            nits_val = None
-    else:
-        nits_val = h.parse_nits(piece)
-    out["nits_peak"] = _maybe_bundle(nits_val, source_url, captured_at)
-
-    out["response_time_ms"] = _maybe_bundle(h.parse_ms(piece), source_url, captured_at)
+    out["refresh_rate_hz"] = _maybe_bundle(
+        h.parse_hz(piece), source_url, captured_at
+    )
+    out["nits_peak"] = _maybe_bundle(h.parse_nits(piece), source_url, captured_at)
+    out["response_time_ms"] = _maybe_bundle(
+        h.parse_ms(piece), source_url, captured_at
+    )
 
     panel_m = _PANEL_RE.search(piece)
     if panel_m is not None:
@@ -785,7 +967,14 @@ def _parse_one_display(
         out["vrr"] = _vdp_bundle(source_url, captured_at)
 
     low = piece.lower()
-    if "anti-glare" in low or "anti glare" in low or "matte" in low:
+    # ASUS often uses "Anti-reflection" wording instead of "anti-glare".
+    if (
+        "anti-glare" in low
+        or "anti glare" in low
+        or "matte" in low
+        or "anti-reflection" in low
+        or "anti reflection" in low
+    ):
         anti = "matte"
     elif "glossy" in low:
         anti = "glossy"
@@ -824,12 +1013,19 @@ def _canonical_vrr(raw: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+# ASUS publishes battery wattage as ``"90WHrs"`` (no separator, plural
+# 'Hrs'). The shared ``parse_wh`` helper expects ``Wh`` / ``Whr`` only;
+# we normalize ``WHrs`` → ``Wh`` before parsing so the same regex hits.
+_ASUS_WHRS_RE = re.compile(r"WHrs?\b", re.IGNORECASE)
+
+
 def _build_battery_offerings(
     text: Optional[str], source_url: str, captured_at: str
 ) -> Optional[OfferingsList]:
     if text is None:
         return None
-    pieces = h.split_options(_strip_footnotes(text))
+    cleaned = _ASUS_WHRS_RE.sub("Wh", _strip_tm(text))
+    pieces = h.split_options(cleaned)
     offerings: OfferingsList = []
     for idx, piece in enumerate(pieces):
         offerings.append(
@@ -874,37 +1070,22 @@ def _populate_network(
     wifi_val: Optional[str] = None
     bt_val: Optional[str] = None
     if wireless_text:
-        # HP often lists a base + optional pair (Wi-Fi 6E / Wi-Fi 7).
-        # We pick the highest published Wi-Fi standard and Bluetooth
-        # version across all listed options as the platform capability.
-        cleaned = _strip_tm(_strip_footnotes(wireless_text))
-        wifi_candidates: list[str] = []
-        bt_candidates: list[str] = []
-        for line in re.split(r"[\n;]+", cleaned):
-            mw = _WIFI_RE.search(line)
-            if mw is not None:
-                wifi_candidates.append(_canonical_wifi(mw.group(1)))
-            mb = _BT_RE.search(line)
-            if mb is not None:
-                bt_candidates.append(mb.group(1))
-        if wifi_candidates:
-            wifi_val = _highest_wifi(wifi_candidates)
-        if bt_candidates:
-            bt_val = max(bt_candidates, key=_bt_sort_key)
+        cleaned = _strip_tm(wireless_text)
+        m = _WIFI_RE.search(cleaned)
+        if m is not None:
+            wifi_val = _canonical_wifi(m.group(1))
+        m = _BT_RE.search(cleaned)
+        if m is not None:
+            bt_val = m.group(1)
     cand.wifi_standard = _maybe_bundle(wifi_val, source_url, captured_at)
     cand.bluetooth_version = _maybe_bundle(bt_val, source_url, captured_at)
 
     eth_val: Optional[str] = None
     if ports_text:
-        cleaned_ports = _strip_tm(_strip_footnotes(ports_text))
-        eth_line: Optional[str] = None
-        for raw_line in re.split(r"[\n;]+", cleaned_ports):
-            low = raw_line.lower()
-            if "rj45" in low or "ethernet" in low:
-                eth_line = raw_line
-                break
-        if eth_line is not None:
-            m = _ETHERNET_RE.search(eth_line)
+        cleaned_ports = _strip_tm(ports_text)
+        low_all = cleaned_ports.lower()
+        if "rj45" in low_all or "rj-45" in low_all or "ethernet" in low_all:
+            m = _ETHERNET_RE.search(cleaned_ports)
             if m is not None:
                 eth_val = _canonical_ethernet(m.group(1))
             else:
@@ -912,36 +1093,6 @@ def _populate_network(
         else:
             eth_val = "none"
     cand.ethernet = _maybe_bundle(eth_val, source_url, captured_at)
-
-
-_WIFI_RANK = {
-    "Wi-Fi 7": 7,
-    "Wi-Fi 6E": 6.5,
-    "Wi-Fi 6": 6,
-    "Wi-Fi 5": 5,
-}
-
-
-def _highest_wifi(values: list[str]) -> str:
-    best = values[0]
-    best_rank = _WIFI_RANK.get(best, 0)
-    for v in values[1:]:
-        r = _WIFI_RANK.get(v, 0)
-        if r > best_rank:
-            best = v
-            best_rank = r
-    return best
-
-
-def _bt_sort_key(s: str) -> tuple[int, ...]:
-    # "5.4" → (5, 4); "5" → (5,); used to pick the highest Bluetooth ver.
-    parts: list[int] = []
-    for tok in s.split("."):
-        try:
-            parts.append(int(tok))
-        except ValueError:
-            parts.append(0)
-    return tuple(parts)
 
 
 def _canonical_wifi(raw: str) -> str:
@@ -975,6 +1126,40 @@ def _canonical_ethernet(raw: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+# ASUS's I/O Ports value lists every port on **one** line, separated
+# by spaces, each port carrying a leading-count anchor (``1x``, ``2x``).
+# We tokenize on those anchors rather than splitting on newlines.
+#
+# Example: ``"1x 3.5mm Combo Audio Jack 1x HDMI 2.1 FRL 2x USB 3.2 Gen 2
+# Type-A 1x USB 3.2 Gen 2 Type-C support DisplayPort™ / power delivery /
+# G-SYNC 1x Thunderbolt™ 4 support DisplayPort™ / power delivery 1x card
+# reader (SD) (UHS-II, 312MB/s)"``
+_ASUS_PORT_TOKEN_RE = re.compile(r"\b(\d+)\s*[xX×]\s+", re.IGNORECASE)
+
+
+def _split_asus_ports(text: str) -> list[tuple[int, str]]:
+    """Split ASUS's single-line I/O Ports value into ``(count, body)`` tuples.
+
+    Each tuple is one port description. The body is everything between
+    one count anchor and the next.
+    """
+    if not text:
+        return []
+    out: list[tuple[int, str]] = []
+    matches = list(_ASUS_PORT_TOKEN_RE.finditer(text))
+    for i, m in enumerate(matches):
+        try:
+            count = int(m.group(1))
+        except ValueError:
+            count = 1
+        body_start = m.end()
+        body_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        body = text[body_start:body_end].strip()
+        if body:
+            out.append((count, body))
+    return out
+
+
 def _populate_io(
     cand: CandidateProduct,
     text: Optional[str],
@@ -994,11 +1179,11 @@ def _populate_io(
     cand.usbc_non_thunderbolt_count = _maybe_bundle(
         counts["usbc_count"], source_url, captured_at
     )
-    # USB-C version: when HP labels the port by signaling rate, only the
-    # rates with a single unambiguous USB-IF mapping are emitted as
-    # ``verified``. 20Gbps / 80Gbps / unrecognized speed wording attach the
-    # best-guess version with ``status: 'needs-review'`` so the runner queues
-    # it (Decision: "translate, but flag for review when uncertain").
+    # USB-C version: explicit USB-IF version wording lands ``verified``;
+    # speed-only labels map to the unambiguous USB-IF version (also
+    # ``verified``); ``20Gbps`` / ``80Gbps`` attach a best-guess version
+    # with ``status: 'needs-review'`` per the (value, status) tuple
+    # pattern HP introduced.
     if counts["usbc_version"] is None:
         cand.usbc_non_thunderbolt_version = _vdp_bundle(source_url, captured_at)
     else:
@@ -1024,8 +1209,8 @@ def _populate_io(
 
 
 def _io_counts(text: str) -> dict[str, Any]:
-    """Walk the per-line External I/O Ports list and bucket each line."""
-    text = _strip_tm(_strip_footnotes(text))
+    """Walk ASUS's ``I/O Ports`` value and bucket each ``Nx`` segment."""
+    text = _strip_tm(text)
     out: dict[str, Any] = {
         "tb_count": 0,
         "tb_version": None,
@@ -1040,21 +1225,7 @@ def _io_counts(text: str) -> dict[str, Any]:
         "sd_card_speed": None,
         "audio_jack": "none",
     }
-    line_count_re = re.compile(r"^\s*(\d+)\s+(.*)$", re.IGNORECASE)
-    for raw_line in re.split(r"[\n;]+", text):
-        line = raw_line.strip()
-        if not line:
-            continue
-        m = line_count_re.match(line)
-        if m is not None:
-            try:
-                count = int(m.group(1))
-            except ValueError:
-                count = 1
-            body = m.group(2)
-        else:
-            count = 1
-            body = line
+    for count, body in _split_asus_ports(text):
         low = body.lower()
 
         if "thunderbolt" in low:
@@ -1085,7 +1256,10 @@ def _io_counts(text: str) -> dict[str, Any]:
                 out["hdmi_version"] = hv
             continue
 
-        if "sd" in low and ("card" in low or "slot" in low or "reader" in low):
+        if (
+            "card reader" in low
+            or ("sd" in low and ("card" in low or "slot" in low or "reader" in low))
+        ):
             if "microsd" in low or "micro sd" in low or "micro-sd" in low:
                 out["sd_card"] = "microSD"
             else:
@@ -1096,10 +1270,11 @@ def _io_counts(text: str) -> dict[str, Any]:
             continue
 
         if (
-            "headset" in low
+            "combo audio" in low
+            or "headset" in low
             or "headphone" in low
             or "microphone" in low
-            or "audio" in low
+            or "audio jack" in low
             or "combo" in low
         ):
             if "combo" in low:
@@ -1107,13 +1282,7 @@ def _io_counts(text: str) -> dict[str, Any]:
             elif "separate" in low:
                 out["audio_jack"] = "separate"
             else:
-                # HP's "headphone/microphone combo" line lacks the literal
-                # word "combo" sometimes; default to combo when both
-                # headphone and microphone show up on one line.
-                if "headphone" in low and "microphone" in low:
-                    out["audio_jack"] = "combo"
-                else:
-                    out["audio_jack"] = "combo"
+                out["audio_jack"] = "combo"
             continue
 
     return out
@@ -1132,21 +1301,13 @@ def _extract_tb_version(low: str) -> Optional[str]:
     return None
 
 
-# HP labels USB-C ports by signaling rate ("10Gbps", "40Gbps") instead of
-# the explicit "USB 3.2 Gen 2" / "USB4" version Dell uses. We map the rate
-# to the closest USB-IF version label so catalog comparisons across
-# vendors stay aligned.
-#
-# Returns ``(version, status)``. Status is ``"verified"`` only for
-# unambiguous rates / explicit version wording; ambiguous rates (20Gbps,
-# 80Gbps) attach a best-guess version with ``"needs-review"`` so the
-# runner queues it for manual confirmation.
+# ASUS publishes USB-C wording explicitly (``USB 3.2 Gen 2 Type-C``,
+# ``USB4``). Mirrors HP/Lenovo's tuple-returning helper so ambiguous
+# rates can be flagged.
 def _extract_usbc_version(low: str) -> Optional[tuple[str, str]]:
     if "usb4" in low or "usb 4" in low:
         return "USB4", "verified"
     if "40gbps" in low:
-        # 40Gbps on USB-C without a Thunderbolt label means USB4 (TB lines
-        # are siphoned off earlier in _io_counts).
         return "USB4", "verified"
     if "10gbps" in low:
         return "USB 3.2 Gen 2", "verified"
@@ -1157,12 +1318,8 @@ def _extract_usbc_version(low: str) -> Optional[tuple[str, str]]:
     if "3.2 gen 1" in low or "gen 1" in low:
         return "USB 3.2 Gen 1", "verified"
     if "20gbps" in low:
-        # USB 3.2 Gen 2x2 is rare on laptops; 20Gbps could also be early
-        # USB4 wording on some HP families. Flag for human review.
         return "USB 3.2 Gen 2x2", "needs-review"
     if "80gbps" in low:
-        # USB4 v2 / TB5 share 80Gbps; without explicit wording we can't
-        # decide. Flag for human review.
         return "USB4", "needs-review"
     return None
 
@@ -1197,7 +1354,7 @@ def _build_adapter_offerings(
 ) -> Optional[OfferingsList]:
     if text is None:
         return None
-    pieces = h.split_options(_strip_tm(_strip_footnotes(text)))
+    pieces = h.split_options(_strip_tm(text))
     offerings: OfferingsList = []
     for idx, piece in enumerate(pieces):
         offerings.append(
@@ -1215,8 +1372,15 @@ def _build_adapter_offerings(
 
 def _detect_adapter_connector(text: str) -> Optional[str]:
     low = (text or "").lower()
+    # ASUS publishes either "Rectangle Conn" (the flat rectangular plug
+    # used on ROG flagships) or "USB Type-C" (USB-C PD). The rectangle
+    # connector is distinct from Dell's round-pin barrel and Lenovo's
+    # slim-tip; per Session 7 user decision we surface it as its own
+    # ``rectangle`` enum value.
     if "usb type-c" in low or "usb-c" in low or "type c" in low or "type-c" in low:
         return "USB-C PD"
+    if "rectangle" in low:
+        return "rectangle"
     if "barrel" in low:
         return "barrel"
     return None
@@ -1227,7 +1391,10 @@ def _detect_adapter_connector(text: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
-_CAM_RES_RE = re.compile(r"\b(720p|1080p|1440p|4K|FHD|HD|UHD)\b", re.IGNORECASE)
+_CAM_RES_RE = re.compile(
+    r"\b(720p|1080p|1440p|4K|FHD|HD|UHD|\d+(?:\.\d+)?\s*MP)\b",
+    re.IGNORECASE,
+)
 
 
 def _build_camera_offerings(
@@ -1235,7 +1402,7 @@ def _build_camera_offerings(
 ) -> Optional[OfferingsList]:
     if text is None:
         return None
-    pieces = h.split_options(_strip_tm(_strip_footnotes(text)))
+    pieces = h.split_options(_strip_tm(text))
     offerings: OfferingsList = []
     for idx, piece in enumerate(pieces):
         low = piece.lower()
@@ -1249,12 +1416,15 @@ def _build_camera_offerings(
                 res_val = "720p"
             elif label in ("uhd", "4k"):
                 res_val = "4K"
+            elif "mp" in label:
+                res_val = re.sub(r"\s*mp\s*$", "MP", label, flags=re.IGNORECASE)
+                res_val = res_val.upper().replace(" ", "")
             else:
                 res_val = label
         ir_val = bool(
             "ir camera" in low or "windows hello" in low or " ir " in low
         )
-        shutter_val = bool("shutter" in low)
+        shutter_val = bool("shutter" in low or "e-shutter" in low)
         offerings.append(
             {
                 "resolution": _maybe_bundle(res_val, source_url, captured_at),
@@ -1276,8 +1446,9 @@ def _build_camera_offerings(
 
 
 _SPEAKER_COUNT_RE = re.compile(
-    r"(\d+)\s*(?:[xX×])\s*\d+\s*W"
+    r"(\d+)[- ]?speaker"
     r"|(\d+)\s+speakers?"
+    r"|(\d+)\s*(?:[xX×])\s*\d+\s*W"
     r"|\b(dual)\s+speakers?\b"
     r"|\b(quad)\s+speakers?\b",
     re.IGNORECASE,
@@ -1290,6 +1461,7 @@ _TUNING_BRANDS = (
     ("Harman/Kardon", "Harman"),
     ("Harman", "Harman"),
     ("JBL", "JBL"),
+    ("Nahimic", "Nahimic"),
     ("DTS:X", "DTS"),
     ("DTS", "DTS"),
 )
@@ -1305,23 +1477,26 @@ def _populate_audio(
     tuning: Optional[str] = None
     subwoofer: Optional[bool] = None
     if text:
-        cleaned = _strip_tm(_strip_footnotes(text))
+        cleaned = _strip_tm(text)
         m = _SPEAKER_COUNT_RE.search(cleaned)
         if m is not None:
-            num_g = m.group(1) or m.group(2)
+            num_g = m.group(1) or m.group(2) or m.group(3)
             if num_g is not None:
                 try:
                     speakers = int(num_g)
                 except (TypeError, ValueError):
                     speakers = None
-            elif m.group(3):  # "dual speakers"
+            elif m.group(4):  # "dual speakers"
                 speakers = 2
-            elif m.group(4):  # "quad speakers"
+            elif m.group(5):  # "quad speakers"
                 speakers = 4
         for needle, label in _TUNING_BRANDS:
             if needle.lower() in cleaned.lower():
                 tuning = label
                 break
+        # ASUS labels the low-frequency drivers as ``"force woofer"`` /
+        # ``"dual-force woofer"`` — both treat as subwoofer for our
+        # boolean signal.
         subwoofer = "subwoofer" in cleaned.lower() or "woofer" in cleaned.lower()
     cand.speaker_count = _maybe_bundle(speakers, source_url, captured_at)
     cand.tuning_brand = _maybe_bundle(tuning, source_url, captured_at)
@@ -1342,7 +1517,7 @@ def _build_keyboard_offerings(
 ) -> Optional[OfferingsList]:
     if text is None:
         return None
-    pieces = h.split_options(_strip_footnotes(text))
+    pieces = h.split_options(_strip_tm(text))
     offerings: OfferingsList = []
     for idx, piece in enumerate(pieces):
         low = piece.lower()
@@ -1373,13 +1548,23 @@ def _build_keyboard_offerings(
 # ---------------------------------------------------------------------------
 
 
-# HP publishes dimensions as ``"12.32 x 9.19 x 0.67 in (front)"``. The
-# numbers are W x D x H in inches; mm has to be derived. Some product
-# lines list a min/max H pair on two lines (front / rear).
-_DIM_LINE_RE = re.compile(
-    r"(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*in",
+# ASUS publishes dimensions in cm with H as a tilde range:
+#   ``"35.4 x 24.6 x 1.49 ~ 1.79 cm (13.94" x 9.69" x 0.59" ~ 0.70")"``
+# W and D are single numbers; H is either a single number or a
+# ``min ~ max`` range.
+_DIM_CM_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*"
+    r"(\d+(?:\.\d+)?)(?:\s*~\s*(\d+(?:\.\d+)?))?\s*cm",
     re.IGNORECASE,
 )
+# Same shape but in mm (defensive — ASUS may switch units on some
+# product lines):
+_DIM_MM_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*"
+    r"(\d+(?:\.\d+)?)(?:\s*~\s*(\d+(?:\.\d+)?))?\s*mm",
+    re.IGNORECASE,
+)
+_WEIGHT_KG_RE = re.compile(r"(\d+(?:\.\d+)?)\s*kg", re.IGNORECASE)
 
 
 def _populate_dimensions(
@@ -1390,50 +1575,49 @@ def _populate_dimensions(
     captured_at: str,
 ) -> None:
     if dim_text is not None:
-        widths_in: list[float] = []
-        depths_in: list[float] = []
-        heights_in: list[float] = []
-        for m in _DIM_LINE_RE.finditer(_strip_footnotes(dim_text)):
+        cleaned = _strip_tm(dim_text)
+        # Prefer mm if both happen to be present; default ASUS shape is cm.
+        m = _DIM_MM_RE.search(cleaned)
+        scale = 1.0
+        if m is None:
+            m = _DIM_CM_RE.search(cleaned)
+            scale = 10.0  # cm → mm
+        if m is not None:
             try:
-                widths_in.append(float(m.group(1)))
-                depths_in.append(float(m.group(2)))
-                heights_in.append(float(m.group(3)))
+                width = round(float(m.group(1)) * scale, 2)
+                depth = round(float(m.group(2)) * scale, 2)
+                h_lo = round(float(m.group(3)) * scale, 2)
+                h_hi = (
+                    round(float(m.group(4)) * scale, 2) if m.group(4) else None
+                )
             except ValueError:
-                pass
-        if widths_in:
-            cand.width_mm = _maybe_bundle(
-                round(max(widths_in) * 25.4, 2), source_url, captured_at
-            )
-            cand.depth_mm = _maybe_bundle(
-                round(max(depths_in) * 25.4, 2), source_url, captured_at
-            )
-            if len(heights_in) >= 2:
-                cand.height_mm_min = _maybe_bundle(
-                    round(min(heights_in) * 25.4, 2), source_url, captured_at
-                )
-                cand.height_mm_max = _maybe_bundle(
-                    round(max(heights_in) * 25.4, 2), source_url, captured_at
-                )
-            else:
-                cand.height_mm_min = _maybe_bundle(
-                    None, source_url, captured_at
-                )
-                cand.height_mm_max = _maybe_bundle(
-                    round(heights_in[0] * 25.4, 2), source_url, captured_at
-                )
+                width = depth = h_lo = None
+                h_hi = None
+            if width is not None:
+                cand.width_mm = _maybe_bundle(width, source_url, captured_at)
+            if depth is not None:
+                cand.depth_mm = _maybe_bundle(depth, source_url, captured_at)
+            if h_hi is not None:
+                cand.height_mm_min = _maybe_bundle(h_lo, source_url, captured_at)
+                cand.height_mm_max = _maybe_bundle(h_hi, source_url, captured_at)
+            elif h_lo is not None:
+                cand.height_mm_min = _maybe_bundle(None, source_url, captured_at)
+                cand.height_mm_max = _maybe_bundle(h_lo, source_url, captured_at)
 
     if weight_text is not None:
-        cleaned = _strip_footnotes(weight_text)
-        # HP often publishes only one weight ("3.6 lb"); use the
-        # single-value rule for weight: that goes into weight_kg_min.
-        kg = h.parse_kg(cleaned)
-        lb = h.parse_lb(cleaned)
+        cleaned = _strip_tm(weight_text)
+        m = _WEIGHT_KG_RE.search(cleaned)
+        kg: Optional[float] = None
+        if m is not None:
+            try:
+                kg = float(m.group(1))
+            except ValueError:
+                kg = None
+        # ASUS publishes a single weight figure → treat as min weight
+        # (mirrors HP/Lenovo's single-value rule).
         if kg is not None:
             cand.weight_kg_min = _maybe_bundle(kg, source_url, captured_at)
-        elif lb is not None:
-            cand.weight_kg_min = _maybe_bundle(
-                round(lb * 0.453592, 2), source_url, captured_at
-            )
+            cand.weight_kg_max = _maybe_bundle(None, source_url, captured_at)
         else:
             cand.weight_kg_min = _vdp_bundle(source_url, captured_at)
-        cand.weight_kg_max = _maybe_bundle(None, source_url, captured_at)
+            cand.weight_kg_max = _vdp_bundle(source_url, captured_at)

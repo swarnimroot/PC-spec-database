@@ -150,7 +150,7 @@ Single orchestrator: `ingest/runner.py`. CLI entry: `refresh`.
    2. **Catalog-resolve:**
       - Each CPU model name in `candidate.cpu_offerings` looked up in `cpu_catalog`. If missing → insert a stub row (model + brand parsed from name; remaining columns null) with `status: needs-review` and enqueue a `new_chip_unverified` review row.
       - Same flow for each GPU model name in `candidate.boards[*].gpus` against `gpu_catalog`.
-      - **Stub-only:** chip specs (cores, NPU TOPS, etc.) are not auto-fetched. Manual or future job.
+      - **Stub-only as the default — amended Session 7.** When a laptop spec page surfaces chip-level data (e.g., ASUS publishes NPU TOPS, Lenovo publishes per-CPU cores/clocks/process-node), the bridge attaches them to `candidate.cpu_chip_specs` and the runner seeds the matching `cpu_catalog` cells. Per-cell rule: empty → write; `needs-review` row + match → no-op; `needs-review` row + diff → overwrite + queue `value_disagreement`; `vouched` row + diff → keep existing + queue `value_disagreement`. See DATA_MODEL.md §CPU Catalog for vendor coverage.
    3. **Diff against existing product row:**
       - No existing row → insert candidate.
       - Field empty in DB → write candidate cell.
@@ -285,7 +285,7 @@ Preserved without restructuring:
 - **Provenance bundled as JSON per cell.** Plain-SQL queries on values require SQLite JSON functions (`json_extract`). Mitigated by all reads going through helpers, which decode bundles transparently.
 - **DB Browser is read-only in practice.** Editing JSON-bundled cells in a spreadsheet view is ugly. CLI helpers are the editing surface.
 - **CLI before UI.** Phase 1 has no UI. The CLI helpers are the manual surface; the UI is the same plumbing with a different front end, deferred.
-- **Stub-only catalog auto-add.** New CPU/GPU rows are stubbed; chip specs filled manually or by a future job. Backlog accepted for simplicity.
+- **Stub-only catalog auto-add (default).** New CPU/GPU rows are stubbed; chip specs filled manually or by a future job. Amended Session 7: where the laptop spec page itself surfaces chip-level fields (NPU TOPS, cores, clocks, architecture, process node), the bridge captures them and the runner seeds the matching `cpu_catalog` cells under a per-cell write/queue rule (see Ingestion runner §Catalog-resolve).
 - **No history layer.** Resolved values overwrite. The surviving value's provenance bundle is preserved; the prior bundle is not. Adding history later is non-breaking but explicit work.
 
 ---

@@ -229,6 +229,17 @@ def test_parse_live_adapter_extracts_wattage_and_usbc_connector():
     assert cand.adapter_connector["value"] == "USB-C PD"
 
 
+def test_parse_live_cpu_chip_specs_cores_extracted_from_pgm():
+    """HP publishes core counts inline in the combined PG&M parenthetical
+    (``"Core Ultra 9 285H (up to 5.4 GHz, 24 MB L3 cache, 16 cores, 16
+    threads)"``); we attach ``cores`` to each canonical CPU model name."""
+    snap = _load_snapshot(LIVE_TILE_1)
+    cand = hp_bridge.parse(snap)
+
+    assert "Core Ultra 9 285H" in cand.cpu_chip_specs
+    assert cand.cpu_chip_specs["Core Ultra 9 285H"]["cores"] == "16"
+
+
 def test_parse_live_thermals_marked_vendor_doesnt_publish():
     """HP doesn't publish thermal_design / TIM / fan_count on the PDP."""
     snap = _load_snapshot(LIVE_TILE_1)

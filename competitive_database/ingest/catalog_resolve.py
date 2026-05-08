@@ -1,4 +1,4 @@
-"""CPU / GPU catalog stub auto-add.
+"""CPU / GPU catalog stub auto-add + vendor chip-spec seeding.
 
 When a bridge emits a CPU or GPU model name we have not seen before, we:
 
@@ -6,11 +6,24 @@ When a bridge emits a CPU or GPU model name we have not seen before, we:
    ``{model, brand, catalog_status: 'needs-review'}``.
 2. Enqueue a ``new_chip_unverified`` review row.
 
-Chip specs (cores, NPU TOPS, etc.) are NOT auto-fetched — that is a
-deferred backfill (see ARCHITECTURE.md §"Locked decisions"). Existing
-rows are left alone.
+Vendor-published chip specs (Session 7 amendment to the Session 3
+"stub-only" rule): when the laptop spec page surfaces chip-level data
+(NPU TOPS, cores, clocks, architecture, process node), the bridge
+attaches them to ``CandidateProduct.cpu_chip_specs``. This module
+applies them per spec field with the following rule set:
 
-Walking the candidate is the runner's job; this module exposes two
+* Existing cell ``NULL`` → write the new value (no queue).
+* Existing ``catalog_status = 'needs-review'`` AND existing cell non-NULL
+  AND new value matches → no-op.
+* Existing ``catalog_status = 'needs-review'`` AND existing cell non-NULL
+  AND new value differs → overwrite, AND queue a ``value_disagreement``
+  ``review_queue`` row so the user sees the disagreement. Reasoning:
+  needs-review hasn't been vouched, so the freshest extraction wins,
+  but the user still sees the conflict.
+* Existing ``catalog_status = 'vouched'`` → do NOT overwrite. Queue a
+  ``value_disagreement`` row with both values noted.
+
+Walking the candidate is the runner's job; this module exposes the
 focused helpers it calls per chip name.
 """
 
@@ -24,6 +37,20 @@ from typing import Iterable, Optional
 from ..bridge.helpers import infer_cpu_brand, infer_gpu_brand
 from ..bridge.types import Bundle, CandidateProduct
 from ..db.helpers import make_scraped_bundle
+
+
+# CPU catalog spec columns the bridge layer can seed. Lifted into a
+# constant so the cell-update walker doesn't accidentally touch
+# ``model`` / ``catalog_status`` / ``brand``.
+_CPU_CATALOG_SPEC_COLUMNS: frozenset[str] = frozenset({
+    "architecture",
+    "cores",
+    "npu_tops",
+    "base_clock",
+    "boost_clock",
+    "process_node",
+    "nominal_tdp",
+})
 
 
 def _exists(
@@ -130,7 +157,8 @@ def _iter_gpu_models(
 def resolve_catalog(
     conn: sqlite3.Connection, candidate: CandidateProduct
 ) -> dict[str, list[str]]:
-    """Stub-add unknown CPU/GPU models referenced by ``candidate``.
+    """Stub-add unknown CPU/GPU models referenced by ``candidate`` and
+    apply any vendor-published chip specs to ``cpu_catalog`` cells.
 
     Returns a small report ``{"new_cpus": [...], "new_gpus": [...]}`` so
     the runner can print a summary. Caller is responsible for the
@@ -140,7 +168,12 @@ def resolve_catalog(
     new_gpus: list[str] = []
     pk = (candidate.model_code, candidate.year)
 
+    # Track which CPU bundle goes with which model name so seeding can
+    # reuse the bundle's provenance fields when queueing a conflict.
+    cpu_bundle_by_model: dict[str, Bundle] = {}
+
     for model, bundle, field_path in _iter_cpu_models(candidate):
+        cpu_bundle_by_model.setdefault(model, bundle)
         if _exists(conn, "cpu_catalog", model):
             continue
         # Skip catalog-add when the bundle itself is needs-review — we
@@ -167,6 +200,20 @@ def resolve_catalog(
             field_path=field_path,
         )
         new_cpus.append(model)
+
+    # Apply vendor-published chip specs (Session 7 amendment). Runs
+    # after the stub-insert pass so a freshly-stubbed row gets its
+    # specs in the same transaction.
+    chip_specs = getattr(candidate, "cpu_chip_specs", None) or {}
+    for model, specs in chip_specs.items():
+        bundle = cpu_bundle_by_model.get(model)
+        _apply_cpu_chip_specs(
+            conn,
+            model=model,
+            specs=specs,
+            bundle=bundle,
+            product_pk=pk,
+        )
 
     for model, bundle, field_path in _iter_gpu_models(candidate):
         if _exists(conn, "gpu_catalog", model):
@@ -195,3 +242,141 @@ def resolve_catalog(
         new_gpus.append(model)
 
     return {"new_cpus": new_cpus, "new_gpus": new_gpus}
+
+
+# ---------------------------------------------------------------------------
+# Vendor chip-spec seeding (Session 7 amendment)
+# ---------------------------------------------------------------------------
+
+
+def _read_cpu_catalog_row(
+    conn: sqlite3.Connection, model: str
+) -> Optional[sqlite3.Row]:
+    cols = ", ".join(["catalog_status", *sorted(_CPU_CATALOG_SPEC_COLUMNS)])
+    return conn.execute(
+        f"SELECT {cols} FROM cpu_catalog WHERE model = ?", (model,)
+    ).fetchone()
+
+
+def _apply_cpu_chip_specs(
+    conn: sqlite3.Connection,
+    *,
+    model: str,
+    specs: dict[str, Optional[str]],
+    bundle: Optional[Bundle],
+    product_pk: tuple[str, int],
+) -> None:
+    """Apply per-cell seed/conflict rules to ``cpu_catalog`` for ``model``.
+
+    Per Session 7 architecture call:
+
+    * Existing cell NULL → write candidate (no queue).
+    * Existing ``catalog_status = 'needs-review'`` and matches → no-op.
+    * Existing ``catalog_status = 'needs-review'`` and differs →
+      overwrite + queue ``value_disagreement``.
+    * Existing ``catalog_status = 'vouched'`` → keep existing + queue
+      ``value_disagreement``.
+
+    Skips silently when the catalog row doesn't exist (it should — the
+    stub-insert pass runs first; any missing row means the bundle was
+    needs-review and got skipped, in which case we don't seed).
+    """
+    if not specs:
+        return
+    row = _read_cpu_catalog_row(conn, model)
+    if row is None:
+        return
+    row_status = row["catalog_status"]
+    detected_at = datetime.now(timezone.utc).isoformat()
+    for col, new_value in specs.items():
+        if col not in _CPU_CATALOG_SPEC_COLUMNS:
+            # Bridge handed us a non-spec column name — ignore defensively.
+            continue
+        if new_value is None:
+            # Vendor explicitly indicated "doesn't publish" for this chip
+            # spec → never blow away an existing cell with NULL.
+            continue
+        existing = row[col]
+        new_str = str(new_value)
+        if existing is None:
+            conn.execute(
+                f"UPDATE cpu_catalog SET {col} = ? WHERE model = ?",
+                (new_str, model),
+            )
+            continue
+        if str(existing) == new_str:
+            # No change needed.
+            continue
+        # Cells differ.
+        if row_status == "vouched":
+            _enqueue_catalog_disagreement(
+                conn,
+                model=model,
+                column=col,
+                existing_value=existing,
+                candidate_value=new_str,
+                bundle=bundle,
+                product_pk=product_pk,
+                detected_at=detected_at,
+            )
+            continue
+        # row_status == 'needs-review' (or any other non-vouched state)
+        # → freshest extraction wins, but still queue the disagreement.
+        conn.execute(
+            f"UPDATE cpu_catalog SET {col} = ? WHERE model = ?",
+            (new_str, model),
+        )
+        _enqueue_catalog_disagreement(
+            conn,
+            model=model,
+            column=col,
+            existing_value=existing,
+            candidate_value=new_str,
+            bundle=bundle,
+            product_pk=product_pk,
+            detected_at=detected_at,
+        )
+
+
+def _enqueue_catalog_disagreement(
+    conn: sqlite3.Connection,
+    *,
+    model: str,
+    column: str,
+    existing_value: str,
+    candidate_value: str,
+    bundle: Optional[Bundle],
+    product_pk: tuple[str, int],
+    detected_at: str,
+) -> None:
+    """Insert a ``value_disagreement`` row keyed against the catalog cell.
+
+    ``existing_value`` / ``candidate_value`` carry both values so the
+    user can see the disagreement at a glance. ``field_path`` reads
+    ``cpu_catalog.<model>.<column>`` so review tooling can route by
+    catalog vs product. ``existing_provenance`` is left NULL (the
+    catalog cell isn't a bundle), ``candidate_provenance`` carries the
+    bundle that surfaced the new value.
+    """
+    field_path = f"cpu_catalog.{model}.{column}"
+    conn.execute(
+        """
+        INSERT INTO review_queue (
+            product_model_code, product_year, field_path, conflict_type,
+            existing_value, existing_provenance,
+            candidate_value, candidate_provenance, detected_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            product_pk[0],
+            product_pk[1],
+            field_path,
+            "value_disagreement",
+            json.dumps({"value": existing_value}),
+            None,
+            json.dumps({"value": candidate_value}),
+            json.dumps(bundle) if bundle is not None else None,
+            detected_at,
+        ),
+    )

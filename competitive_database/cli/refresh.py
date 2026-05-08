@@ -3,9 +3,9 @@
 Fetches one (or, eventually, all) vendor product page(s), parses every
 emitted snapshot via the bridge, and ingests each into the SQLite DB.
 
-Stage 3 supports ``dell``, ``hp``, and ``lenovo``. ``--all`` is recognized
-but errors out with "not implemented yet" — multi-vendor whole-catalog
-refresh is deferred until the remaining vendors land.
+Stage 3 supports ``dell``, ``hp``, ``lenovo``, and ``asus``. ``--all`` is
+recognized but errors out with "not implemented yet" — multi-vendor
+whole-catalog refresh is deferred until later stages.
 """
 
 from __future__ import annotations
@@ -41,6 +41,17 @@ DEFAULT_LENOVO_URL_TMPL = (
     "https://psref.lenovo.com/l/Product/Legion/{slug}?tab=spec"
 )
 
+# Default URL template for ASUS ROG marketing spec pages. Slugs are
+# kebab-case ``rog-<line>-<model>-<year>`` (e.g.
+# ``rog-zephyrus-g16-2026``, ``rog-strix-g18-2026``). The path requires
+# the regional ``/us/`` prefix, the gaming-line segment
+# (``rog-zephyrus`` / ``rog-strix`` / ``rog-flow`` / ...), and the
+# trailing ``/spec/`` to land on the spec sheet directly. Override
+# ``--url`` for any product where the line segment differs.
+DEFAULT_ASUS_URL_TMPL = (
+    "https://rog.asus.com/us/laptops/rog-zephyrus/{slug}/spec/"
+)
+
 
 def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser(
@@ -50,13 +61,14 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     p.add_argument(
         "--brand",
         required=True,
-        help="Vendor brand. Stage 3 supports 'dell', 'hp', and 'lenovo'.",
+        help="Vendor brand. Stage 3 supports 'dell', 'hp', 'lenovo', and 'asus'.",
     )
     p.add_argument(
         "--model",
         help=(
             "URL slug (Dell: after /spd/; HP: after /pdp/; "
-            "Lenovo: PSREF ProductKey, e.g. Legion_Pro_7_16AFR10H)."
+            "Lenovo: PSREF ProductKey, e.g. Legion_Pro_7_16AFR10H; "
+            "ASUS: ROG slug, e.g. rog-zephyrus-g16-2026)."
         ),
     )
     p.add_argument(
@@ -89,6 +101,7 @@ _VENDOR_TEMPLATES: dict[str, str] = {
     "dell": DEFAULT_DELL_URL_TMPL,
     "hp": DEFAULT_HP_URL_TMPL,
     "lenovo": DEFAULT_LENOVO_URL_TMPL,
+    "asus": DEFAULT_ASUS_URL_TMPL,
 }
 
 
@@ -196,6 +209,13 @@ def _fetch_snapshots(brand: str, url: str, slug: str, profiles_dir: str):
         # no curl_cffi, no profiles_dir, no warm-up. The fetcher accepts
         # only the keyword args it needs.
         return fetch_lenovo_product(url, anchors=[anchor])
+    if brand == "asus":
+        from scrapers_lib.tier2.asus import fetch_asus_product
+
+        # ASUS's ROG marketing spec page is plain HTML over httpx — no
+        # Playwright, no curl_cffi, no profiles_dir, no warm-up. The
+        # fetcher accepts ``url`` + ``anchors`` (+ ``timeout`` kw).
+        return fetch_asus_product(url, anchors=[anchor])
     raise SystemExit(
         f"refresh: brand {brand!r} has no fetcher wired in; "
         f"known: {sorted(_VENDOR_TEMPLATES)}"

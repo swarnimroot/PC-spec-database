@@ -100,7 +100,14 @@ def ingest(
     with transaction(conn):
         # Catalog stubs first so the cpu_offerings reference is valid
         # immediately. (We don't enforce FKs on the JSON values, but
-        # consistency is still preferable.)
+        # consistency is still preferable.) ``resolve_catalog`` also
+        # applies any vendor-published chip specs from
+        # ``candidate.cpu_chip_specs`` to the corresponding ``cpu_catalog``
+        # cells per the Session 7 seed/conflict rules:
+        #   * empty cell → write
+        #   * needs-review row + match → no-op
+        #   * needs-review row + diff → overwrite + queue value_disagreement
+        #   * vouched row + diff → keep + queue value_disagreement
         cat_report = resolve_catalog(conn, candidate)
         report.new_cpus = cat_report["new_cpus"]
         report.new_gpus = cat_report["new_gpus"]

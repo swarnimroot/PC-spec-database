@@ -96,6 +96,15 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
     cpu_text = specs.get("Processor")
     cand.cpu_offerings = _build_cpu_offerings(cpu_text, source_url, captured_at)
 
+    # --- CPU chip specs (catalog seeding) ------------------------------
+    # Dell publishes core counts inline in the Processor prose
+    # (``"... (24-Core, 36MB Cache, ...)"``). Other catalog fields are
+    # not consistently published, so we only attempt cores. ``catalog_resolve``
+    # decides whether to seed or queue a conflict.
+    cand.cpu_chip_specs = _build_cpu_chip_specs(
+        cand.cpu_offerings, cpu_text
+    )
+
     # --- GPU + boards ---------------------------------------------------
     gpu_text = specs.get("Graphics Card")
     cand.boards = _build_boards(gpu_text, source_url, captured_at)
@@ -295,6 +304,42 @@ def _normalize_cpu_model(raw: str) -> str:
     s = re.sub(r"^AMD\s+", "", s, flags=re.IGNORECASE)
     s = re.sub(r"\s+processor\s+", " ", s, flags=re.IGNORECASE)
     return s.strip()
+
+
+# Dell publishes the core count as ``"24-Core"`` (hyphenated) inside
+# the Processor parenthetical, or ``"24 cores"`` in some variants.
+# Anchored on the literal word ``core`` to avoid model-number hits.
+_DELL_CORES_RE = re.compile(r"(\d+)[- ]?cores?\b", re.IGNORECASE)
+
+
+def _build_cpu_chip_specs(
+    cpu_offerings: Optional[OfferingsList],
+    cpu_text: Optional[str],
+) -> dict[str, dict[str, Optional[str]]]:
+    """Extract chip-level specs from Dell's Processor prose.
+
+    Dell publishes the core count alongside cache + clock range inside
+    a parenthetical (``"... (24-Core, 36MB Cache, 2.7GHz to 5.5GHz)"``).
+    We attach ``cores`` to whichever CPU the Processor key names. Other
+    catalog fields are not consistently published on the techspecs page,
+    so we only attempt cores. Returns ``{}`` when nothing was extracted.
+    """
+    if not cpu_offerings or not cpu_text:
+        return {}
+    cores_m = _DELL_CORES_RE.search(_strip_tm(cpu_text))
+    if cores_m is None:
+        return {}
+    cores_val = cores_m.group(1)
+    out: dict[str, dict[str, Optional[str]]] = {}
+    for offering in cpu_offerings:
+        model_bundle = offering.get("model")
+        if not isinstance(model_bundle, dict):
+            continue
+        model = model_bundle.get("value")
+        if not model:
+            continue
+        out[str(model)] = {"cores": cores_val}
+    return out
 
 
 # ---------------------------------------------------------------------------

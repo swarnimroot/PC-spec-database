@@ -148,6 +148,22 @@ def test_parse_live_audio_and_camera():
     assert cam["ir_supported"]["value"] is True
 
 
+def test_parse_live_cpu_chip_specs_cores_extracted_from_processor_prose():
+    """Dell's Processor prose carries the core count as ``"24-Core"``
+    inside the parenthetical (``"... (24-Core, 36MB Cache, ...)"``);
+    the parser pulls it into ``cpu_chip_specs`` so ``catalog_resolve``
+    can seed the catalog cell."""
+    snap = _load_snapshot("snapshot_useaa18250wmlkcto01.json")
+    cand = dell_bridge.parse(snap)
+
+    # Live tile names "Core Ultra 9 290HX Plus" with 24-Core in the
+    # parenthetical. Whatever the canonical model name comes out as,
+    # we expect cores=24 to flow through.
+    assert cand.cpu_chip_specs
+    for model, specs in cand.cpu_chip_specs.items():
+        assert specs.get("cores") == "24"
+
+
 def test_parse_live_thermals_marked_vendor_doesnt_publish():
     snap = _load_snapshot("snapshot_useaa18250wmlkcto01.json")
     cand = dell_bridge.parse(snap)

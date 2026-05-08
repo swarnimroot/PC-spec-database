@@ -6,18 +6,19 @@ A persistent, queryable database of competitor gaming-laptop specs from Dell, HP
 
 ## Status
 
-**Phase: Data layer — Stages 1–2 complete; Stage 3 in progress (Dell + HP + Lenovo live; ASUS pending).** Foundation, schema, provenance helpers, and three of four Stage 3 vendor bridges are implemented and tested. 111/111 tests pass. Live refresh has been validated against the Alienware Area-51 (Dell), the OMEN Transcend 14 (HP), and the Legion Pro 7 16AFR10H (Lenovo, AMD cousin used as a placeholder for the Intel Pro 7i Gen 10).
+**Phase: Data layer — Stages 1–3 complete; Stage 4 (view layer + `inspect-product`) next.** Foundation, schema, provenance helpers, and all four Stage 3 vendor bridges are implemented and tested. 148/148 tests pass. Live refresh has been validated against the Alienware Area-51 (Dell), the OMEN Transcend 14 (HP), the Legion Pro 7 16AFR10H (Lenovo, AMD cousin used as a placeholder for the Intel Pro 7i Gen 10), and the ROG Zephyrus G16 2026 (ASUS).
 
 - All 16 field categories from the source 80-column Excel (`Competitor Columns.xlsx`) are mapped to a data shape.
 - Schema connective tissue (catalog references, unknown-chip handling, provenance record format, naming, enum policy) is locked.
 - Database engine: **SQLite (local).** One file on disk, managed via DB Browser for SQLite. Migration to hosted Postgres reserved for if/when team access becomes real.
 - `scrapers-lib` Tier 2 fetchers exist for Dell, HP, Lenovo, ASUS; Acer and MSI deferred upstream. Installed editable from the sibling repo.
 - Six Stage 2 follow-up decisions resolved (year handling, naming, cross-tile merge, adapter source, boards modeling, storage parity). See `SESSION_LOG.md` Session 5 for detail.
-- Four Session 7 decisions resolved during the per-vendor pause checkpoints (HP weight handling, HP USB-C ambiguous-rate flagging, Lenovo target substitution, Lenovo `tgp_max` = max-per-board). See `SESSION_LOG.md` Session 7.
+- Four Session 7 decisions resolved during the HP / Lenovo pause checkpoints (HP weight handling, HP USB-C ambiguous-rate flagging, Lenovo target substitution, Lenovo `tgp_max` = max-per-board). See `SESSION_LOG.md` Session 7.
+- Five Session 8 decisions resolved during the ASUS pause checkpoint — most notably the amendment to the Session 3 stub-only catalog rule: vendors that publish chip-level specs on laptop spec pages (ASUS NPU TOPS, Lenovo cores/clocks/process-node, HP/Dell core counts) now seed the matching `cpu_catalog` columns, with cross-vendor disagreement routed to the existing `value_disagreement` queue. See `SESSION_LOG.md` Session 8.
 
 **Immediate next phase:**
-1. Stage 3, vendor 3 — ASUS (ROG Zephyrus G16) bridge parser. Last vendor to close out Stage 3.
-2. Stages 4–7 follow per `TASKS.md`. Setup instructions and CLI reference land in Stage 7 (polish).
+1. Stage 4 — view layer + `inspect-product` CLI per `TASKS.md`. Single source of truth for human-readable presentation; UI later renders through the same module.
+2. Stages 5–7 follow per `TASKS.md`. Setup instructions and CLI reference land in Stage 7 (polish).
 
 ---
 

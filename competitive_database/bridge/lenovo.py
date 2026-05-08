@@ -116,6 +116,13 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
     cpu_text = specs.get("Performance > Processor > Processor")
     cand.cpu_offerings = _build_cpu_offerings(cpu_text, source_url, captured_at)
 
+    # --- CPU chip specs (catalog seeding) ------------------------------
+    # PSREF publishes per-row ``Att: AttV`` attributes (Cores, Base
+    # Frequency, Max Frequency, Process Technology) inside each CPU
+    # alternative. We map them to the corresponding ``cpu_catalog``
+    # columns. ``catalog_resolve`` decides whether to seed or queue.
+    cand.cpu_chip_specs = _build_cpu_chip_specs(cpu_text)
+
     # --- GPU + boards ---------------------------------------------------
     gpu_text = specs.get("Performance > Graphics > Graphics")
     cand.boards = _build_boards(gpu_text, source_url, captured_at)
@@ -527,6 +534,51 @@ def _normalize_cpu_model(raw: str) -> str:
     s = re.sub(r"^AMD\s+", "", s, flags=re.IGNORECASE)
     s = re.sub(r"\s+processor\s+", " ", s, flags=re.IGNORECASE)
     return s.strip()
+
+
+def _build_cpu_chip_specs(
+    cpu_text: Optional[str],
+) -> dict[str, dict[str, Optional[str]]]:
+    """Extract chip-level specs from PSREF's structured Processor rows.
+
+    Each PSREF alternative is a ``Att: AttV; Att: AttV`` row carrying
+    Processor Name, Cores, Threads, Base Frequency, Max Frequency,
+    Process Technology, Cache, Processor Graphics. We map a subset to
+    the corresponding ``cpu_catalog`` columns:
+
+    * ``Cores`` → ``cores``
+    * ``Base Frequency`` → ``base_clock``
+    * ``Max Frequency`` → ``boost_clock``
+    * ``Process Technology`` → ``process_node``
+    * ``Processor Family`` (when present in row) → ``architecture``
+
+    Returns ``{}`` when no chip specs were extracted.
+    """
+    if not cpu_text:
+        return {}
+    out: dict[str, dict[str, Optional[str]]] = {}
+    for piece in _split_alternatives(_strip_tm(cpu_text)):
+        attrs = _row_attrs(piece)
+        name_field = attrs.get("processor name")
+        haystack = name_field if name_field else piece
+        m = _CPU_NAME_RE.search(haystack)
+        if m is None:
+            continue
+        model = _normalize_cpu_model(m.group(0))
+        specs: dict[str, Optional[str]] = {}
+        if "cores" in attrs:
+            specs["cores"] = attrs["cores"]
+        if "base frequency" in attrs:
+            specs["base_clock"] = attrs["base frequency"]
+        if "max frequency" in attrs:
+            specs["boost_clock"] = attrs["max frequency"]
+        if "process technology" in attrs:
+            specs["process_node"] = attrs["process technology"]
+        if "processor family" in attrs:
+            specs["architecture"] = attrs["processor family"]
+        if specs and model not in out:
+            out[model] = specs
+    return out
 
 
 # ---------------------------------------------------------------------------

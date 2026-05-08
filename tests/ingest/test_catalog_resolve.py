@@ -136,3 +136,151 @@ def test_needs_review_cpu_does_not_pollute_catalog(tmp_path):
         assert n == 0
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Vendor chip-spec seeding (Session 7)
+# ---------------------------------------------------------------------------
+
+
+def test_chip_specs_seed_into_empty_catalog_cell_no_queue(tmp_path):
+    """Stub-add path: brand-new CPU + chip specs → both stub and the
+    spec cells land in one go. No review_queue rows for the spec cells
+    (only the standard ``new_chip_unverified`` for the model itself)."""
+    conn = _conn(tmp_path)
+    try:
+        cand = CandidateProduct(model_code="rog-zephyrus-g16-2026", year=2026)
+        cand.cpu_offerings = [{"model": _bundle("Core Ultra 9 386H")}]
+        cand.cpu_chip_specs = {
+            "Core Ultra 9 386H": {"npu_tops": "50", "cores": "16"}
+        }
+
+        with transaction(conn):
+            resolve_catalog(conn, cand)
+
+        row = conn.execute(
+            "SELECT npu_tops, cores, catalog_status FROM cpu_catalog WHERE model = ?",
+            ("Core Ultra 9 386H",),
+        ).fetchone()
+        assert row["npu_tops"] == "50"
+        assert row["cores"] == "16"
+        assert row["catalog_status"] == "needs-review"
+
+        # Only the new_chip_unverified row should exist; no per-cell
+        # value_disagreement entries (catalog cells were empty).
+        rows = conn.execute(
+            "SELECT conflict_type FROM review_queue"
+        ).fetchall()
+        types = [r["conflict_type"] for r in rows]
+        assert types == ["new_chip_unverified"]
+    finally:
+        conn.close()
+
+
+def test_chip_specs_no_op_when_needs_review_cell_matches(tmp_path):
+    """Pre-existing needs-review row with a matching cell value → no
+    overwrite, no queue."""
+    conn = _conn(tmp_path)
+    try:
+        with transaction(conn):
+            conn.execute(
+                "INSERT INTO cpu_catalog (model, catalog_status, cores) "
+                "VALUES (?, ?, ?)",
+                ("Core Ultra 9 386H", "needs-review", "16"),
+            )
+
+        cand = CandidateProduct(model_code="rog-zephyrus-g16-2026", year=2026)
+        cand.cpu_offerings = [{"model": _bundle("Core Ultra 9 386H")}]
+        cand.cpu_chip_specs = {"Core Ultra 9 386H": {"cores": "16"}}
+
+        with transaction(conn):
+            resolve_catalog(conn, cand)
+
+        row = conn.execute(
+            "SELECT cores FROM cpu_catalog WHERE model = ?",
+            ("Core Ultra 9 386H",),
+        ).fetchone()
+        assert row["cores"] == "16"
+        # No queue rows: model already exists (no new_chip_unverified)
+        # and cell matched (no value_disagreement).
+        n = conn.execute("SELECT COUNT(*) FROM review_queue").fetchone()[0]
+        assert n == 0
+    finally:
+        conn.close()
+
+
+def test_chip_specs_overwrite_and_queue_when_needs_review_cell_disagrees(tmp_path):
+    """Pre-existing needs-review row with a different cell value →
+    overwrite (freshest extraction wins) AND queue value_disagreement so
+    the user can see the conflict."""
+    conn = _conn(tmp_path)
+    try:
+        with transaction(conn):
+            conn.execute(
+                "INSERT INTO cpu_catalog (model, catalog_status, cores) "
+                "VALUES (?, ?, ?)",
+                ("Core Ultra 9 285HX", "needs-review", "16"),
+            )
+
+        cand = CandidateProduct(model_code="some-laptop", year=2026)
+        cand.cpu_offerings = [{"model": _bundle("Core Ultra 9 285HX")}]
+        cand.cpu_chip_specs = {"Core Ultra 9 285HX": {"cores": "24"}}
+
+        with transaction(conn):
+            resolve_catalog(conn, cand)
+
+        # Overwrite happened.
+        row = conn.execute(
+            "SELECT cores FROM cpu_catalog WHERE model = ?",
+            ("Core Ultra 9 285HX",),
+        ).fetchone()
+        assert row["cores"] == "24"
+
+        # Queue row recorded the disagreement.
+        rows = conn.execute(
+            "SELECT conflict_type, field_path, existing_value, candidate_value "
+            "FROM review_queue WHERE conflict_type = 'value_disagreement'"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["field_path"] == "cpu_catalog.Core Ultra 9 285HX.cores"
+        assert json.loads(rows[0]["existing_value"]) == {"value": "16"}
+        assert json.loads(rows[0]["candidate_value"]) == {"value": "24"}
+    finally:
+        conn.close()
+
+
+def test_chip_specs_keep_and_queue_when_vouched_cell_disagrees(tmp_path):
+    """Pre-existing vouched row with a different cell value → existing
+    value preserved; queue value_disagreement."""
+    conn = _conn(tmp_path)
+    try:
+        with transaction(conn):
+            conn.execute(
+                "INSERT INTO cpu_catalog (model, catalog_status, cores) "
+                "VALUES (?, ?, ?)",
+                ("Core Ultra 9 285HX", "vouched", "16"),
+            )
+
+        cand = CandidateProduct(model_code="some-laptop", year=2026)
+        cand.cpu_offerings = [{"model": _bundle("Core Ultra 9 285HX")}]
+        cand.cpu_chip_specs = {"Core Ultra 9 285HX": {"cores": "24"}}
+
+        with transaction(conn):
+            resolve_catalog(conn, cand)
+
+        # Existing vouched value preserved.
+        row = conn.execute(
+            "SELECT cores, catalog_status FROM cpu_catalog WHERE model = ?",
+            ("Core Ultra 9 285HX",),
+        ).fetchone()
+        assert row["cores"] == "16"
+        assert row["catalog_status"] == "vouched"
+
+        rows = conn.execute(
+            "SELECT conflict_type, field_path FROM review_queue"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["conflict_type"] == "value_disagreement"
+        assert rows[0]["field_path"] == "cpu_catalog.Core Ultra 9 285HX.cores"
+    finally:
+        conn.close()

@@ -18,6 +18,15 @@ Plus per-cell metadata — see [Provenance and status](#provenance-and-status).
 
 One row per distinct CPU model (e.g., Core Ultra 9 285HX, Ryzen 9 8945HX). Populated deterministically from Intel ARK and AMD spec pages plus name-suffix rules. New chips found in scrapes are auto-added with `status = needs-review`; user confirms once → `vouched`.
 
+**Vendor-published chip-spec seeding (Session 7).** When a laptop spec page surfaces chip-level data (e.g., ASUS publishes NPU TOPS in its `Neural Processor` section, Lenovo publishes per-CPU cores/clocks/process-node in its PSREF attribute rows, HP/Dell publish core counts inline with the CPU prose), the bridge attaches those values to the candidate. The runner applies them per spec field:
+
+* If the catalog cell is `NULL` → write the new value (no queue row).
+* If `catalog_status = 'needs-review'` and the existing cell matches → no-op.
+* If `catalog_status = 'needs-review'` and the existing cell differs → overwrite (freshest extraction wins) **and** insert a `review_queue` row (`conflict_type = 'value_disagreement'`, `field_path = 'cpu_catalog.<model>.<column>'`).
+* If `catalog_status = 'vouched'` → keep the existing value, queue a `value_disagreement` row.
+
+Vendor coverage today: ASUS (`npu_tops`, `cores`); Lenovo (`cores`, `base_clock`, `boost_clock`, `architecture`, `process_node`); HP (`cores`); Dell (`cores`). Vendors only seed fields they actually publish.
+
 | Field | Type | Description |
 |---|---|---|
 | `model` | string (PK) | Canonical model name as published by manufacturer (e.g., "Core Ultra 9 285HX"). Foreign key target from `products.cpu_offerings`. |
@@ -204,7 +213,7 @@ Implemented as `bridge/helpers.GPU_TO_BOARD` plus `bridge/helpers.lookup_board(g
 | Field | Type | Notes |
 |---|---|---|
 | `adapter_offerings` | list | Each = `{wattage_w, tier}`. |
-| `adapter_connector` | string | barrel / USB-C PD / proprietary. **Product-level**, assumes uniform across offerings. |
+| `adapter_connector` | string | USB-C PD / barrel (Dell round pin) / slim-tip (Lenovo Legion) / rectangle (ASUS ROG flat plug) / proprietary. **Product-level**, assumes uniform across offerings. |
 
 ### Camera
 

@@ -48,15 +48,15 @@ Stage exit criterion: `python -m competitive_database refresh --brand dell --mod
 
 Add HP, Lenovo, ASUS to the bridge. Each is a contained add — dispatcher routes by `snapshot.source`, no other code changes needed.
 
-**Status (Session 7, 2026-05-07):** T3.1 and T3.2 done; T3.3 pending.
+**Status (Session 8, 2026-05-07):** Done. All three vendors shipped end-to-end. Session 8 also amended Session 3 Decision 4 — see SESSION_LOG.md — to allow vendor-published chip specs to seed the CPU catalog.
 
 | Task | Deliverable | Status |
 |---|---|---|
 | T3.1 | `bridge/hp.py` — HP parser (multi-line spec values: line 0 → `tier: base`, additional lines → `tier: optional`) + tests against fixtures | Done — live capture: OMEN Transcend 14 |
 | T3.2 | `bridge/lenovo.py` — Lenovo parser (walks hierarchical `level1 > level2 > level3` path keys) + tests | Done — live capture: Legion Pro 7 16AFR10H (AMD cousin; Intel Pro 7i Gen 10 not yet on PSREF) |
-| T3.3 | `bridge/asus.py` — ASUS parser (section-grouped h2 titles; per-SKU variants newline-joined) + tests | Pending — target: ROG Zephyrus G16 |
+| T3.3 | `bridge/asus.py` — ASUS parser (section-grouped h2 titles; per-SKU variants newline-joined) + tests | Done — live capture: ROG Zephyrus G16 (2026) |
 
-Stage exit criterion: refresh succeeds end-to-end for at least one product per vendor.
+Stage exit criterion: refresh succeeds end-to-end for at least one product per vendor. **Met.**
 
 ---
 
