@@ -6,16 +6,17 @@ A persistent, queryable database of competitor gaming-laptop specs from Dell, HP
 
 ## Status
 
-**Phase: Data layer — Stages 1–2 complete; Stage 3 next.** Foundation, schema, provenance helpers, and the Dell end-to-end slice are implemented and tested. Live refresh against the Alienware Area-51 writes a real product row with cross-tile-merged offerings, provenance on every populated cell, and the review queue functioning as designed.
+**Phase: Data layer — Stages 1–2 complete; Stage 3 in progress (Dell + HP + Lenovo live; ASUS pending).** Foundation, schema, provenance helpers, and three of four Stage 3 vendor bridges are implemented and tested. 111/111 tests pass. Live refresh has been validated against the Alienware Area-51 (Dell), the OMEN Transcend 14 (HP), and the Legion Pro 7 16AFR10H (Lenovo, AMD cousin used as a placeholder for the Intel Pro 7i Gen 10).
 
 - All 16 field categories from the source 80-column Excel (`Competitor Columns.xlsx`) are mapped to a data shape.
 - Schema connective tissue (catalog references, unknown-chip handling, provenance record format, naming, enum policy) is locked.
 - Database engine: **SQLite (local).** One file on disk, managed via DB Browser for SQLite. Migration to hosted Postgres reserved for if/when team access becomes real.
 - `scrapers-lib` Tier 2 fetchers exist for Dell, HP, Lenovo, ASUS; Acer and MSI deferred upstream. Installed editable from the sibling repo.
 - Six Stage 2 follow-up decisions resolved (year handling, naming, cross-tile merge, adapter source, boards modeling, storage parity). See `SESSION_LOG.md` Session 5 for detail.
+- Four Session 7 decisions resolved during the per-vendor pause checkpoints (HP weight handling, HP USB-C ambiguous-rate flagging, Lenovo target substitution, Lenovo `tgp_max` = max-per-board). See `SESSION_LOG.md` Session 7.
 
 **Immediate next phase:**
-1. Stage 3 (HP / Lenovo / ASUS bridge parsers) per `TASKS.md` — drop-in additions; the dispatcher routes by `snapshot.source`.
+1. Stage 3, vendor 3 — ASUS (ROG Zephyrus G16) bridge parser. Last vendor to close out Stage 3.
 2. Stages 4–7 follow per `TASKS.md`. Setup instructions and CLI reference land in Stage 7 (polish).
 
 ---

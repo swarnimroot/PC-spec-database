@@ -9,12 +9,16 @@ from __future__ import annotations
 from scrapers_lib import ProductSnapshot
 
 from . import dell as dell_bridge
+from . import hp as hp_bridge
+from . import lenovo as lenovo_bridge
 from .types import CandidateProduct
 
 
 _PARSERS = {
     "dell": dell_bridge.parse,
-    # Stage 3+ adds: "hp": hp_bridge.parse, "lenovo": ..., "asus": ...
+    "hp": hp_bridge.parse,
+    "lenovo": lenovo_bridge.parse,
+    # Stage 3+ adds: "asus": ...
 }
 
 

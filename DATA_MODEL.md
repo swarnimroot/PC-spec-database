@@ -86,12 +86,12 @@ Each product identified by `(model_code, year)`.
 |---|---|---|
 | `label` | string | Vendor convention (e.g., MB1, MB2, MB3). |
 | `tpp_max` | number (W) | Total platform power cap on this board. Sometimes scraped, often manual. |
-| `tgp_max` | number (W) | Board's max GPU TGP — single ceiling value. |
+| `tgp_max` | number (W) | Board's max GPU TGP — single ceiling value. When a vendor publishes per-GPU TGPs (e.g., Lenovo PSREF lists `TGP: 175W` for one GPU and `TGP: 140W` for another on the same board), the bridge stores the **maximum** across the board's GPUs. The column name (`tgp_max`) reflects this aggregation. |
 | `gpus` | list of strings | All GPUs supported on this board. Each = a GPU `model` from `gpu_catalog`. |
 
 **Derived view "GPUs available on this product"** = distinct set of GPU model refs across all boards (deduped).
 
-**Trade-off accepted:** one `tgp_max` per board collapses per-GPU TGP variance within a board. (E.g., MB1 with 5090 at 175W, 5080 at 150W, 5070 Ti at 140W — only the 175W ceiling is stored.)
+**Trade-off accepted:** one `tgp_max` per board collapses per-GPU TGP variance within a board. (E.g., MB1 with 5090 at 175W, 5080 at 150W, 5070 Ti at 140W — only the 175W ceiling is stored.) The bridge layer takes the **max** across the board's GPUs when the vendor publishes per-GPU TGPs.
 
 #### GPU → Board mapping (static)
 
@@ -112,7 +112,7 @@ Implemented as `bridge/helpers.GPU_TO_BOARD` plus `bridge/helpers.lookup_board(g
 
 **Unmapped GPUs:** the bridge emits a boards entry with `label: null` and the GPU bundle marked `needs-review`. The runner's existing `low_confidence_extraction` queue (and `new_chip_unverified` via catalog auto-add) covers it — no separate "unmapped GPU" queue type. Add the GPU to the table when its power class is known.
 
-`tpp_max` and `tgp_max` stay `vendor-doesn't-publish` for Dell because Dell never exposes them; future Lenovo/HP parsers may populate the values directly.
+`tpp_max` stays `vendor-doesn't-publish` across all current vendors (Dell, HP, Lenovo) — no vendor exposes board-level TPP. `tgp_max` stays `vendor-doesn't-publish` for Dell and HP, and is populated by Lenovo (max of the per-GPU TGPs PSREF publishes per row). ASUS coverage to be confirmed when its parser lands.
 
 ### Display
 

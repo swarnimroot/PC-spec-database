@@ -1,17 +1,17 @@
 """``refresh`` CLI subcommand.
 
-Fetches one (or, eventually, all) Dell product page(s), parses every
+Fetches one (or, eventually, all) vendor product page(s), parses every
 emitted snapshot via the bridge, and ingests each into the SQLite DB.
 
-For Stage 2 the only supported brand is ``dell``. ``--all`` is recognized
-but errors out with "not implemented yet" — the multi-vendor refresh
-arrives in Stage 3+.
+Stage 3 supports ``dell``, ``hp``, and ``lenovo``. ``--all`` is recognized
+but errors out with "not implemented yet" — multi-vendor whole-catalog
+refresh is deferred until the remaining vendors land.
 """
 
 from __future__ import annotations
 
 import argparse
-from typing import Optional
+from typing import Callable, Optional
 
 from scrapers_lib import Anchor, AttributionRegex
 
@@ -28,21 +28,41 @@ DEFAULT_DELL_URL_TMPL = (
     "alienware-18-area-51-gaming-laptop/spd/{slug}"
 )
 
+# Default URL template for HP shop PDPs. Slugs land directly under
+# ``/us-en/shop/pdp/`` — no per-family middle segment like Dell.
+DEFAULT_HP_URL_TMPL = "https://www.hp.com/us-en/shop/pdp/{slug}"
+
+# Default URL template for Lenovo PSREF product pages. Slugs are the
+# PSREF ProductKey segment (e.g. ``Legion_Pro_7_16AFR10H``); the line
+# segment is required by PSREF's URL shape but is informational — we
+# default it to ``Legion`` since the only gaming line we currently
+# target lives there. Override with ``--url`` for any other line.
+DEFAULT_LENOVO_URL_TMPL = (
+    "https://psref.lenovo.com/l/Product/Legion/{slug}?tab=spec"
+)
+
 
 def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser(
         "refresh",
         help="Fetch + parse + ingest a vendor product into the local DB.",
     )
-    p.add_argument("--brand", required=True, help="Vendor brand. Stage 2 only supports 'dell'.")
+    p.add_argument(
+        "--brand",
+        required=True,
+        help="Vendor brand. Stage 3 supports 'dell', 'hp', and 'lenovo'.",
+    )
     p.add_argument(
         "--model",
-        help="URL slug after /spd/ (e.g. alienware-area-51-aa18250-gaming-laptop).",
+        help=(
+            "URL slug (Dell: after /spd/; HP: after /pdp/; "
+            "Lenovo: PSREF ProductKey, e.g. Legion_Pro_7_16AFR10H)."
+        ),
     )
     p.add_argument(
         "--url",
         help="Override the full vendor URL. Recommended; --model fallback "
-        "uses an Alienware-shaped template.",
+        "uses a per-vendor template.",
     )
     p.add_argument(
         "--all",
@@ -62,24 +82,35 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     p.set_defaults(func=main)
 
 
+# Per-vendor (URL template, fetcher) registry. Fetchers are referenced by
+# name and imported lazily inside ``_fetch_snapshots`` so unit tests don't
+# pull in the live HTTP stack when they don't need to.
+_VENDOR_TEMPLATES: dict[str, str] = {
+    "dell": DEFAULT_DELL_URL_TMPL,
+    "hp": DEFAULT_HP_URL_TMPL,
+    "lenovo": DEFAULT_LENOVO_URL_TMPL,
+}
+
+
 def main(args: argparse.Namespace) -> None:
     if args.all:
         raise SystemExit(
             "refresh --all is not implemented yet (Stage 3+). "
-            "Use --brand dell --model <slug> for now."
+            "Use --brand <vendor> --model <slug> for now."
         )
 
     brand = (args.brand or "").lower()
-    if brand != "dell":
+    if brand not in _VENDOR_TEMPLATES:
         raise SystemExit(
-            f"refresh: only 'dell' is supported in Stage 2, got {brand!r}"
+            f"refresh: brand {brand!r} is not supported; "
+            f"known: {sorted(_VENDOR_TEMPLATES)}"
         )
 
     if not (args.url or args.model):
         raise SystemExit("refresh: provide either --url or --model")
 
-    url, slug = _resolve_dell_url(args.url, args.model)
-    snapshots = _fetch_dell_snapshots(url, slug, args.profiles_dir)
+    url, slug = _resolve_url(brand, args.url, args.model)
+    snapshots = _fetch_snapshots(brand, url, slug, args.profiles_dir)
 
     conn = connect(args.db)
     try:
@@ -124,28 +155,48 @@ def main(args: argparse.Namespace) -> None:
     )
 
 
-def _resolve_dell_url(
-    url_arg: Optional[str], slug_arg: Optional[str]
+def _resolve_url(
+    brand: str, url_arg: Optional[str], slug_arg: Optional[str]
 ) -> tuple[str, str]:
     if url_arg:
         slug = url_arg.rstrip("/").rsplit("/", 1)[-1]
         return url_arg, slug
     assert slug_arg is not None
-    return DEFAULT_DELL_URL_TMPL.format(slug=slug_arg), slug_arg
+    template = _VENDOR_TEMPLATES[brand]
+    return template.format(slug=slug_arg), slug_arg
 
 
-def _fetch_dell_snapshots(url: str, slug: str, profiles_dir: str):
-    """Live fetch via scrapers-lib. Imported lazily so unit tests don't
-    pull in Playwright when they don't need to."""
-    from scrapers_lib.tier2.dell import fetch_dell_product
-
+def _fetch_snapshots(brand: str, url: str, slug: str, profiles_dir: str):
+    """Live fetch via scrapers-lib. Per-vendor fetchers imported lazily so
+    unit tests don't pull in Playwright / curl_cffi when they don't need to."""
     anchor = Anchor(
         anchor_id=slug,
         anchor_type="product",
         name=slug,
         attribution_regex=AttributionRegex(primary=[slug]),
-        source_urls={"dell": url},
+        source_urls={brand: url},
     )
-    return fetch_dell_product(
-        url, anchors=[anchor], profiles_dir=profiles_dir, warm=True
+    if brand == "dell":
+        from scrapers_lib.tier2.dell import fetch_dell_product
+
+        return fetch_dell_product(
+            url, anchors=[anchor], profiles_dir=profiles_dir, warm=True
+        )
+    if brand == "hp":
+        from scrapers_lib.tier2.hp import fetch_hp_product
+
+        # The HP fetcher uses curl_cffi rather than Playwright and does
+        # not need a profiles_dir; it is accepted on the CLI for parity
+        # with Dell but ignored here.
+        return fetch_hp_product(url, anchors=[anchor], warm=True)
+    if brand == "lenovo":
+        from scrapers_lib.tier2.lenovo import fetch_lenovo_product
+
+        # Lenovo's PSREF endpoint is a plain JSON API — no Playwright,
+        # no curl_cffi, no profiles_dir, no warm-up. The fetcher accepts
+        # only the keyword args it needs.
+        return fetch_lenovo_product(url, anchors=[anchor])
+    raise SystemExit(
+        f"refresh: brand {brand!r} has no fetcher wired in; "
+        f"known: {sorted(_VENDOR_TEMPLATES)}"
     )

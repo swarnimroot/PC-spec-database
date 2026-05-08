@@ -6,6 +6,78 @@ Newest sessions at the top.
 
 ---
 
+## Session 7 — 2026-05-07 (implementation)
+
+**Goal:** Execute the Session 6 plan — Stage 3 vendor parsers, sequential, pause-and-review checkpoint after each vendor. Started cold with HP, then Lenovo. ASUS deferred per user pause-and-update-log decision.
+
+**Outcome:** HP and Lenovo parsers shipped end-to-end. 111/111 tests pass (83 after HP, 111 after Lenovo). Live captures for both vendors landed cleanly. Four user decisions resolved during the two checkpoint reviews. ASUS is the only remaining Stage 3 vendor. One TODO carried forward: re-run Lenovo against the Intel Pro 7i Gen 10 once Lenovo PSREF indexes it (live capture currently uses the AMD cousin as a placeholder, parser is built against the right shape).
+
+### What was built / changed
+
+- **Bridge — HP.** `competitive_database/bridge/hp.py` mirrors the Dell pattern. HP-specific quirks absorbed: (a) the combined `"Processor, graphics & memory"` key splits on `+` per option then per-component; (b) RAM speed/type/OC stay `vendor-doesn't-publish` (HP gaming PDPs structurally don't publish them); (c) USB-C version inferred from signaling rate labels (`40Gbps` / `10Gbps` / `5Gbps` → USB4 / Gen 2 / Gen 1, all `verified`); (d) `20Gbps` and `80Gbps` attach a best-guess version with `status: needs-review` per the Session 7 user decision; (e) HP series naming = family + screen-size token (e.g., "Transcend 14"); (f) HP's single-value weight publishes as `weight_kg_min` only, `weight_kg_max` stays `vendor-doesn't-publish`; (g) storage gen falls back to HP's `(4x4 SSD)` shorthand when no explicit `PCIe Gen N`. Identity helpers private to the module (`_derive_hp_model_code` / `_derive_hp_sub_brand` / `_derive_hp_series`) — kept out of the generic `helpers.py`. `SCRAPER_ID = "hp.fetch_hp_product"`.
+- **Bridge — Lenovo.** `competitive_database/bridge/lenovo.py` mirrors the HP pattern but absorbs Lenovo's hierarchical 3-level path keys (`"Performance > Processor > Processor"` etc.). Per-row `Att: AttV; Att: AttV` strings are parsed via a private `_row_attrs` helper; intra-row `;` separators are kept distinct from inter-row separators by a private `_split_alternatives` helper that splits only on `\n` and the literal word `or`. Per-GPU TGP attribute (`"TGP: 140W"` / `"TGP: 175W"`) collapses to `tgp_max = max` per board per the Session 7 user decision (initial subagent default was `vendor-doesn't-publish`; corrected on review — the schema column is literally named `tgp_max`, so the highest TGP is the right value to store). Lenovo's spec pages publish 40+ fields, the richest of the three, so most live assertions key off attribute names rather than free-text regex. Identity helpers private to the module. `SCRAPER_ID = "lenovo.fetch_lenovo_product"`.
+- **Dispatcher.** `bridge/dispatcher.py` now routes `"dell"` / `"hp"` / `"lenovo"`. ASUS slot reserved.
+- **CLI refresh.** `cli/refresh.py` replaced its hardcoded Dell-only check with `_VENDOR_TEMPLATES` carrying `dell` / `hp` / `lenovo` URL templates and a vendor-aware fetch dispatcher (lazy imports preserved per Stage 2 pattern).
+- **Tests.** `tests/bridge/test_hp.py` (22 cases — 12 live + 9 synthetic + 1 ambiguous-USB-C-rate flag check) and `tests/bridge/test_lenovo.py` (28 cases — 17 live + 11 synthetic). Fixtures: 4 in `tests/fixtures/hp/` (3 live tiles + 1 synthetic) and 2 in `tests/fixtures/lenovo/` (1 live + 1 synthetic).
+- **Live verification.** HP / OMEN Transcend 14 (`pdk-a88y7av-1`): 3 tiles → 1 product `(14t-fb100, 2026)`, 50 fields inserted, queue = 5 `new_chip_unverified` + 1 `year_inferred`. Lenovo / Legion Pro 7 (`16AFR10H`, AMD cousin): 1 snapshot, 50 fields inserted, queue = 4 `new_chip_unverified` + 1 `year_inferred`. Both clean — no `value_disagreement`, no `low_confidence_extraction`.
+
+### Decisions resolved this session
+
+- **HP weight handling — keep current behavior.** HP publishes one weight figure (e.g., 3.6 lb on the Transcend 14). Parser stores it as `weight_kg_min`; `weight_kg_max` stays `vendor-doesn't-publish`. Conservative — matches the convention that single-value weights are the starting weight. User chose this from a three-option framing.
+- **HP USB-C signaling rate handling — translate, but flag for review when uncertain.** Unambiguous rates (`40Gbps` → USB4, `10Gbps` → USB 3.2 Gen 2, `5Gbps` → USB 3.2 Gen 1) and explicit Gen wording land `verified`. `20Gbps` and `80Gbps` attach best-guess versions (`USB 3.2 Gen 2x2`, `USB4`) with `status: needs-review` so the runner queues them for human review. Mechanical change: `_extract_usbc_version` now returns `Optional[tuple[value, status]]` and the populate-step builds the bundle accordingly. One synthetic test case locks the new behavior.
+- **Lenovo target substitution accepted.** Intel Legion Pro 7i Gen 10 (the user-chosen target from Session 6) isn't yet on Lenovo PSREF, the only source `scrapers-lib` accepts. AMD cousin (`Legion Pro 7, 16AFR10H`) used as a placeholder live capture. Synthetic fixture is still keyed to the Intel Pro 7i shape, so the parser is built against the right product. TODO: re-run against the Intel variant once PSREF indexes it.
+- **Lenovo per-GPU TGP collapses to `max` per board.** Lenovo publishes per-GPU TGPs (e.g., RTX 5070 Ti at 140W and RTX 5080 at 175W on the same board). Schema column name (`tgp_max`) was always the original Session 1 intent — the subagent's default of `vendor-doesn't-publish` was over-cautious. Corrected on review: the highest per-board TGP lands as `verified`. Lenovo Pro 7's MB1 → `tgp_max = 175`. Dell and HP boards stay blank (those vendors don't publish per-GPU TGP at all).
+
+### Course corrections worth remembering
+
+- **Subagent's "play safe" defaults can override schema intent.** The Lenovo subagent left `tgp_max` as `vendor-doesn't-publish` to avoid silently picking a number — but the column is literally named `tgp_max` and the schema was designed for exactly the highest-per-board case. Lesson: when a subagent reports "I picked the conservative path because two values won't fit one slot," cross-check the schema's naming intent, not just the abstract trade-off. The user picked up on this immediately ("the schema is set up to have the highest power per board, right? that was the plan") — confirmed and corrected.
+- **PSREF can lag the actual product release by weeks.** Lenovo's structured spec mirror only carries products that have been on the market long enough to land in their internal database. Brand-new flagships (e.g., the Intel Pro 7i Gen 10) may not appear for some time. For Lenovo specifically, the AMD/Intel cousin pattern means an AMD variant often lands earlier and works as a stand-in for parser validation. Don't burn cycles guessing PSREF product keys for unreleased SKUs.
+- **Vendor-by-vendor checkpoint cadence is paying off.** HP surfaced two real decisions (weight, ambiguous USB-C labels). Lenovo surfaced two more (target substitution, per-GPU TGP collapse). Bundling all three vendors into one subagent run would have buried these in a single 1000-word report; the per-vendor pause-and-review forced each decision into its own framing. Worth keeping for ASUS.
+- **HP's single combined `"Processor, graphics & memory"` key is unique to HP.** Dell uses three distinct keys; Lenovo uses three distinct keys (under hierarchical paths). HP's combined-key handling does not need to generalize. If ASUS shows a similar combined key, treat that as a separate decision rather than reusing HP's `+`-split logic blindly.
+- **`(value, status)` return-tuple pattern for ambiguous extractions is the new norm.** Introduced in HP's `_extract_usbc_version`; carried forward into Lenovo. Future vendor parsers should use the same shape for any field where the parser has a best-guess value but uncertain confidence.
+
+### Where we left off (pickup pointers for next session)
+
+- **Stage 3, vendor 3 — ASUS / ROG Zephyrus G16.** Same shape as HP / Lenovo: capture live snapshots → `tests/fixtures/asus/`, write `bridge/asus.py` (mirror `bridge/hp.py` and `bridge/lenovo.py`), write `tests/bridge/test_asus.py`, register in `bridge/dispatcher.py`, add `asus` template + lazy `fetch_asus_product` to `cli/refresh.py`, run live smoke test. Use the `(value, status)` tuple pattern for any ambiguous extraction. Then Stage 3 is fully done.
+- **Lenovo Intel variant TODO.** Once PSREF lists `Legion_Pro_7i_16IRX10H` (or whatever the Intel Pro 7i Gen 10's product key turns out to be), re-run `refresh --brand lenovo --url <new URL>`. The parser is already built against the Intel-variant shape (synthetic fixture confirms), so this is a data refresh, not a code change.
+- **Stage 4 (view layer + `inspect-product`)** comes after ASUS.
+- **`competitive.db`** carries the post-Lenovo state from this session's smoke test (one AMD Legion Pro 7 row, 4 chip stubs, 1 year-inferred queue entry). Wipe before the next live refresh if you want a clean slate.
+
+---
+
+## Session 6 — 2026-05-07 (planning)
+
+**Goal:** Pre-flight for Stage 3 (HP / Lenovo / ASUS parsers). Confirm fixture targets, fixture pattern, execution order, and checkpoint cadence before any code is written.
+
+**Outcome:** No code written. Four operational decisions locked. Next session opens cold with HP parser implementation and pauses at HP for review before Lenovo / ASUS.
+
+### Decisions locked this session
+
+- **Live fixture targets.** HP → OMEN Transcend 14. Lenovo → Legion Pro 7i Gen 10. ASUS → ROG Zephyrus G16. All chosen as current-gen gaming flagships; user-confirmed picks.
+- **Fixture pattern — mirror Dell.** At least 1 synthetic fixture (full-coverage edge cases) plus 1–2 live captures per vendor. Live captures land in `tests/fixtures/{hp,lenovo,asus}/`.
+- **Execution order — sequential, not parallel.** HP first. Reason: if HP exposes a missing helper or a broken structural assumption, we find it on vendor 1 rather than having three subagents collide on `bridge/helpers.py` simultaneously. Slower wall-clock; acceptable for a solo project.
+- **Checkpoint after HP.** Pause once HP parser + tests + dispatcher registration + live smoke test all pass. User reviews the pattern before Lenovo / ASUS proceed. Avoids burning context across three vendors if the shape needs adjustment.
+
+### Recon performed (Explore agent)
+
+Confirmed Stage 3 is purely additive against the existing codebase:
+
+- `bridge/dispatcher.py` registers only `"dell"`; HP / Lenovo / ASUS source strings need to be added to `_PARSERS`.
+- `cli/refresh.py` is hardcoded Dell-only (the brand check at lines 73–76 raises on anything else); needs a vendor → fetcher map.
+- No fixtures yet for HP / Lenovo / ASUS.
+- `bridge/types.py`, `bridge/helpers.py`, `ingest/runner.py`, and the `db/` layer are all vendor-agnostic and untouched by Stage 3.
+- scrapers-lib import path: `from scrapers_lib.tier2.{vendor} import fetch_{vendor}_product` (lazy import, mirroring the Dell pattern).
+
+No contradictions against `ARCHITECTURE.md` or the project memory.
+
+### Where we left off (pickup pointers for next session)
+
+- **Stage 3, vendor 1 — HP / OMEN Transcend 14.** Capture live snapshot → `tests/fixtures/hp/`, write `bridge/hp.py` (line-0 → `tier: base`, rest → `tier: optional`), write `tests/bridge/test_hp.py`, register in dispatcher, extend `cli/refresh.py` to dispatch `--brand hp`, run a live smoke test against the OMEN Transcend 14 PDP. Pause for user review.
+- **After HP review:** Lenovo (Legion Pro 7i Gen 10) → ASUS (ROG Zephyrus G16), same shape. Then Stage 4 (view layer + `inspect-product`).
+- **No design questions outstanding.** Stage 3 is implementation-only.
+
+---
+
 ## Session 5 — 2026-05-07 (implementation)
 
 **Goal:** Stage 2 (Dell end-to-end slice) implementation + six follow-up decisions applied on top of the subagent's first pass.
