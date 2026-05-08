@@ -14,6 +14,7 @@ cannot be edited via this path syntax.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -24,6 +25,9 @@ from ..db.helpers import (
     write_offerings,
     write_scalar,
 )
+
+
+_YEAR_SUFFIX_RE = re.compile(r"^(.+)-(\d{4})$")
 
 
 _OFFERINGS_COLUMNS = frozenset(
@@ -170,3 +174,51 @@ def write_catalog_text_at_path(
         f"ON CONFLICT(model) DO UPDATE SET {parsed.column} = excluded.{parsed.column}",
         (parsed.catalog_model, raw_value),
     )
+
+
+def format_product_pk(model_code: str, year: int) -> str:
+    """Format a product PK for display, collapsing a redundant year suffix.
+
+    Most vendor slugs do not embed the model year, so the canonical
+    display form is ``{model_code}-{year}``. ASUS ROG slugs *do* embed
+    the year (``rog-strix-g16-2026``), which would otherwise render as
+    ``rog-strix-g16-2026-2026``. When ``model_code`` already ends with
+    ``-{year}``, return it unchanged.
+    """
+    suffix = f"-{year}"
+    if model_code.endswith(suffix):
+        return model_code
+    return f"{model_code}{suffix}"
+
+
+def parse_product_arg(
+    conn: sqlite3.Connection,
+    arg: str,
+    *,
+    year_arg: Optional[int] = None,
+) -> tuple[str, Optional[int]]:
+    """Resolve a user-supplied product argument to ``(model_code, year)``.
+
+    Accepts both bare slug (``ac16251``) and the display form
+    (``ac16251-2026``) printed by ``refresh`` and other CLIs.
+
+    When the input ends with ``-YYYY``, prefer the split form
+    (``model_code=ac16251``, ``year=2026``) iff a matching row exists.
+    Otherwise fall back to treating the whole string as a model_code —
+    that covers ASUS ROG slugs that bake the year into the URL token
+    (``rog-strix-g16-2026``).
+
+    An explicit ``year_arg`` always wins over a year inferred from the
+    suffix.
+    """
+    suffix_match = _YEAR_SUFFIX_RE.match(arg)
+    if suffix_match is not None:
+        candidate_slug = suffix_match.group(1)
+        candidate_year = int(suffix_match.group(2))
+        row = conn.execute(
+            "SELECT 1 FROM products WHERE model_code = ? AND year = ?",
+            (candidate_slug, candidate_year),
+        ).fetchone()
+        if row is not None:
+            return candidate_slug, year_arg if year_arg is not None else candidate_year
+    return arg, year_arg

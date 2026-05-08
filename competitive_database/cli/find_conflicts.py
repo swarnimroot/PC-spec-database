@@ -12,6 +12,7 @@ import json
 import sys
 
 from ..db.connection import connect
+from ._paths import format_product_pk, parse_product_arg
 
 
 def add_subparser(subparsers: argparse._SubParsersAction) -> None:
@@ -40,16 +41,35 @@ def main(args: argparse.Namespace) -> None:
     conn = connect(args.db)
     try:
         if args.product:
-            rows = conn.execute(
-                """
-                SELECT id, product_model_code, product_year, field_path,
-                       conflict_type, existing_value, candidate_value, detected_at
-                FROM review_queue
-                WHERE resolved_at IS NULL AND product_model_code = ?
-                ORDER BY id
-                """,
-                (args.product,),
-            ).fetchall()
+            # Accept both bare slug and the ``slug-YYYY`` display form
+            # that ``refresh`` prints (Session 12 Finding #11). When the
+            # year is recovered from the suffix, narrow the filter to
+            # that year too.
+            model_code, year = parse_product_arg(conn, args.product)
+            if year is not None:
+                rows = conn.execute(
+                    """
+                    SELECT id, product_model_code, product_year, field_path,
+                           conflict_type, existing_value, candidate_value, detected_at
+                    FROM review_queue
+                    WHERE resolved_at IS NULL
+                      AND product_model_code = ?
+                      AND product_year = ?
+                    ORDER BY id
+                    """,
+                    (model_code, year),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id, product_model_code, product_year, field_path,
+                           conflict_type, existing_value, candidate_value, detected_at
+                    FROM review_queue
+                    WHERE resolved_at IS NULL AND product_model_code = ?
+                    ORDER BY id
+                    """,
+                    (model_code,),
+                ).fetchall()
         else:
             rows = conn.execute(
                 """
@@ -72,8 +92,9 @@ def main(args: argparse.Namespace) -> None:
     for row in rows:
         existing = _summarize(row["existing_value"])
         candidate = _summarize(row["candidate_value"])
+        pk_label = format_product_pk(row["product_model_code"], row["product_year"])
         print(
-            f"  #{row['id']}  {row['product_model_code']}-{row['product_year']}  "
+            f"  #{row['id']}  {pk_label}  "
             f"{row['conflict_type']}"
         )
         print(f"      field:     {row['field_path']}")

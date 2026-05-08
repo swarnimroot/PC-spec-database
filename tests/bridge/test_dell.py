@@ -257,3 +257,39 @@ def test_parse_area_51_synthetic_unions_two_gpus_into_mb1():
     assert cand.boards[0]["label"]["value"] == "MB1"
     gpu_names = sorted(g["value"] for g in cand.boards[0]["gpus"])
     assert gpu_names == ["RTX 5070 Ti", "RTX 5090"]
+
+
+def test_parse_synthetic_design_fields_vdp_when_no_chassis_section():
+    """Area-51 live capture omits the Chassis section entirely. The
+    bridge must still mark every Design field as ``vendor-doesn't-
+    publish`` rather than leaving it ``None`` so the row carries
+    provenance (Session 12 Finding #2).
+    """
+    if not _HAS_SCRAPERS:
+        pytest.skip("scrapers-lib not installed")
+    raw = json.loads(
+        (FIXTURE_DIR / "snapshot_aa18250_synthetic.json").read_text(encoding="utf-8")
+    )
+    for k in list(raw.keys()):
+        if k.startswith("_"):
+            raw.pop(k)
+    # Drop the Chassis / Materials sections to mirror the Area-51
+    # live capture where Dell publishes neither.
+    raw["specs"].pop("Chassis", None)
+    raw["specs"].pop("Materials", None)
+    snap = ProductSnapshot.model_validate(raw)
+    cand = dell_bridge.parse(snap)
+
+    for fld in (
+        "a_cover_material",
+        "c_cover_material",
+        "d_cover_material",
+        "lighting",
+        "thermal_shelf",
+    ):
+        bundle = getattr(cand, fld)
+        assert bundle is not None, f"{fld} should be populated as VDP, not None"
+        assert bundle["status"] == "vendor-doesn't-publish", (
+            f"{fld} expected VDP, got {bundle['status']}"
+        )
+        assert bundle["value"] is None

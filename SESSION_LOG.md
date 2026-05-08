@@ -6,6 +6,73 @@ Newest sessions at the top.
 
 ---
 
+## Session 13 — 2026-05-08 (Stage 7 T7.0b: bridge bug sweep + CLI ergonomics + 3 policy decisions)
+
+**Goal:** Execute the actionable bridge + CLI fixes from Session 12's 16-finding list (T7.0b), surface the policy items that block remaining fixes, and capture the resulting new tasks.
+
+**Outcome:** T7.0b complete — 7 fixes shipped across ASUS / Dell / Lenovo bridges and 5 CLIs. 172 → 192 tests passing. Three policy decisions resolved (resolution_label, boards.label, keyboard shape) → fold into T7.1 plus two new tasks T7.0c / T7.0d. Two findings deferred (#1 HP upstream-blocked; #3 Lenovo www→psref rolled into T7.0a).
+
+### Code that landed
+
+**Bridges:**
+
+- `bridge/dell.py` — `_populate_design` now marks all 5 Design fields as `vendor-doesn't-publish` when Dell omits the Chassis / Materials section (Area-51 case, Finding #2). NULL meant "we never looked"; VDP means "we looked and Dell didn't publish".
+- `bridge/lenovo.py` — Camera resolution: introduced `_MP_TO_P_FORM` mapping (0.9MP→720p, 2.0MP→1080p, 5.0MP→1440p, 8.0MP→4K) so Lenovo's MP form aligns with the p-form Dell / HP / ASUS publish (Finding #5); unknown MP values fall back to raw form with `status="needs-review"`. Lighting field now strips straight + curly double-quote variants via `_clean_lighting()` (Finding #8).
+
+**CLIs:**
+
+- `cli/_paths.py` — added `format_product_pk(model_code, year)` (collapses redundant year suffix; `rog-strix-g16-2026 + 2026 → rog-strix-g16-2026`) and `parse_product_arg(conn, arg, year_arg=None)` (accepts both bare slug and `slug-YYYY` paste form; falls back to whole-arg for ASUS-style baked-in-year slugs).
+- `cli/refresh.py` — added `_coerce_vendor_url()` that auto-appends `/spec/` to ASUS URLs (Finding #4); display line uses `format_product_pk` (Finding #12).
+- `find-empty`, `find-conflicts`, `inspect-product`, `manual-edit` — all now accept `slug-YYYY` paste form (Finding #11). Scope was `find-empty` + `find-conflicts` only; extended to inspect-product + manual-edit for UX consistency.
+- `find-conflicts`, `manual-edit`, `resolve` — display lines use `format_product_pk` (Finding #12 follow-up across CLIs that print product PK).
+
+**Tests:** +20 across `tests/cli/test_paths.py` (new, 11 tests for both helpers), `tests/cli/test_refresh.py` (new, 6 tests), `tests/bridge/test_dell.py` (+1 synthetic Design VDP test), `tests/bridge/test_lenovo.py` (2 updated for normalized output, +2 synthetic for MP fallback + curly-quote stripping).
+
+### Findings status after this session
+
+**Closed:**
+
+- #2 Dell Design gap — fixed.
+- #4 ASUS `/spec/` requirement — fixed.
+- #5 Lenovo camera MP form — fixed.
+- #8 Lenovo lighting quote residue — fixed.
+- #11 CLI slug-with-year tolerance — fixed across 4 CLIs.
+- #12 ASUS double-year suffix in display — fixed across 4 CLIs.
+
+**Spawned new tasks:**
+
+- #6 display resolution_label drift → T7.1 README enum-pair documentation (decision: accept WQXGA / 2.5K / FHD / 1080p / UHD / 4K as documented synonyms; no bridge normalization).
+- #7 boards.label MB tier vs ordinal → T7.0c (decision: switch view-layer to per-product ordinals; bridge tier semantics stay for merge logic).
+- #9 keyboard description shape → T7.0d (decision: structure as discrete offerings — `backlight`, `copilot_key`, `layout`, `travel_mm`; description → VDP).
+
+**Deferred:**
+
+- #1 HP `scrapers_lib.tier2.hp.parse_hp_product_page` `RuntimeError` on OMEN Transcend 14 PDP — upstream issue, not a bridge bug. Awaits scrapers-lib fix.
+- #3 Lenovo `www.lenovo.com` consumer-shop URL rejection — folds into T7.0a Lenovo merge ingest. Tracked as part of T7.0a scope.
+
+**Still open from Session 12:**
+
+- #10 `year_inferred` cross-contamination in review queue — not addressed this session.
+- #13 `anti_glare` enum confirmation — not addressed.
+- #14 vendor URL conventions documentation — folds into T7.1.
+- #15 keyboard structured offerings — same as #9, now T7.0d.
+- #16 Lenovo merge ingest architectural addition — T7.0a.
+
+### Decisions locked this session
+
+1. **resolution_label is a documented enum-pair, not a normalized one.** Vendors publish either form (`WQXGA` / `2.5K`); both stay in the DB as-is. `T7.1` README adds the pair table so consumers know `WQXGA = 2.5K = 2560 × 1600` etc. Rationale: lossless preservation of vendor copy; easier than picking one canonical form and making both vendor camps wrong.
+2. **boards.label switches to per-product ordinals at the view layer.** Bridges keep internal MB1/MB2/MB3 tier labels (load-bearing for cross-tile merge — runner unions boards by matching label across tiles). View layer (orchestrator or boards renderer) walks the product's actual boards and renumbers MB1 / MB2 by presence order. Outcome: a Dell ac16251 with no RTX 5070 Ti+ SKU shows MB1 (RTX 5070) + MB2 (RTX 4050) instead of MB2 + MB3, matching naive expectation. Bridge tests stay unchanged.
+3. **keyboard description structures into discrete offerings.** Schema gains leaves `backlight`, `copilot_key`, `layout`, `travel_mm`; free-text marketing blob becomes vendor-doesn't-publish (or a short normalized one-liner). Touches all 4 vendor bridges. Resolves the "200-char Copilot legal disclaimer" outlier without truncation.
+
+### Where we left off (pickup pointers)
+
+- T7.0b is committable: 13 files modified / created, 192/192 tests green. User opted to pause for git review + commit.
+- TASKS.md and SESSION_LOG.md updated this turn (T7.0b closeout + T7.0c / T7.0d entries + this session entry).
+- README.md "Status" section (lines 6–23) still drifts on Stage 7 progress — flagged for next-session sweep alongside T7.1.
+- Next likely task: T7.0c (smaller — view-layer rewrite, no schema change) before T7.0d (larger — bridge rework + schema additions). User has not chosen yet.
+
+---
+
 ## Session 12 — 2026-05-08 (Stage 6 audit pass + Lenovo multi-URL merge design)
 
 **Goal:** Execute the T6.1 + T6.2 audit pass end-to-end across all 4 vendors. Surface every bridge bug, CLI ergonomic issue, ingest-policy gap, and normalization drift. Close Stage 6 by capturing findings in T6.7; scope fixes into Stage 7.

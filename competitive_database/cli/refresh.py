@@ -18,6 +18,7 @@ from scrapers_lib import Anchor, AttributionRegex
 from ..bridge.dispatcher import dispatch
 from ..db.connection import connect
 from ..ingest.runner import IngestReport, ingest_product
+from ._paths import format_product_pk
 
 
 # Default URL prefix for Alienware spd pages. Other Dell laptop families
@@ -145,7 +146,7 @@ def main(args: argparse.Namespace) -> None:
             total.add(report)
             tile_str = ",".join(per_tile_ids[pk])
             print(
-                f"[{pk[0]}-{pk[1]} tiles={tile_str}] "
+                f"[{format_product_pk(pk[0], pk[1])} tiles={tile_str}] "
                 f"inserted={report.inserted_fields} "
                 f"refreshed={report.refreshed_fields} "
                 f"conflicts={report.conflicts} "
@@ -172,11 +173,27 @@ def _resolve_url(
     brand: str, url_arg: Optional[str], slug_arg: Optional[str]
 ) -> tuple[str, str]:
     if url_arg:
-        slug = url_arg.rstrip("/").rsplit("/", 1)[-1]
-        return url_arg, slug
+        url = _coerce_vendor_url(brand, url_arg)
+        slug = url.rstrip("/").rsplit("/", 1)[-1]
+        return url, slug
     assert slug_arg is not None
     template = _VENDOR_TEMPLATES[brand]
     return template.format(slug=slug_arg), slug_arg
+
+
+def _coerce_vendor_url(brand: str, url: str) -> str:
+    """Apply per-vendor URL normalizations.
+
+    ASUS ROG spec pages require a trailing ``/spec/`` subpath; landing-
+    page URLs without it cause the fetcher to fail. Auto-append it so
+    users can paste either form.
+    """
+    if brand == "asus":
+        path = url.rstrip("/")
+        if path.endswith("/spec"):
+            return path + "/"
+        return path + "/spec/"
+    return url
 
 
 def _fetch_snapshots(brand: str, url: str, slug: str, profiles_dir: str):

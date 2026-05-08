@@ -1272,11 +1272,17 @@ def _populate_design(
     source_url: str,
     captured_at: str,
 ) -> None:
+    # When Dell omits the Chassis / Materials section entirely
+    # (Area-51 live capture, Session 12 Finding #2), every Design
+    # field must still land as ``vendor-doesn't-publish`` so the row
+    # carries provenance. NULL means "we never looked"; VDP means
+    # "we looked and Dell didn't publish".
     if text is None:
-        return
-    a_val = _material_near(text, _LID_PAT)
-    c_val = _material_near(text, _PALM_PAT)
-    d_val = _material_near(text, _BOTTOM_PAT)
+        a_val = c_val = d_val = None
+    else:
+        a_val = _material_near(text, _LID_PAT)
+        c_val = _material_near(text, _PALM_PAT)
+        d_val = _material_near(text, _BOTTOM_PAT)
     cand.a_cover_material = _maybe_bundle(a_val, source_url, captured_at)
     cand.c_cover_material = _maybe_bundle(c_val, source_url, captured_at)
     cand.d_cover_material = _maybe_bundle(d_val, source_url, captured_at)

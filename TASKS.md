@@ -117,13 +117,17 @@ Stage exit criterion: data layer is trusted enough to be the foundation for Phas
 
 ## Stage 7 — Polish
 
+**Status (Session 13, 2026-05-08):** T7.0b shipped (7 actionable bridge + CLI fixes; 172 → 192 tests). Three policy decisions resolved this session, spawning T7.0c (boards.label view rewrite) and T7.0d (keyboard structured offerings); resolution_label folds into T7.1. T7.0a Lenovo merge ingest still open. Deferrals: Finding #1 HP upstream-blocked; Finding #3 Lenovo www→psref redirect rolled into T7.0a.
+
 | Task | Deliverable | Status |
 |---|---|---|
-| T7.0a | Lenovo multi-URL merge ingest — slug parser + family-code detection + append-vs-new ingest path. Adds `family_code` and `source_model_codes` fields. Design in `SESSION_LOG.md` Session 12. | New (Stage 6 finding #16) |
-| T7.0b | Bridge bug sweep from Stage 6 findings — Dell Design section, ASUS auto-append `/spec/`, Lenovo www→psref redirect handling, model_code double-year-suffix, year_inferred cross-contamination. Each ~1-3 hours. See `SESSION_LOG.md` Session 12 #1-9, #11-12. | New |
-| T7.1 | Update `README.md` with setup instructions, common workflows, CLI reference | |
+| T7.0a | Lenovo multi-URL merge ingest — slug parser + family-code detection + append-vs-new ingest path. Adds `family_code` and `source_model_codes` fields. Subsumes Finding #3 (consumer-shop URL acceptance). Design in `SESSION_LOG.md` Session 12. | New (Stage 6 finding #16) |
+| T7.0b | Bridge bug sweep from Stage 6 findings — Dell Design VDP gap, ASUS auto-append `/spec/`, ASUS double-year suffix, Lenovo lighting residue + camera MP normalization, CLI slug-with-year tolerance. See `SESSION_LOG.md` Session 12 #2, #4, #5, #8, #11, #12 + Session 13 implementation notes. | Done — Session 13. Helpers `format_product_pk` + `parse_product_arg` added to `cli/_paths.py`; wired across find-empty, find-conflicts, inspect-product, manual-edit, resolve. Findings #1 (HP upstream) and #3 (Lenovo URL → T7.0a) deferred. |
+| T7.0c | Boards.label per-product ordinal renumbering — view-layer rewrite (preserves bridge tier-merge semantics). Decoded: bridge keeps internal MB1/MB2/MB3 tier labels for cross-tile merge; view layer renames them to per-product ordinals at render time so an ac16251 with no top-tier SKU shows MB1 + MB2 instead of MB2 + MB3. | New (Session 13 policy decision; Finding #7) |
+| T7.0d | Keyboard structured offerings — extract `backlight`, `copilot_key`, `layout`, `travel_mm` as discrete bundle leaves; `description` becomes vendor-doesn't-publish (or short normalized line). Touches all 4 bridges + schema additions. | New (Session 13 policy decision; Finding #9) |
+| T7.1 | Update `README.md` with setup instructions, common workflows, CLI reference. Also document the `resolution_label` enum-pair convention (WQXGA = 2.5K, FHD = 1080p, UHD = 4K) per Session 13 Finding #6 decision. | |
 | T7.2 | End-to-end smoke test across all four vendors | |
-| T7.3 | Update `SESSION_LOG.md` with implementation milestones as they land | |
+| T7.3 | Update `SESSION_LOG.md` with implementation milestones as they land | Partial — Session 13 entry covers T7.0b closeout; further milestones to follow. |
 
 Stage exit criterion: a fresh clone plus the docs is enough for someone (or future-me) to set up the project, run a refresh, inspect data, and resolve a conflict without external help.
 

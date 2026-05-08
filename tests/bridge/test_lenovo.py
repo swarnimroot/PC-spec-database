@@ -222,15 +222,19 @@ def test_parse_live_adapter_slim_tip_two_wattage_options():
 
 def test_parse_live_camera_two_offerings_with_e_shutter():
     """PSREF Camera key carries two SKU alternatives: ``5.0MP`` and
-    ``HD 720p``; both with E-shutter."""
+    ``HD 720p``; both with E-shutter. The ``5.0MP`` form is normalized
+    to ``1440p`` (Session 12 Finding #5) so resolution values are
+    comparable across vendors.
+    """
     snap = _load_snapshot(LIVE_LEGION)
     cand = lenovo_bridge.parse(snap)
 
     assert cand.camera_offerings is not None
     assert len(cand.camera_offerings) == 2
     res_values = [c["resolution"]["value"] for c in cand.camera_offerings]
-    assert res_values == ["5.0MP", "720p"]
+    assert res_values == ["1440p", "720p"]
     for c in cand.camera_offerings:
+        assert c["resolution"]["status"] == "verified"
         assert c["privacy_shutter"]["value"] is True
 
 
@@ -292,9 +296,13 @@ def test_parse_live_design_top_and_bottom_aluminum():
     assert cand.d_cover_material["value"] == "aluminum"
     # C-cover (palm rest) not separately called out → vendor-doesn't-publish.
     assert cand.c_cover_material["status"] == "vendor-doesn't-publish"
-    # System Lighting key populates ``lighting``.
+    # System Lighting key populates ``lighting``. Embedded quotes
+    # around brand tokens (``"Legion" logo …``) get stripped so the
+    # stored prose is clean (Session 12 Finding #8).
     assert cand.lighting["value"] is not None
     assert "RGB" in cand.lighting["value"]
+    assert '"' not in cand.lighting["value"]
+    assert "Legion logo" in cand.lighting["value"]
 
 
 def test_parse_live_cpu_chip_specs_extracted_from_psref_attrs():
@@ -437,3 +445,45 @@ def test_parse_synthetic_design_covers_marked_when_unanchored():
     assert cand.a_cover_material["value"] == "aluminum"
     assert cand.d_cover_material["value"] == "aluminum"
     assert cand.c_cover_material["status"] == "vendor-doesn't-publish"
+
+
+def test_parse_synthetic_camera_unknown_mp_value_flags_needs_review():
+    """An MP value not in the normalization table (Session 12 Finding
+    #5) falls back to the raw ``NMP`` form and is flagged
+    ``needs-review`` so manual normalization can resolve it.
+    """
+    if not _HAS_SCRAPERS:
+        pytest.skip("scrapers-lib not installed")
+    raw = json.loads((FIXTURE_DIR / SYNTH).read_text(encoding="utf-8"))
+    for k in list(raw.keys()):
+        if k.startswith("_"):
+            raw.pop(k)
+    raw["specs"]["Performance > Multi-Media > Camera"] = "3.0MP, fixed focus"
+    snap = ProductSnapshot.model_validate(raw)
+    cand = lenovo_bridge.parse(snap)
+
+    assert cand.camera_offerings is not None
+    res = cand.camera_offerings[0]["resolution"]
+    assert res["value"] == "3.0MP"
+    assert res["status"] == "needs-review"
+
+
+def test_parse_synthetic_lighting_strips_curly_quotes():
+    """Quotes around brand tokens — straight or curly — are stripped
+    so the stored prose is clean (Session 12 Finding #8).
+    """
+    if not _HAS_SCRAPERS:
+        pytest.skip("scrapers-lib not installed")
+    raw = json.loads((FIXTURE_DIR / SYNTH).read_text(encoding="utf-8"))
+    for k in list(raw.keys()):
+        if k.startswith("_"):
+            raw.pop(k)
+    raw["specs"]["Design > Mechanical > System Lighting"] = (
+        "“Legion” logo with RGB"
+    )
+    snap = ProductSnapshot.model_validate(raw)
+    cand = lenovo_bridge.parse(snap)
+
+    assert cand.lighting["value"] == "Legion logo with RGB"
+    assert "“" not in cand.lighting["value"]
+    assert "”" not in cand.lighting["value"]

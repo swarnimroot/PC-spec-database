@@ -26,6 +26,7 @@ from typing import Any
 from ..db.connection import connect, transaction
 from ..db.helpers import make_manual_bundle
 from ._paths import (
+    format_product_pk,
     parse_path,
     write_bundle_at_path,
     write_catalog_text_at_path,
@@ -168,7 +169,7 @@ def main(args: argparse.Namespace) -> None:
     print(
         f"resolve OK: id={args.id} action={args.action} "
         f"field={row['field_path']} "
-        f"target={row['product_model_code']}-{row['product_year']}"
+        f"target={format_product_pk(row['product_model_code'], row['product_year'])}"
     )
 
 

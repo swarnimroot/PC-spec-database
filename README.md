@@ -6,7 +6,7 @@ A persistent, queryable database of competitor gaming-laptop specs from Dell, HP
 
 ## Status
 
-**Phase: Data layer + view layer + operational CLI — Stages 1–5 complete; Stage 6 (validation pass) closed in Session 12 (2026-05-08); Stage 7 (polish) in progress.** Foundation, schema, provenance helpers, all four Stage 3 vendor bridges, the Stage 4 view layer + `inspect-product` CLI, the Stage 5 operational helpers (`find-conflicts`, `find-empty`, `manual-edit`, `resolve`), and the Stage 6 `audit-normalize` helper are implemented and tested. 172/172 tests pass. The live DB carries 6 products across all 4 vendors (Dell ×2, HP ×1, Lenovo ×1, ASUS ×2). T6.1 closed partial at 6/8 — the HP first URL (OMEN Transcend 14 fb0023nr) is upstream-blocked in `scrapers-lib`, and the Lenovo second product is deferred pending a multi-URL merge-ingest design. T6.2 done. T6.7 captured 16 findings spanning bridge bugs, CLI ergonomics, ingest policy, normalization, and one architectural addition (Lenovo multi-URL merge ingest). Full list and design sketches live in `SESSION_LOG.md` Session 12.
+**Phase: Data layer + view layer + operational CLI — Stages 1–5 complete; Stage 6 (validation pass) closed in Session 12 (2026-05-08); Stage 7 (polish) in progress, T7.0b shipped Session 13.** Foundation, schema, provenance helpers, all four Stage 3 vendor bridges, the Stage 4 view layer + `inspect-product` CLI, the Stage 5 operational helpers (`find-conflicts`, `find-empty`, `manual-edit`, `resolve`), and the Stage 6 `audit-normalize` helper are implemented and tested. 192/192 tests pass. The live DB carries 6 products across all 4 vendors (Dell ×2, HP ×1, Lenovo ×1, ASUS ×2). T6.1 closed partial at 6/8 — the HP first URL (OMEN Transcend 14 fb0023nr) is upstream-blocked in `scrapers-lib`, and the Lenovo second product is deferred pending a multi-URL merge-ingest design. T6.2 done. T6.7 captured 16 findings; T7.0b (Session 13) closed the actionable bridge + CLI fixes (#2, #4, #5, #8, #11, #12) and resolved three policy items (#6 → T7.1 doc, #7 → T7.0c, #9 → T7.0d). Findings #1 (HP upstream) and #3 (Lenovo URL) remain deferred; #3 folds into T7.0a. Full list and design sketches live in `SESSION_LOG.md` Sessions 12 and 13.
 
 - All 16 field categories from the source 80-column Excel (`Competitor Columns.xlsx`) are mapped to a data shape.
 - Schema connective tissue (catalog references, unknown-chip handling, provenance record format, naming, enum policy) is locked.
@@ -19,9 +19,10 @@ A persistent, queryable database of competitor gaming-laptop specs from Dell, HP
 - Stage 5 (Session 10): four CLI helpers shipped (`find-conflicts`, `find-empty`, `manual-edit`, `resolve`). Each views module gained a `field_paths(product)` registry, exposed via `views/orchestrator.all_field_paths()`; `find-empty` reuses the section structure for grouped output. Path syntax for writes is dotted — `<column>` for scalars, `<offerings_column>.<idx>.<leaf_key>` for offering leaves; catalog cells are not editable via `manual-edit` (plain text, no provenance scaffolding). 18 new CLI happy-path tests landed under `tests/cli/`. See `SESSION_LOG.md` Session 10.
 
 **Immediate next phase:**
-1. Stage 7 T7.0a — Lenovo multi-URL merge ingest (slug parser + family-code detection + append-vs-new ingest path). Full design in `SESSION_LOG.md` Session 12.
-2. Stage 7 T7.0b — bridge bug sweep across the Stage 6 findings (Dell Design section, ASUS auto-append `/spec/`, Lenovo www→psref redirect, model_code double-year suffix, year_inferred cross-contamination, etc.).
-3. Then T7.1 (README setup + CLI reference), T7.2 (end-to-end smoke test across all four vendors), and T7.3 (rolling SESSION_LOG milestones).
+1. Stage 7 T7.0a — Lenovo multi-URL merge ingest (slug parser + family-code detection + append-vs-new ingest path; subsumes Finding #3). Full design in `SESSION_LOG.md` Session 12.
+2. Stage 7 T7.0c — boards.label per-product ordinal renumbering at the view layer (bridge tier semantics preserved for cross-tile merge). Spawned by Session 13 Finding #7 decision.
+3. Stage 7 T7.0d — keyboard structured offerings: extract `backlight` / `copilot_key` / `layout` / `travel_mm` as discrete bundle leaves across all four bridges. Schema additions. Spawned by Session 13 Finding #9 decision.
+4. Then T7.1 (README setup + CLI reference + `resolution_label` enum-pair doc), T7.2 (end-to-end smoke test across all four vendors), and T7.3 (rolling SESSION_LOG milestones).
 
 ---
 

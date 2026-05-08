@@ -1429,6 +1429,21 @@ _CAM_RES_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Megapixel → vertical-pixel form for typical laptop webcam sensors.
+# Lenovo PSREF advertises camera resolution in MP (``"5.0MP"``); Dell /
+# HP / ASUS publish vertical-pixel form (``"720p"`` / ``"1080p"`` /
+# ``"4K"``). Normalize Lenovo values into the same enum so the catalog
+# is comparable across vendors. Values not in this table are kept as
+# the raw ``NMP`` form with ``status="needs-review"`` so manual review
+# can normalize anything unusual.
+_MP_TO_P_FORM = {
+    "0.9": "720p",
+    "1.0": "720p",
+    "2.0": "1080p",
+    "5.0": "1440p",
+    "8.0": "4K",
+}
+
 
 def _build_camera_offerings(
     text: Optional[str], source_url: str, captured_at: str
@@ -1441,6 +1456,7 @@ def _build_camera_offerings(
         low = piece.lower()
         m = _CAM_RES_RE.search(piece)
         res_val: Optional[str] = None
+        res_status = "verified"
         if m is not None:
             label = m.group(1).lower()
             if label == "fhd":
@@ -1450,10 +1466,16 @@ def _build_camera_offerings(
             elif label in ("uhd", "4k"):
                 res_val = "4K"
             elif "mp" in label:
-                # Lenovo publishes camera as ``"5.0MP"``. Keep raw with
-                # uppercase MP so view layer can render it as-is.
-                res_val = re.sub(r"\s*mp\s*$", "MP", label, flags=re.IGNORECASE)
-                res_val = res_val.upper().replace(" ", "")
+                mp_str = re.sub(
+                    r"\s*mp\s*$", "", label, flags=re.IGNORECASE
+                ).strip()
+                normalized = _MP_TO_P_FORM.get(mp_str)
+                if normalized is not None:
+                    res_val = normalized
+                else:
+                    # Unknown MP value — keep raw form, flag for review.
+                    res_val = mp_str.upper().replace(" ", "") + "MP"
+                    res_status = "needs-review"
             else:
                 res_val = label
         ir_val = bool(
@@ -1463,7 +1485,9 @@ def _build_camera_offerings(
         shutter_val = bool("shutter" in low or "e-shutter" in low)
         offerings.append(
             {
-                "resolution": _maybe_bundle(res_val, source_url, captured_at),
+                "resolution": _maybe_bundle(
+                    res_val, source_url, captured_at, status=res_status
+                ),
                 "ir_supported": _scraped_bundle(ir_val, source_url, captured_at),
                 "privacy_shutter": _scraped_bundle(
                     shutter_val, source_url, captured_at
@@ -1718,12 +1742,24 @@ def _populate_design(
     cand.d_cover_material = _maybe_bundle(d_val, source_url, captured_at)
 
     cand.lighting = _maybe_bundle(
-        lighting_text.strip() if lighting_text else None,
+        _clean_lighting(lighting_text) if lighting_text else None,
         source_url,
         captured_at,
     )
     # Thermal shelf isn't structurally published on PSREF.
     cand.thermal_shelf = _vdp_bundle(source_url, captured_at)
+
+
+# PSREF embeds straight + curly quote variants around brand-name tokens
+# (``'"Legion" logo with RGB...'``); strip them so the stored value is
+# clean prose.
+_LIGHTING_QUOTE_RE = re.compile(r'["“”‘’]')
+
+
+def _clean_lighting(text: str) -> Optional[str]:
+    cleaned = _LIGHTING_QUOTE_RE.sub("", text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned or None
 
 
 def _material_in(low: str) -> Optional[str]:

@@ -11,6 +11,7 @@ import sys
 
 from ..db.connection import connect
 from ..views import load, orchestrator
+from ._paths import parse_product_arg
 
 
 def add_subparser(subparsers: argparse._SubParsersAction) -> None:
@@ -46,7 +47,12 @@ def main(args: argparse.Namespace) -> None:
 
     conn = connect(args.db)
     try:
-        product = load.load_product(conn, args.model_code, year=args.year)
+        # Accept both bare slug and the ``slug-YYYY`` display form
+        # that ``refresh`` prints (Session 12 Finding #11).
+        model_code, year = parse_product_arg(
+            conn, args.model_code, year_arg=args.year
+        )
+        product = load.load_product(conn, model_code, year=year)
         cpu_catalog = load.load_cpu_catalog(conn)
         gpu_catalog = load.load_gpu_catalog(conn)
     finally:

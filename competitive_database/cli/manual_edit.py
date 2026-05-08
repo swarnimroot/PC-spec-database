@@ -23,7 +23,13 @@ from typing import Any
 from ..db.connection import connect, transaction
 from ..db.helpers import make_manual_bundle
 from ..views import load
-from ._paths import parse_path, read_at_path, write_bundle_at_path
+from ._paths import (
+    format_product_pk,
+    parse_path,
+    parse_product_arg,
+    read_at_path,
+    write_bundle_at_path,
+)
 
 
 def add_subparser(subparsers: argparse._SubParsersAction) -> None:
@@ -110,10 +116,14 @@ def main(args: argparse.Namespace) -> None:
 
     conn = connect(args.db)
     try:
-        year = args.year
+        # Accept both bare slug and the ``slug-YYYY`` display form
+        # that ``refresh`` prints (Session 12 Finding #11).
+        model_code, year = parse_product_arg(
+            conn, args.product, year_arg=args.year
+        )
         if year is None:
-            year = load.resolve_year(conn, args.product)
-        pk = {"model_code": args.product, "year": year}
+            year = load.resolve_year(conn, model_code)
+        pk = {"model_code": model_code, "year": year}
 
         before = read_at_path(conn, pk, parsed)
         with transaction(conn):
@@ -122,7 +132,9 @@ def main(args: argparse.Namespace) -> None:
     finally:
         conn.close()
 
-    print(f"manual-edit OK: {args.product}-{year} {args.field}")
+    print(
+        f"manual-edit OK: {format_product_pk(model_code, year)} {args.field}"
+    )
     print(f"  before: {_fmt_bundle(before)}")
     print(f"  after:  {_fmt_bundle(after)}")
 
