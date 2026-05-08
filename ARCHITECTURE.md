@@ -232,7 +232,8 @@ competitive-database/
 ├── DATA_MODEL.md
 ├── ARCHITECTURE.md            # this file
 ├── SESSION_LOG.md
-├── TASKS.md                   # next deliverable
+├── TASKS.md
+├── VIEWS.md                   # view-layer format choices
 ├── pyproject.toml
 ├── competitive_database/
 │   ├── __init__.py
@@ -252,8 +253,30 @@ competitive-database/
 │   ├── ingest/
 │   │   ├── runner.py
 │   │   └── catalog_resolve.py
+│   ├── views/
+│   │   ├── __init__.py
+│   │   ├── formatting.py        # shared markers + leaf helpers
+│   │   ├── load.py              # per-product DB read path
+│   │   ├── orchestrator.py      # composes per-category views
+│   │   ├── cpu.py
+│   │   ├── boards.py
+│   │   ├── memory.py
+│   │   ├── storage.py
+│   │   ├── display.py
+│   │   ├── keyboard.py
+│   │   ├── camera.py
+│   │   ├── audio.py
+│   │   ├── network.py
+│   │   ├── io.py
+│   │   ├── battery.py
+│   │   ├── adapter.py
+│   │   ├── thermals.py
+│   │   ├── dimensions.py
+│   │   ├── weight.py
+│   │   └── design.py
 │   └── cli/
 │       ├── refresh.py
+│       ├── inspect_product.py
 │       ├── resolve.py
 │       ├── manual_edit.py
 │       ├── find_empty.py
@@ -265,6 +288,40 @@ competitive-database/
 │   └── cli/
 └── competitive.db             # gitignored
 ```
+
+---
+
+## View layer
+
+Single source of truth for human-readable product presentation. The `inspect-product` CLI uses it today; the future admin UI sits on the same module. Detailed format choices are captured in `VIEWS.md`; this section is the architectural summary.
+
+### Module layout
+
+- **`views/formatting.py`** — six visible markers (`[verified]`, `[?]`, `[—]`, `[m]`, `[empty]`, `[partial]`), a `marker_for_bundle` mapper, an `aggregate_markers` collapser, a `display_value` stringifier, and a `format_leaf` one-line renderer. Plus `render_scalar_section` for the all-scalar categories.
+- **`views/load.py`** — per-product DB read path. Decodes every column on the products row into either a bundle dict, a list-of-offerings, or a plain PK value. Plus bulk loaders for `cpu_catalog` and `gpu_catalog`. The view layer owns its own read path; the cell-bundle helpers in `db/helpers.py` work column-by-column and aren't shaped for whole-row reads.
+- **`views/<category>.py`** — one render module per category (16 total). Each takes the decoded `product` dict (plus `cpu_catalog` / `gpu_catalog` for chip-enriched categories) and returns a string. Sections that are wholly empty render as `Heading: [empty]`. Each module also exposes `field_paths(product) -> list[(field_path, display_label)]` — the registry of fillable cells in that section, used by `find-empty` so the missing-cell output groups by the same 16 sections as `inspect-product`.
+- **`views/orchestrator.py`** — composes the per-category renders in a fixed order: identity, then compute (CPU, boards), memory/storage, display, peripherals (keyboard, camera, audio), connectivity (network, I/O), power (battery, adapter), physical (thermals, dimensions, weight, design). Also exposes `all_field_paths(product) -> list[(section_name, field_path, display_label)]` — the central registry over all 16 section helpers (plus identity), in render order.
+- **`cli/inspect_product.py`** — thin subcommand. Positional `model_code`, optional `--year` disambiguator (errors if a model_code has multiple yearly variants and `--year` is unset), `--db` override. Reconfigures `sys.stdout` to UTF-8 before printing so the em-dash marker `[—]` and the `×` in resolution strings render cleanly on Windows (default cp1252 mangles them).
+
+### Section conventions (load-bearing)
+
+- **Empty sections show their heading.** `Audio: [empty]` rather than hiding the section. Makes gap-spotting a one-line scan.
+- **Single-offering categories drop the `Offering 1:` prefix.** A laptop with one CPU option inlines its CPU directly under `CPU:`. Categories with 2+ offerings keep numbered sub-headers and indent leaves one level deeper.
+- **Identity block always shows all six identity fields.** Including `[empty]` for unset (`status` / `segment` are typical empties for vendors that don't publish them on the spec page). Confirmed against header-noise concerns; gap-spotting wins.
+- **Catalog spec lines render without per-line markers.** `cpu_catalog` / `gpu_catalog` spec columns (cores, NPU TOPS, architecture, etc.) are plain TEXT — no per-cell provenance bundle. The row-level `catalog_status` is shown once per offering; the `brand` bundle (the only bundled catalog column) keeps its own marker.
+- **`storage_slots` is offerings-shaped.** A list of slots, each with a `gen` leaf for PCIe generation. Lives in the `_OFFERINGS_FIELDS` set in `views/load.py` alongside `cpu_offerings`, `boards`, `display_offerings`, `battery_offerings`, `keyboard_offerings`, `adapter_offerings`, `camera_offerings`.
+
+### How the marker logic works
+
+`marker_for_bundle` decides each leaf's marker from one bundle dict (or `None`):
+
+- `None` → `[empty]`. Cell never written.
+- `entered_by` key present → `[m]`. Manual cell, regardless of `vouched`/`needs-review` sub-status.
+- `status == "verified"` → `[verified]`.
+- `status == "vendor-doesn't-publish"` → `[—]`.
+- `status == "needs-review"` (or any unknown status) → `[?]`.
+
+`aggregate_markers` collapses a list of leaf markers to one category-level marker — all-same → that marker, mixed → `[partial]`. Used sparingly; per-leaf markers are usually preferred over aggregating, since they preserve full information.
 
 ---
 

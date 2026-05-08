@@ -6,7 +6,7 @@ A persistent, queryable database of competitor gaming-laptop specs from Dell, HP
 
 ## Status
 
-**Phase: Data layer — Stages 1–3 complete; Stage 4 (view layer + `inspect-product`) next.** Foundation, schema, provenance helpers, and all four Stage 3 vendor bridges are implemented and tested. 148/148 tests pass. Live refresh has been validated against the Alienware Area-51 (Dell), the OMEN Transcend 14 (HP), the Legion Pro 7 16AFR10H (Lenovo, AMD cousin used as a placeholder for the Intel Pro 7i Gen 10), and the ROG Zephyrus G16 2026 (ASUS).
+**Phase: Data layer + view layer + operational CLI — Stages 1–5 complete; Stage 6 (validation pass) underway.** Foundation, schema, provenance helpers, all four Stage 3 vendor bridges, the Stage 4 view layer + `inspect-product` CLI, and the Stage 5 operational helpers (`find-conflicts`, `find-empty`, `manual-edit`, `resolve`) are implemented and tested. 172/172 tests pass. Stage 6 audit (Session 11) found T6.3 / T6.4 / T6.5 / T6.6 already validated by existing unit tests; T6.2 helper (`audit-normalize`) shipped; T6.1 (live sample-audit, 1 more product per vendor) is handed off to the user as a checklist in `SESSION_LOG.md` Session 11. Live refresh has been validated against the Alienware Area-51 (Dell), the OMEN Transcend 14 (HP), the Legion Pro 7 16AFR10H (Lenovo, AMD cousin used as a placeholder for the Intel Pro 7i Gen 10), and the ROG Zephyrus G16 2026 (ASUS); `inspect-product` validated against the live ROG Zephyrus G16 row; `find-empty` / `find-conflicts` / `audit-normalize` validated against the live DB.
 
 - All 16 field categories from the source 80-column Excel (`Competitor Columns.xlsx`) are mapped to a data shape.
 - Schema connective tissue (catalog references, unknown-chip handling, provenance record format, naming, enum policy) is locked.
@@ -15,10 +15,13 @@ A persistent, queryable database of competitor gaming-laptop specs from Dell, HP
 - Six Stage 2 follow-up decisions resolved (year handling, naming, cross-tile merge, adapter source, boards modeling, storage parity). See `SESSION_LOG.md` Session 5 for detail.
 - Four Session 7 decisions resolved during the HP / Lenovo pause checkpoints (HP weight handling, HP USB-C ambiguous-rate flagging, Lenovo target substitution, Lenovo `tgp_max` = max-per-board). See `SESSION_LOG.md` Session 7.
 - Five Session 8 decisions resolved during the ASUS pause checkpoint — most notably the amendment to the Session 3 stub-only catalog rule: vendors that publish chip-level specs on laptop spec pages (ASUS NPU TOPS, Lenovo cores/clocks/process-node, HP/Dell core counts) now seed the matching `cpu_catalog` columns, with cross-vendor disagreement routed to the existing `value_disagreement` queue. See `SESSION_LOG.md` Session 8.
+- Three Session 9 format decisions locked at the Stage 4 mid-stage checkpoint: empty sections render as `Heading: [empty]` (not hidden); single-offering categories drop the redundant `Offering 1:` prefix; the identity title block always shows all six identity fields including `[empty]` for unset. View layer marker scheme and section conventions captured in `VIEWS.md`. See `SESSION_LOG.md` Session 9.
+- Stage 5 (Session 10): four CLI helpers shipped (`find-conflicts`, `find-empty`, `manual-edit`, `resolve`). Each views module gained a `field_paths(product)` registry, exposed via `views/orchestrator.all_field_paths()`; `find-empty` reuses the section structure for grouped output. Path syntax for writes is dotted — `<column>` for scalars, `<offerings_column>.<idx>.<leaf_key>` for offering leaves; catalog cells are not editable via `manual-edit` (plain text, no provenance scaffolding). 18 new CLI happy-path tests landed under `tests/cli/`. See `SESSION_LOG.md` Session 10.
 
 **Immediate next phase:**
-1. Stage 4 — view layer + `inspect-product` CLI per `TASKS.md`. Single source of truth for human-readable presentation; UI later renders through the same module.
-2. Stages 5–7 follow per `TASKS.md`. Setup instructions and CLI reference land in Stage 7 (polish).
+1. Stage 6 T6.1 (live sample-audit) — refresh 1 more product per vendor and cross-check against the vendor's actual spec page. Concrete checklist in `SESSION_LOG.md` Session 11.
+2. T6.2 (`audit-normalize`) + T6.7 (DATA_MODEL.md gap doc) follow once T6.1 data lands.
+3. Stage 7 (polish) follows. Setup instructions and CLI reference land there.
 
 ---
 
@@ -139,6 +142,7 @@ Workspace/
     ├── SESSION_LOG.md            # decision log per session
     ├── ARCHITECTURE.md           # detailed system design
     ├── TASKS.md                  # work breakdown
+    ├── VIEWS.md                  # view-layer format choices and conventions
     └── TESTING.md                # (future) test strategy
 ```
 

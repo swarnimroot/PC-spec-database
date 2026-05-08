@@ -4,7 +4,16 @@ from __future__ import annotations
 
 import argparse
 
-from .cli import db_init, refresh
+from .cli import (
+    audit_normalize,
+    db_init,
+    find_conflicts,
+    find_empty,
+    inspect_product,
+    manual_edit,
+    refresh,
+    resolve,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -16,9 +25,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_init.set_defaults(func=db_init.main)
 
     refresh.add_subparser(sub)
-
-    # Future subcommands wired in later stages:
-    #   resolve, manual-edit, find-empty, find-conflicts, inspect-product
+    inspect_product.add_subparser(sub)
+    find_empty.add_subparser(sub)
+    find_conflicts.add_subparser(sub)
+    manual_edit.add_subparser(sub)
+    resolve.add_subparser(sub)
+    audit_normalize.add_subparser(sub)
 
     return parser
 

@@ -6,6 +6,179 @@ Newest sessions at the top.
 
 ---
 
+## Session 11 — 2026-05-08 (validation map + Stage 6 kickoff)
+
+**Goal:** Open Stage 6 — validation pass per `TASKS.md` §Stage 6. Identify which T6 deliverables are already covered by existing unit tests vs which need new live work; build any automation gap; hand off the live portion as a concrete checklist.
+
+**Outcome:** Stage 6 partially closed. T6.3 / T6.4 / T6.5 / T6.6 cross-checked against the existing test suite — all four are validated by tests that pre-date Stage 6, so they need no new code. T6.2 helper (`audit-normalize` CLI) shipped; runs after T6.1 lands more products. T6.1 (live sample-audit) is genuinely manual work, prepared as a refresh checklist below for the user to drive at their pace. T6.7 (DATA_MODEL.md gap doc) waits on T6.1 + T6.2 findings — current `DATA_MODEL.md` is up to date through Session 8 chip-spec seeding. 166 → 172 tests passing.
+
+### What was built / changed
+
+- **`cli/audit_normalize.py` (new)**, wired into `__main__.py`. Walks every product in the DB, collects per-path distinct value sets via `views/orchestrator.all_field_paths`, and (by default) prints only paths with 2+ distinct value strings — the gap surface. `--all` prints every filled path. `--strings-only` filters out numeric/boolean values (normalization issues live in strings). `vendor-doesn't-publish` bundles are skipped (they don't carry a real value). Output groups by path; for each path, sorts values by descending product count and lists which products carry each value.
+- **`tests/cli/test_audit_normalize.py` (new, 6 tests)**. Covers: gap detection (`Wi-Fi 7` vs `WiFi 7` → flagged), uniform-data short-circuit (no gaps message), `--all` mode, offering-leaf aggregation across products at the same index, `vendor-doesn't-publish` exclusion, empty-DB short-circuit.
+- **`TASKS.md` §Stage 6**. Marked T6.3 / T6.4 / T6.5 / T6.6 as Validated with explicit references to the existing tests covering each. Status line at the top of the stage describing the Session 11 audit. T6.1 / T6.2 / T6.7 remain Pending with succinct status.
+
+### Stage 6 coverage map (Session 11 audit)
+
+Recon evaluated each T6 deliverable against the existing test suite. Findings:
+
+- **T6.3 — Conflict logic.** Covered. `tests/ingest/test_runner.py::test_ingest_value_disagreement_enqueues` exercises the full path: existing `memory_max_gb=32` cell + candidate `=64` snapshot → the existing value is preserved on `products`, a `review_queue` row is created with `conflict_type='value_disagreement'`, `field_path='memory_max_gb'`, candidate bundle attached. Catalog conflict path covered separately by `tests/ingest/test_catalog_resolve.py::test_chip_specs_overwrite_and_queue_when_needs_review_cell_disagrees` for the chip-spec seeding flow (Session 8 amendment to Decision 4). The Stage 5 `resolve` CLI pulls from this same `review_queue` shape.
+- **T6.4 — Low-confidence routing.** Covered. `tests/ingest/test_runner.py::test_ingest_needs_review_candidate_skips_db_and_queues` verifies `status='needs-review'` candidates do NOT write to `products` (post-write `read_scalar` returns `None`) and DO insert a `review_queue` row with `conflict_type='low_confidence_extraction'`. Offering-list variant (`::test_ingest_product_keeps_needs_review_offering_separate`) covers the case where a single needs-review leaf inside an offerings list pushes the entire list to queue-only.
+- **T6.5 — Manual-edit nested field.** Covered by Stage 5: `tests/cli/test_manual_edit.py::test_manual_edit_writes_offering_leaf` writes `display_offerings.0.nits_peak` on a tmp DB and verifies the bundle lands at the right offering index, the sibling leaf is untouched, the `entered_by` provenance is set.
+- **T6.6 — HP tier base/optional.** Covered. `tests/bridge/test_hp.py::test_parse_live_keyboard_tier_flags_base_and_optional` asserts `[0]["tier"]["value"] == "base"` and `[1:]` are `"optional"` against the live OMEN Transcend 14 fixture. Synthetic counterpart at `::test_parse_synthetic_keyboard_first_line_is_base_rest_optional`. The implementation routes through `bridge/helpers.py:tier_for_index(idx)` which is `"base" if idx == 0 else "optional"`.
+
+### T6.1 live-refresh handoff (user drives)
+
+Stage 6's T6.1 says "refresh 2 products per vendor; cross-check populated cells against the actual vendor pages by hand." The live DB currently has 1 product (ROG Zephyrus G16 2026). To meet T6.1 we need 1 additional product per vendor refreshed, then the populated cells cross-checked against the vendor's actual spec page.
+
+Suggested second products per vendor (pick whichever current model is easiest to find on the vendor's site — these are starting points, not constraints):
+
+- **Dell.** Already has Alienware Area-51 (the Stage 2 / fixture target) but no product currently sits in the live DB. Refresh it once to seed the DB. Then add one more Dell gaming laptop — typical candidates: Alienware m18, Alienware m16, or another Alienware Area family SKU.
+  ```
+  python -m competitive_database refresh --brand dell --model alienware-area-51-aa18250-gaming-laptop
+  python -m competitive_database refresh --brand dell --url <full URL of second Dell product>
+  ```
+- **HP.** OMEN Transcend 14 is the existing target. Refresh it first to seed live DB; then a second OMEN product (OMEN 17, OMEN MAX 16, or another current OMEN gaming laptop).
+  ```
+  python -m competitive_database refresh --brand hp --url https://www.hp.com/us-en/shop/pdp/omen-transcend-14-inch-laptop-pc-14-fb0023nr
+  python -m competitive_database refresh --brand hp --url <full URL of second HP product>
+  ```
+  (Use `--url` rather than `--model` — HP slugs are not stable enough to predict.)
+- **Lenovo.** Legion Pro 7 16AFR10H (the AMD cousin captured in Session 7) is the existing target. Refresh it; then a second Legion product. Carry-over: the Intel Pro 7i Gen 10 may now be on PSREF — if it is, capture it as the second product. Otherwise pick a Legion Pro 5 or Legion Slim variant.
+  ```
+  python -m competitive_database refresh --brand lenovo --model Legion_Pro_7_16AFR10H
+  python -m competitive_database refresh --brand lenovo --url <PSREF URL of second Lenovo product>
+  ```
+- **ASUS.** ROG Zephyrus G16 2026 is already in the DB — second ASUS product is the new one. Typical candidates: ROG Strix G16 / G18 2026, ROG Flow Z13, ROG Zephyrus G14 2026.
+  ```
+  python -m competitive_database refresh --brand asus --url <full URL of second ASUS product>
+  ```
+  (Use `--url` because the line segment in the path varies — `rog-zephyrus`, `rog-strix`, `rog-flow`.)
+
+After each refresh, sanity-check with the Stage 4 / 5 helpers:
+
+```
+python -m competitive_database inspect-product <model_code>
+python -m competitive_database find-empty --product <model_code>
+python -m competitive_database find-conflicts --product <model_code>
+```
+
+Cross-check is the manual part. For each populated cell on each product:
+
+1. Open the vendor spec page in a browser side-by-side with `inspect-product` output.
+2. For every `[verified]` cell, eyeball-confirm the value matches the page. Look especially at: CPU model name, GPU model name(s), TGP/TDP wattages, RAM speed (MT/s), display resolution + nits + refresh rate, port counts, weight + dimensions.
+3. Note any disagreement. If the cell on the page matches what's stored, it's good. If it differs, that's a real bug — either bridge parsing or scrapers-lib upstream. Open a SESSION_LOG.md note in the next session covering it.
+4. Pay attention to `[?]` (needs-review) markers — those are the scraper saying "I'm not confident here." For each, decide whether to vouch (use `manual-edit`) or downgrade to `vendor-doesn't-publish` if the page truly omits it.
+
+Then run T6.2:
+```
+python -m competitive_database audit-normalize
+```
+Any gaps surfaced (paths with 2+ distinct value strings) likely point to a bridge inconsistency between vendors — e.g. `wifi_standard` written as `"Wi-Fi 7"` by one bridge and `"WiFi 7"` by another. Fixes go in the per-vendor bridge module, not in a normalization layer (no schema lock-in for surface variants).
+
+T6.7 follows: any DATA_MODEL.md gaps surfaced during T6.1 / T6.2 cross-checks get documented before declaring Stage 6 closed.
+
+### Course corrections worth remembering
+
+- **Stage 6 is mostly already-validated.** First reflex was to plan new automated tests for every T6 task. The recon agent found that T6.3 / T6.4 / T6.5 / T6.6 are all already covered by tests that pre-date Stage 6. Stage 6 is fundamentally a *manual* validation pass against real vendor pages — the unit tests prove the logic is right, the manual pass proves the data the logic produces is right. Future stages with similarly-named "validation" tasks should start with a coverage audit before authoring new tests, since a lot of the behavior is already exercised by the lower-level test suites.
+- **Helper-vs-script for one-off audits.** `audit-normalize` is technically a one-off (run after T6.1 lands more products, then maybe again quarterly). But the helper is cheap (~140 LOC including subparser + tests) and reuses the existing `views/orchestrator.all_field_paths` registry, so it's a consistent shape with the other Stage 5 helpers (`find-empty`, `find-conflicts`). The future admin UI gets the same surface for free. Defaulted to "build the helper, don't write a one-off script."
+- **`audit-normalize` defaults to gaps-only, not `--all`.** First sketch was to print every filled path with its values. With 8+ products that's a wall of output and the gap signal drowns. Defaulted to printing only paths with 2+ distinct values. `--all` is the escape hatch when the user wants the full distribution. Important because the noise-to-signal ratio of an audit tool determines whether the user actually runs it.
+
+### Where we left off (pickup pointers for next session)
+
+- **T6.1 — user-driven.** When the user runs the second-product refreshes per the checklist above, the next session can do the cross-check pass + run `audit-normalize` + collect any DATA_MODEL.md gaps for T6.7.
+- **`audit-normalize`** ready to run now (will print "no gaps across 1 product"; not useful until T6.1 lands more products).
+- **Three live `review_queue` rows on `competitive.db`** (unchanged from Session 10) — still unresolved, still 4-level `boards.N.gpus.M` paths. Stage 5's `resolve` errors out cleanly on those; their resolution is the "catalog-vouching" workflow deferred past Stage 6.
+- **`scrapers-lib` ASUS display gap** still open upstream (refresh rate / HDR cert / nits / VRR / response time / DCI-P3 / sRGB live in marketing-highlights `<ul>`, not the structured `Display` h2). Visible via `find-empty` on the ROG row as `[—]` markers. Decision deferred: chase upstream or fill manually. Not a Stage 6 blocker — `find-empty` already surfaces it.
+- **DATA_MODEL.md** confirmed current through Session 8. T6.7 will revisit only if T6.1 / T6.2 surface a real schema gap.
+
+---
+
+## Session 10 — 2026-05-07 (implementation)
+
+**Goal:** Close Stage 5 — operational CLI helpers (`find-conflicts`, `find-empty`, `manual-edit`, `resolve`). All four are thin wrappers over Python functions the future UI will call (Decision 5 from Session 3). One open architectural call from Session 9: expose the per-category `(label, key)` tuples as a public registry so `find-empty` doesn't duplicate them.
+
+**Outcome:** Stage 5 closed. All four CLI helpers shipped + wired into `__main__.py`. Each views module gained a `field_paths(product)` helper, exposed centrally via `views/orchestrator.all_field_paths()`. 18 new happy-path tests under `tests/cli/`; total suite 148 → 166 passing. One user format decision resolved: `find-empty` output is grouped-by-section (mirroring `inspect-product`'s 16-section structure), not a flat path list. No schema changes. No DB writes against the live `competitive.db`.
+
+### What was built / changed
+
+- **`views/<category>.field_paths(product)`** in all 16 view modules + an `_identity_field_paths` in `views/orchestrator.py`. Each returns `list[(field_path, display_label)]`. Offerings sections walk the existing offerings list and emit per-leaf paths (`display_offerings.0.nits_peak`, `boards.0.tgp_max`, etc.); scalar sections emit one entry per column. Boards excludes the `gpus` array (its 4-level path shape isn't yet supported by `manual-edit`/`resolve`); CPU and Boards both exclude catalog leaves (those live in `cpu_catalog` / `gpu_catalog` and aren't fillable on the products row).
+- **`views/orchestrator.all_field_paths(product) -> list[(section_name, field_path, display_label)]`.** Iterates a `_SECTION_REGISTRY` whose order mirrors `render_product`. The single source of truth for "every fillable cell on a product, in inspect-product order."
+- **`cli/_paths.py`** (new). Shared dotted-path helpers for `manual-edit` and `resolve`. `parse_path()` recognizes three forms: products scalar (`audio_jack`), products offering leaf (`display_offerings.0.nits_peak`), and catalog text (`cpu_catalog.<model>.architecture`). PK columns and malformed paths raise `ValueError`. `write_bundle_at_path()` reuses `db/helpers.write_scalar` / `write_offerings`. `write_catalog_text_at_path()` runs an `INSERT ... ON CONFLICT(model) DO UPDATE` for catalog tables.
+- **`cli/find_empty.py`.** `--product <slug>` (with `--year` disambiguator) or `--all`. Loads the product, walks `all_field_paths`, classifies each leaf as `empty` (None) / `vendor doesn't publish` (bundle status) / filled, prints only the missing ones grouped by section. Summary line at the bottom: `N missing across M section(s)`. Live test against the ROG Zephyrus G16 row found 23 missing (3 empty, 20 vendor-doesn't-publish) — mostly the ASUS display gap (refresh rate / HDR cert / nits / VRR / response time / DCI-P3 / sRGB) plus design / thermals fields ASUS doesn't publish on the structured spec page.
+- **`cli/find_conflicts.py`.** `--product <slug>` filter, otherwise lists every unresolved row. Output is one block per row: id, product PK, conflict type, field path, existing/candidate one-line summaries, detected_at. Live test surfaced the three existing rows (all `new_chip_unverified` over `cpu_offerings.0.model`, `boards.0.gpus.0`, `boards.0.gpus.1`).
+- **`cli/manual_edit.py`.** Required: `--product`, `--field`, and exactly one of `--value` / `--value-json`. Optional: `--year`, `--note`, `--status` (default `vouched`), `--entered-by` (default `$USER` / `$USERNAME`). Builds a manual-provenance bundle via `db.helpers.make_manual_bundle`, writes it via `_paths.write_bundle_at_path`, prints a before/after diff. Catalog paths rejected with a clear message (catalog cells are plain text, no provenance scaffolding to apply).
+- **`cli/resolve.py`.** `--id` (review_queue.id) and `--action` (one of `accept_candidate` / `kept_existing` / `manual_override` / `dropped`). All four actions run inside a single `transaction(conn)`. `accept_candidate` decodes `candidate_provenance` and writes it as the new bundle (or for catalog paths, decodes `candidate_value` and writes it as plain text). `manual_override` builds a fresh manual bundle (or plain text for catalog) from `--value` / `--value-json`. `kept_existing` and `dropped` don't touch the target cell. The queue row update sets `resolved_at`, `resolution`, `resolution_value`, `resolver_note`. Errors out cleanly on missing id, already-resolved rows, missing `--value` for `manual_override`, and 4-level paths from `new_chip_unverified` rows (catalog-vouching workflow, deferred).
+- **`__main__.py`.** Removed the four-helper placeholder comment; wired `find_empty.add_subparser`, `find_conflicts.add_subparser`, `manual_edit.add_subparser`, `resolve.add_subparser`.
+- **`tests/cli/`** (new directory). Four test modules covering happy paths and rejection paths:
+  - `test_find_empty.py` (2 tests) — grouped output + clean-product short-circuit.
+  - `test_find_conflicts.py` (3 tests) — unresolved-only, product filter, empty queue.
+  - `test_manual_edit.py` (6 tests) — scalar write, int coercion, JSON-bool, offering-leaf write, catalog-path rejection, PK-path rejection.
+  - `test_resolve.py` (7 tests) — all four actions roundtripped, already-resolved rejection, missing-id rejection, manual-override-without-value rejection.
+
+### Decisions resolved this session
+
+- **`find-empty` output format = grouped by section.** Two output mockups framed (flat dotted-path list / grouped by inspect-product section). User chose grouped — matches the mental model of `inspect-product` and prioritizes scannability over copy-paste-into-`manual-edit` ergonomics. Trade-off accepted: users reconstructing the full path for `manual-edit` need to combine the section's offerings-column name with the displayed `offering N - <key>` label.
+- **`(label, key)` tuples → per-module `field_paths(product)` registry.** The Session 9 carry-over question. Picked the per-module-helper option over a centralized registry module: keeps labels colocated with the per-category render code and avoids a new module that would have to be kept in sync. The orchestrator's `_SECTION_REGISTRY` is the only central thing — and it's just a list of `(section_name, callable)` pairs that mirror `render_product`'s order, so editing one without the other is loud (a missing module would `AttributeError` in tests on import).
+- **Boards `gpus` array excluded from `field_paths`.** The path shape `boards.N.gpus.M` is 4 levels deep (column → board idx → array key → bundle idx), not the 3-level pattern `parse_path` recognizes. Adding 4-level support is a Stage 6+ extension; for now `field_paths` skips the `gpus` array and `manual-edit`/`resolve` reject the path with an explicit "deferred to a later stage" SystemExit. The three existing `new_chip_unverified` queue rows on `competitive.db` are exactly this shape.
+
+### Course corrections worth remembering
+
+- **The harness's "did-you-Read-this-file" check is per-Claude-instance, not per-codebase.** When sub-agents read a file and report verbatim, that read is in the agent's context, not the parent's. Edits in the parent then fail with "File has not been read yet." Workaround: parent re-reads each file before editing, even if a delegated agent has already returned its content. Bit of duplicated I/O cost, but it's the rule. Not a project decision — just a workflow note for future implementation sessions that lean on Explore agents for bulk recon.
+- **CLI test convention = call `main(argparse.Namespace(...))` directly, not subprocess.** Avoids the cold-start cost and gives clean stdout capture via `capsys`. Each Stage 5 test constructs the Namespace with all fields the parser would have set — including the ones a CLI user would normally not set explicitly (e.g., `value_json=None` when passing `--value`). Required because `mutually_exclusive_group` doesn't auto-default the unset side. Cheap enough that the explicit `Namespace` is fine.
+- **Exit criterion language vs reality.** Stage 5's exit criterion says "a real conflict can be resolved end-to-end via `resolve`." The 3 live conflicts on `competitive.db` are all `new_chip_unverified` over 4-level paths — that's the *catalog-vouching* flow, not the *value_disagreement* flow Stage 5 was scoped for. The criterion is met by the test suite (synthetic value_disagreement row resolved through all four actions), not against the live DB rows. The user can produce a live value_disagreement by editing a cell manually then re-running `refresh` (Stage 6 task T6.3 is exactly this).
+
+### Where we left off (pickup pointers for next session)
+
+- **Stage 6 — validation pass.** Per `TASKS.md` §Stage 6: T6.1 sample-audit (refresh 2 products per vendor, cross-check by hand), T6.2 normalization audit (distinct values per categorical field), T6.3 conflict-logic test (manual edit + re-refresh produces a real `value_disagreement` queue row), T6.4 low-confidence test, T6.5 manual-edit nested field test (Stage 5 `manual-edit` already covers this — re-validate against live data), T6.6 HP tier test, T6.7 update `DATA_MODEL.md` with any schema gaps surfaced. T6.3 will produce the first live value_disagreement queue row, giving an end-to-end live test of `resolve --action accept_candidate`.
+- **Catalog-vouching flow (4-level paths)** stays deferred. Three live `new_chip_unverified` rows currently can't be resolved via `resolve`. Either extend `parse_path` + `field_paths` to support 4-level paths (boards.N.gpus.M as a top-level bundle in an array), or build a separate `vouch-chip` helper that targets `cpu_catalog` / `gpu_catalog` directly. Lean toward the second — the catalog-vouching workflow is conceptually distinct (decision is "is this chip real / is its name canonical" rather than "is this value correct").
+- **Live `competitive.db` state unchanged.** No DB writes in Session 10 — all Stage 5 validation went through `tests/cli/` against tmp DBs. The single ROG Zephyrus G16 2026 row + 3 unresolved chip-stub queue rows from Session 8 still stand. Carry-over Lenovo Intel Pro 7i Gen 10 refresh and `scrapers-lib` ASUS display gap unchanged from Session 9.
+
+---
+
+## Session 9 — 2026-05-07 (implementation)
+
+**Goal:** Close Stage 4 — view layer + `inspect-product` CLI per `TASKS.md` Stage 4. Mid-stage checkpoint cadence (Session 8 recommendation): pause after the orchestrator + 2–3 representative views land, lock format choices with the user, then bulk-roll out the remaining 13 categories.
+
+**Outcome:** Stage 4 closed. View layer shipped end-to-end; `inspect-product rog-zephyrus-g16-2026` prints the full status-marked, catalog-enriched dump of the live ASUS Zephyrus G16 row. 148/148 tests still pass (no regressions). Three user format decisions plus one catalog-marker default resolved at the mid-stage checkpoint. One integration-time bug caught (`storage_slots` was offerings-shaped, not scalar). One Windows-specific encoding fix landed. `VIEWS.md` written; `ARCHITECTURE.md` gained a §View layer section.
+
+### What was built / changed
+
+- **`views/formatting.py`.** Six-marker scheme: `[verified]` (scraped + verified), `[?]` (scraped + needs-review), `[—]` (vendor-doesn't-publish), `[m]` (manual, any sub-status — `vouched` or `needs-review`), `[empty]` (cell never written), `[partial]` (aggregate marker for mixed leaves). Distinguishes scraped vs manual bundles by presence of `entered_by` key (manual) vs `scraper_id` key (scraped). Helpers: `marker_for_bundle`, `aggregate_markers`, `display_value` (handles `vendor-doesn't-publish` placeholder text + boolean `yes/no` rendering), `format_leaf` (one-line `label: value [marker]` or `label: [empty]`), `section_heading`, plus `render_scalar_section` for the all-scalar categories.
+- **`views/load.py`.** Per-product DB read path. Decodes every column on the products row into bundle / offerings-list / plain PK value. `_OFFERINGS_FIELDS` enumerates the 8 offerings columns (cpu_offerings, boards, display_offerings, battery_offerings, keyboard_offerings, **storage_slots**, adapter_offerings, camera_offerings). `resolve_year` disambiguates when one model_code has multiple yearly variants. Plus `load_cpu_catalog` / `load_gpu_catalog` (bulk reads keyed by `model`); only `brand` is decoded as a bundle, other catalog spec columns are plain TEXT.
+- **`views/orchestrator.py`.** Composes 16 per-category renders in a fixed order: identity, CPU, boards, memory, storage, display, keyboard, camera, audio, network, I/O, battery, adapter, thermals, dimensions, weight, design.
+- **16 per-category render modules.** `cpu.py` and `boards.py` carry catalog enrichment (cpu_catalog / gpu_catalog lookups; brand bundle marked, plain catalog spec cells unmarked). `memory.py` carries the soldered-RAM `slots = 0` → `"soldered (0)"` rendering. `display.py` / `battery.py` / `keyboard.py` / `camera.py` / `adapter.py` are offerings-list renderers. `storage.py` is offerings-list (per-slot PCIe gen) plus a scalar `storage_max_gb`. The seven all-scalar categories (`network`, `io`, `audio`, `thermals`, `dimensions`, `weight`, `design`) reuse `render_scalar_section`.
+- **`cli/inspect_product.py`.** Thin subcommand wired into `__main__.py`. Positional `model_code` argument; `--year` disambiguator; `--db` override. Calls `sys.stdout.reconfigure(encoding="utf-8")` (try/except for cross-platform safety) before printing so the em-dash `[—]` and the `×` in resolution strings render cleanly on Windows (default cp1252 mangles them).
+- **`__main__.py`.** Removed the `inspect-product` placeholder comment; wired the new subparser via `inspect_product.add_subparser(sub)`. `resolve` / `manual-edit` / `find-empty` / `find-conflicts` remain on the placeholder list for Stage 5.
+- **`VIEWS.md`.** Captures the marker scheme, section-layout choices, the `storage_slots` offerings-shape gotcha, and the Windows-encoding fix.
+- **`ARCHITECTURE.md` §View layer.** New section between `Repo layout` and `Forward compatibility`. Module layout, load-bearing section conventions, the marker-decision logic, CLI summary. Repo layout tree also updated to include the new `views/` package and `cli/inspect_product.py`. Top-level doc list updated to include `VIEWS.md`.
+- **Live verification.** `python -m competitive_database inspect-product rog-zephyrus-g16-2026` produces a 16-section dump with markers on every leaf. Identity block shows all 6 fields including `[empty]` for `status` / `segment`. CPU section enriches Core Ultra 9 386H from the catalog (cores=16, npu_tops=50, brand=Intel `[?]` from row's needs-review state). Boards section enriches RTX 5070 Ti and RTX 5080 (both `[verified]` model names + brand=NVIDIA `[?]` per catalog row). Display section shows the 13-leaf shape clearly: panel/resolution_label/resolution_pixels/anti-glare/tier all `[verified]`, every quality leaf `[—]` because ASUS doesn't publish them on the structured `Display` h2.
+
+### Decisions resolved this session
+
+- **Empty section default = show heading + `[empty]`.** Two options framed (show heading with `[empty]` / hide the section entirely). User chose show. Gap-spotting at a glance beats cleaner output. Applies uniformly to body categories; identity block extends the same rule.
+- **Single-offering categories drop the `Offering 1:` prefix.** Two options framed (skip when total == 1 / always label). User chose skip. The redundant `Offering 1:` line was noise on a typical product with one CPU option / one display SKU. Multi-offering categories (laptops with 2+ display SKUs, 2+ board configs, etc.) still get numbered sub-headers and a deeper indent.
+- **Identity title block always shows all six fields.** Two options framed (hide empty title fields / show every title field with `[empty]` when missing). User chose show all. Mirrors the body-category rule and surfaces "this vendor doesn't expose `status` / `segment`" without a separate audit pass. Slightly noisier title block, accepted.
+- **Catalog spec lines render unmarked.** Two options framed (leave unmarked / put the catalog row's status on every spec line). User chose unmarked. Catalog `cores` / `npu_tops` / `architecture` etc. are plain TEXT (no per-cell provenance), and the row-level `catalog_status` is already shown once per offering. Repeating the marker on every line would be noise. The `brand` bundle (the only bundled catalog column) keeps its own marker.
+
+### Course corrections worth remembering
+
+- **Stale agent reports about DB state.** The Explore agent's first pass reported "Alienware M18 2026" was the live product — it inferred from older test fixtures (`tests/fixtures/dell/snapshot_aa18250_synthetic.json` etc.) rather than querying `competitive.db`. Live DB state was the post-Session-8 ROG Zephyrus G16 2026 row from Session 8's smoke test. User caught the contradiction immediately ("we changed Alienware product to Alienware Area 51 18 — why is it still showing stale data?"). Corrected by querying the DB directly. **Lesson:** when an agent's report names a specific product/row, verify against `SELECT * FROM products` before treating it as ground truth — fixture filenames are not row state.
+- **`storage_slots` is offerings-shaped, not scalar.** First integration run crashed because `views/storage.py` treated `storage_slots` as a scalar bundle — it's actually a list of slot entries with a `gen` leaf each. Schema (`schema.sql:83`) carries it as TEXT, like every other JSON-stored column, but `DATA_MODEL.md:182` documents the offerings shape ("Length = number of physical slots. Mixed-gen configs preserved."). The loader's `_OFFERINGS_FIELDS` set was missing it; fixed before bulk rollout. **Lesson:** when reading a column-shape question off DATA_MODEL.md, check the "Each ... entry" sub-table — that's the giveaway for an offerings field. Also: the count of offerings columns (8) in the products table doesn't match the count of `*_offerings`-suffixed names (7) — `storage_slots` doesn't follow the naming convention and is easy to miss on a name-suffix scan.
+- **Windows console encoding bites Unicode markers.** Default Windows `cp1252` can't render the em-dash `—` or the `×` in `2560×1600`. They print as `?` (with the cp1252 replacement byte). Fix is `sys.stdout.reconfigure(encoding="utf-8")` in `inspect_product.main()`, wrapped in try/except for cross-platform safety. The fix is local to the CLI (not in `views/` or `db/`) since only the print path needs the reconfigure. Documented in `VIEWS.md` and `ARCHITECTURE.md` §View layer.
+- **Plain-language framing matters with this user.** First mid-stage checkpoint dump was too technical — questions about subcommand wiring vs standalone module, marker behavior on whole-empty categories. User asked for simpler framing ("all of this is too technical. ask me questions simply"). Reformulated with output previews and concrete examples instead of structural questions; user answered immediately. **Lesson:** for this user, frame questions about user-visible output (what the printout looks like), not about implementation paths. The `AskUserQuestion` `preview` field rendered side-by-side mockups of each option — that landed best.
+- **Catalog brand bundle marker `[?]` reflects row-level catalog state, not value uncertainty.** When the inspect-product output shows `brand: Intel [?]` for the Core Ultra 9 386H catalog row, that's because the row's `brand` bundle was written with `status='needs-review'` (auto-add from ASUS scrape, not yet vouched). It is NOT saying "we're unsure the brand is Intel" — it's saying "this catalog row hasn't been confirmed by the user yet." Easy to misread on first glance. The `catalog status: needs-review` line above it is the explanation; this is a feature of the user's manual catalog-vouching flow, not a parser problem.
+
+### Where we left off (pickup pointers for next session)
+
+- **Stage 5 — operational CLI helpers.** Per `TASKS.md` §Stage 5: `cli/resolve.py` (single-transaction queue resolution, four actions: `accept_candidate` / `kept_existing` / `manual_override` / `dropped`), `cli/manual_edit.py` (manual cell write with provenance scaffolding handled — `status` / `entered_by` / `entered_at` auto-populated), `cli/find_empty.py` (list empty + `vendor-doesn't-publish` cells per product, using view-layer field labels for human-readable output), `cli/find_conflicts.py` (list unresolved review queue rows). All thin wrappers over Python functions a future UI will call. No new schema work expected. The view layer's field-label structure (`(label, key)` tuples in each per-category module) is the natural source for `find-empty`'s human-readable output — consider exposing those tuples as a public registry to avoid duplication.
+- **Lenovo Intel Pro 7i Gen 10 refresh** — opportunistic, carry-over from Session 7. Re-run `refresh --brand lenovo --url <new URL>` once PSREF indexes the Intel variant. No code change.
+- **`scrapers-lib` ASUS display gap** — refresh rate / HDR cert / nits / VRR aren't captured (live in marketing-highlights `<ul>`, not the structured `Display` h2). Upstream `scrapers-lib` issue, not blocking Stage 5. The `inspect-product` output now makes this gap visible: every quality leaf shows `[—]` (`vendor doesn't publish`). User can decide whether to chase upstream or fill manually.
+- **`competitive.db`** carries the post-Session-8 state (one ROG Zephyrus G16 2026 row, three chip stubs with seeded chip-spec values). No DB writes in Session 9 — view layer is read-only. Wipe before the next live refresh if you want a clean slate.
+- **`ARCHITECTURE.md` §Trade-offs entry "CLI before UI"** is still accurate post-Stage-4; the view layer being shipped doesn't change the "Phase 1 has no UI" framing.
+
+---
+
 ## Session 8 — 2026-05-07 (implementation)
 
 **Goal:** Close Stage 3 — ASUS / ROG Zephyrus G16 bridge, then apply the follow-up decisions surfaced during the per-vendor pause-and-review checkpoint.

@@ -64,15 +64,17 @@ Stage exit criterion: refresh succeeds end-to-end for at least one product per v
 
 Single source of truth for human-readable presentation. CLI uses it now; UI uses it later.
 
-| Task | Deliverable |
-|---|---|
-| T4.1 | `views/formatting.py` — shared markers (`[verified]`, `[m]`, `[?]`, `[—]`, `[empty]`, `[partial]`), status aggregation helper |
-| T4.2 | One render function per category — 16 view modules: `cpu.py`, `boards.py`, `display.py`, `battery.py`, `memory.py`, `storage.py`, `network.py`, `io.py`, `adapter.py`, `camera.py`, `audio.py`, `keyboard.py`, `thermals.py`, `dimensions.py`, `weight.py`, `design.py`. Each takes `product` (and `catalogs` where needed) and returns a string. |
-| T4.3 | `views/orchestrator.py` — composes per-category views into a full product render |
-| T4.4 | `cli/inspect_product.py` — `inspect-product --product <model-year>` prints the orchestrated render |
-| T4.5 | `VIEWS.md` — short doc capturing non-obvious format choices and why (so future sessions don't undo deliberate decisions) |
+**Status (Session 9, 2026-05-07):** Done. View layer shipped end-to-end. Three user format decisions resolved at the mid-stage checkpoint (empty-section heading, single-offering label, identity-block always-show) plus one catalog-marker default — see `SESSION_LOG.md` Session 9.
 
-Stage exit criterion: `inspect-product alienware-m18-2026` prints a readable, status-marked, catalog-enriched dump of the product.
+| Task | Deliverable | Status |
+|---|---|---|
+| T4.1 | `views/formatting.py` — shared markers (`[verified]`, `[m]`, `[?]`, `[—]`, `[empty]`, `[partial]`), status aggregation helper | Done |
+| T4.2 | One render function per category — 16 view modules: `cpu.py`, `boards.py`, `display.py`, `battery.py`, `memory.py`, `storage.py`, `network.py`, `io.py`, `adapter.py`, `camera.py`, `audio.py`, `keyboard.py`, `thermals.py`, `dimensions.py`, `weight.py`, `design.py`. Each takes `product` (and `catalogs` where needed) and returns a string. | Done |
+| T4.3 | `views/orchestrator.py` — composes per-category views into a full product render | Done |
+| T4.4 | `cli/inspect_product.py` — `inspect-product <model_code>` prints the orchestrated render | Done — wired into `__main__.py`; positional `model_code` arg + `--year` disambiguator + `--db` override |
+| T4.5 | `VIEWS.md` — short doc capturing non-obvious format choices and why (so future sessions don't undo deliberate decisions) | Done |
+
+Stage exit criterion: `inspect-product alienware-m18-2026` prints a readable, status-marked, catalog-enriched dump of the product. **Met** — validated against the live ROG Zephyrus G16 row (`inspect-product rog-zephyrus-g16-2026`); same shape applies to Alienware once an Alienware row is re-ingested.
 
 ---
 
@@ -80,14 +82,16 @@ Stage exit criterion: `inspect-product alienware-m18-2026` prints a readable, st
 
 Operational surface for conflicts and manual entry. All thin wrappers over Python functions the future UI will call.
 
-| Task | Deliverable |
-|---|---|
-| T5.1 | `cli/resolve.py` — single-transaction resolution of a `review_queue` row. Four actions: `accept_candidate`, `kept_existing`, `manual_override`, `dropped` |
-| T5.2 | `cli/manual_edit.py` — write a manual cell with provenance scaffolding handled automatically (`status`, `entered_by`, `entered_at`) |
-| T5.3 | `cli/find_empty.py` — list empty + `vendor-doesn't-publish` cells per product, using view-layer field labels for human-readable output |
-| T5.4 | `cli/find_conflicts.py` — list unresolved review queue rows |
+**Status (Session 10, 2026-05-07):** Done. All four CLI helpers shipped + wired into `__main__.py`. Each views module gained a `field_paths(product)` helper exposed via `views/orchestrator.all_field_paths()` so `find-empty` reuses the section structure. 18 new CLI tests; 166/166 tests passing.
 
-Stage exit criterion: a real conflict can be resolved end-to-end via `resolve`; a real manual cell can be written via `manual-edit`.
+| Task | Deliverable | Status |
+|---|---|---|
+| T5.1 | `cli/resolve.py` — single-transaction resolution of a `review_queue` row. Four actions: `accept_candidate`, `kept_existing`, `manual_override`, `dropped` | Done |
+| T5.2 | `cli/manual_edit.py` — write a manual cell with provenance scaffolding handled automatically (`status`, `entered_by`, `entered_at`) | Done |
+| T5.3 | `cli/find_empty.py` — list empty + `vendor-doesn't-publish` cells per product, using view-layer field labels for human-readable output | Done — section grouping mirrors `inspect-product` order |
+| T5.4 | `cli/find_conflicts.py` — list unresolved review queue rows | Done — supports `--product` filter |
+
+Stage exit criterion: a real conflict can be resolved end-to-end via `resolve`; a real manual cell can be written via `manual-edit`. **Met** — covered by `tests/cli/test_resolve.py` (all four actions roundtripped through a real SQLite DB) and `tests/cli/test_manual_edit.py` (scalar + offering-leaf writes verified). The three existing live `review_queue` rows on the ROG Zephyrus G16 row are `new_chip_unverified` over `boards.N.gpus.M` (4-level) paths — that's the catalog-vouching workflow, deferred to a later stage; `resolve` errors out on those with a clear message.
 
 ---
 
@@ -95,15 +99,17 @@ Stage exit criterion: a real conflict can be resolved end-to-end via `resolve`; 
 
 Structured validation, not eyeballing. Catches the bugs UI would otherwise inherit.
 
-| Task | Deliverable |
-|---|---|
-| T6.1 | Sample-audit — refresh 2 products per vendor; cross-check populated cells against the actual vendor pages by hand |
-| T6.2 | Normalization audit — distinct values per categorical field across all products; surface gaps like `"Wi-Fi 7"` vs `"WiFi 7"` |
-| T6.3 | Conflict logic test — manually edit a cell, re-run refresh, verify queue catches it |
-| T6.4 | Low-confidence test — verify uncertain extractions skip the DB and route to queue |
-| T6.5 | Manual-edit nested field test — verify helper handles nested paths cleanly (e.g., `display_offerings.0.nits_peak`) |
-| T6.6 | HP tier test — verify line-0-base / rest-optional logic on real HP products |
-| T6.7 | Document any schema gaps surfaced during validation; update `DATA_MODEL.md` if needed |
+**Status (Session 11, 2026-05-08):** T6.3, T6.4, T6.5, T6.6 already validated by existing unit tests (Session 11 coverage audit, see `SESSION_LOG.md`). T6.2 helper (`audit-normalize` CLI) shipped; runs after T6.1 lands more products. T6.1 (live sample-audit) handed off to user as a concrete checklist. T6.7 follows T6.1 findings.
+
+| Task | Deliverable | Status |
+|---|---|---|
+| T6.1 | Sample-audit — refresh 2 products per vendor; cross-check populated cells against the actual vendor pages by hand | Pending — live work; checklist in `SESSION_LOG.md` Session 11 |
+| T6.2 | Normalization audit — distinct values per categorical field across all products; surface gaps like `"Wi-Fi 7"` vs `"WiFi 7"` | Helper built (`cli/audit_normalize.py` → `audit-normalize`); awaits T6.1 data |
+| T6.3 | Conflict logic test — manually edit a cell, re-run refresh, verify queue catches it | Validated — `tests/ingest/test_runner.py::test_ingest_value_disagreement_enqueues` + `tests/ingest/test_catalog_resolve.py::test_chip_specs_overwrite_and_queue_when_needs_review_cell_disagrees` |
+| T6.4 | Low-confidence test — verify uncertain extractions skip the DB and route to queue | Validated — `tests/ingest/test_runner.py::test_ingest_needs_review_candidate_skips_db_and_queues` + `::test_ingest_product_keeps_needs_review_offering_separate` |
+| T6.5 | Manual-edit nested field test — verify helper handles nested paths cleanly (e.g., `display_offerings.0.nits_peak`) | Validated — `tests/cli/test_manual_edit.py::test_manual_edit_writes_offering_leaf` (Stage 5) |
+| T6.6 | HP tier test — verify line-0-base / rest-optional logic on real HP products | Validated — `tests/bridge/test_hp.py::test_parse_live_keyboard_tier_flags_base_and_optional` + `::test_parse_synthetic_keyboard_first_line_is_base_rest_optional` |
+| T6.7 | Document any schema gaps surfaced during validation; update `DATA_MODEL.md` if needed | Pending — depends on T6.1 + T6.2 findings |
 
 Stage exit criterion: data layer is trusted enough to be the foundation for Phase 2 UI work.
 
