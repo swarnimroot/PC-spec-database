@@ -18,7 +18,7 @@ Plus per-cell metadata — see [Provenance and status](#provenance-and-status).
 
 One row per distinct CPU model (e.g., Core Ultra 9 285HX, Ryzen 9 8945HX). Populated deterministically from Intel ARK and AMD spec pages plus name-suffix rules. New chips found in scrapes are auto-added with `status = needs-review`; user confirms once → `vouched`.
 
-**Vendor-published chip-spec seeding (Session 7).** When a laptop spec page surfaces chip-level data (e.g., ASUS publishes NPU TOPS in its `Neural Processor` section, Lenovo publishes per-CPU cores/clocks/process-node in its PSREF attribute rows, HP/Dell publish core counts inline with the CPU prose), the bridge attaches those values to the candidate. The runner applies them per spec field:
+**Vendor-published chip-spec seeding (Session 8).** When a laptop spec page surfaces chip-level data (e.g., ASUS publishes NPU TOPS in its `Neural Processor` section, Lenovo publishes per-CPU cores/clocks/process-node in its PSREF attribute rows, HP/Dell publish core counts inline with the CPU prose), the bridge attaches those values to the candidate. The runner applies them per spec field:
 
 * If the catalog cell is `NULL` → write the new value (no queue row).
 * If `catalog_status = 'needs-review'` and the existing cell matches → no-op.
@@ -121,7 +121,7 @@ Implemented as `bridge/helpers.GPU_TO_BOARD` plus `bridge/helpers.lookup_board(g
 
 **Unmapped GPUs:** the bridge emits a boards entry with `label: null` and the GPU bundle marked `needs-review`. The runner's existing `low_confidence_extraction` queue (and `new_chip_unverified` via catalog auto-add) covers it — no separate "unmapped GPU" queue type. Add the GPU to the table when its power class is known.
 
-`tpp_max` stays `vendor-doesn't-publish` across all current vendors (Dell, HP, Lenovo) — no vendor exposes board-level TPP. `tgp_max` stays `vendor-doesn't-publish` for Dell and HP, and is populated by Lenovo (max of the per-GPU TGPs PSREF publishes per row). ASUS coverage to be confirmed when its parser lands.
+`tpp_max` stays `vendor-doesn't-publish` across Dell, HP, and Lenovo — no vendor exposes board-level TPP. `tgp_max` stays `vendor-doesn't-publish` for Dell and HP, and is populated by Lenovo (max of the per-GPU TGPs PSREF publishes per row). ASUS bridge landed in Stage 3 (Session 8); board-level `tpp_max` / `tgp_max` coverage to be re-verified during the Stage 7 bridge sweep.
 
 ### Display
 

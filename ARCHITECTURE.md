@@ -150,7 +150,7 @@ Single orchestrator: `ingest/runner.py`. CLI entry: `refresh`.
    2. **Catalog-resolve:**
       - Each CPU model name in `candidate.cpu_offerings` looked up in `cpu_catalog`. If missing → insert a stub row (model + brand parsed from name; remaining columns null) with `status: needs-review` and enqueue a `new_chip_unverified` review row.
       - Same flow for each GPU model name in `candidate.boards[*].gpus` against `gpu_catalog`.
-      - **Stub-only as the default — amended Session 7.** When a laptop spec page surfaces chip-level data (e.g., ASUS publishes NPU TOPS, Lenovo publishes per-CPU cores/clocks/process-node), the bridge attaches them to `candidate.cpu_chip_specs` and the runner seeds the matching `cpu_catalog` cells. Per-cell rule: empty → write; `needs-review` row + match → no-op; `needs-review` row + diff → overwrite + queue `value_disagreement`; `vouched` row + diff → keep existing + queue `value_disagreement`. See DATA_MODEL.md §CPU Catalog for vendor coverage.
+      - **Stub-only as the default — amended Session 8.** When a laptop spec page surfaces chip-level data (e.g., ASUS publishes NPU TOPS, Lenovo publishes per-CPU cores/clocks/process-node), the bridge attaches them to `candidate.cpu_chip_specs` and the runner seeds the matching `cpu_catalog` cells. Per-cell rule: empty → write; `needs-review` row + match → no-op; `needs-review` row + diff → overwrite + queue `value_disagreement`; `vouched` row + diff → keep existing + queue `value_disagreement`. See DATA_MODEL.md §CPU Catalog for vendor coverage.
    3. **Diff against existing product row:**
       - No existing row → insert candidate.
       - Field empty in DB → write candidate cell.
@@ -221,6 +221,23 @@ python -m competitive_database find-conflicts --product alienware-m18-2026
 ### `db-init`
 Bootstraps the SQLite file with schema + indexes.
 
+### `inspect-product`
+Prints the orchestrated, status-marked spec dump for one product. Implementation: `cli/inspect_product.py` calls `views/load.py` to decode the row + catalogs, then `views/orchestrator.py` to render the 16 category sections in fixed order. Read-only — touches `products`, `cpu_catalog`, `gpu_catalog`.
+
+```
+python -m competitive_database inspect-product alienware-m18-2026
+python -m competitive_database inspect-product rog-zephyrus-g16-2026 --year 2026
+```
+
+### `audit-normalize`
+Surfaces normalization gaps across products: walks every row in `products`, collects the distinct value strings written at each fillable cell path (via `views/orchestrator.all_field_paths`), and (by default) prints only paths where 2+ distinct values appear — e.g., `Wi-Fi 7` vs `WiFi 7`. Implementation: `cli/audit_normalize.py`. Read-only — touches `products` plus the `views/` read path.
+
+```
+python -m competitive_database audit-normalize
+python -m competitive_database audit-normalize --all
+python -m competitive_database audit-normalize --strings-only
+```
+
 ---
 
 ## Repo layout
@@ -275,12 +292,15 @@ competitive-database/
 │   │   ├── weight.py
 │   │   └── design.py
 │   └── cli/
+│       ├── _paths.py            # shared dotted-path helpers
+│       ├── db_init.py
 │       ├── refresh.py
 │       ├── inspect_product.py
 │       ├── resolve.py
 │       ├── manual_edit.py
 │       ├── find_empty.py
-│       └── find_conflicts.py
+│       ├── find_conflicts.py
+│       └── audit_normalize.py
 ├── tests/
 │   ├── fixtures/              # sample ProductSnapshot JSON per vendor
 │   ├── bridge/
@@ -342,7 +362,7 @@ Preserved without restructuring:
 - **Provenance bundled as JSON per cell.** Plain-SQL queries on values require SQLite JSON functions (`json_extract`). Mitigated by all reads going through helpers, which decode bundles transparently.
 - **DB Browser is read-only in practice.** Editing JSON-bundled cells in a spreadsheet view is ugly. CLI helpers are the editing surface.
 - **CLI before UI.** Phase 1 has no UI. The CLI helpers are the manual surface; the UI is the same plumbing with a different front end, deferred.
-- **Stub-only catalog auto-add (default).** New CPU/GPU rows are stubbed; chip specs filled manually or by a future job. Amended Session 7: where the laptop spec page itself surfaces chip-level fields (NPU TOPS, cores, clocks, architecture, process node), the bridge captures them and the runner seeds the matching `cpu_catalog` cells under a per-cell write/queue rule (see Ingestion runner §Catalog-resolve).
+- **Stub-only catalog auto-add (default).** New CPU/GPU rows are stubbed; chip specs filled manually or by a future job. Amended Session 8: where the laptop spec page itself surfaces chip-level fields (NPU TOPS, cores, clocks, architecture, process node), the bridge captures them and the runner seeds the matching `cpu_catalog` cells under a per-cell write/queue rule (see Ingestion runner §Catalog-resolve).
 - **No history layer.** Resolved values overwrite. The surviving value's provenance bundle is preserved; the prior bundle is not. Adding history later is non-breaking but explicit work.
 
 ---

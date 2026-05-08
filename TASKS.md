@@ -99,29 +99,31 @@ Stage exit criterion: a real conflict can be resolved end-to-end via `resolve`; 
 
 Structured validation, not eyeballing. Catches the bugs UI would otherwise inherit.
 
-**Status (Session 11, 2026-05-08):** T6.3, T6.4, T6.5, T6.6 already validated by existing unit tests (Session 11 coverage audit, see `SESSION_LOG.md`). T6.2 helper (`audit-normalize` CLI) shipped; runs after T6.1 lands more products. T6.1 (live sample-audit) handed off to user as a concrete checklist. T6.7 follows T6.1 findings.
+**Status (Session 12, 2026-05-08):** Audit phase complete. T6.1 partial-complete at 6/8 products (HP first URL upstream-blocked; Lenovo second deferred pending multi-URL merge ingest design). T6.2 done. T6.7 captures 16 findings — bridge bugs, CLI ergonomics, ingest policy, normalization, and one architectural addition (Lenovo merge ingest) — see `SESSION_LOG.md` Session 12 for full list and design sketches. Stage closes here; fixes scoped into Stage 7.
 
 | Task | Deliverable | Status |
 |---|---|---|
-| T6.1 | Sample-audit — refresh 2 products per vendor; cross-check populated cells against the actual vendor pages by hand | Pending — live work; checklist in `SESSION_LOG.md` Session 11 |
-| T6.2 | Normalization audit — distinct values per categorical field across all products; surface gaps like `"Wi-Fi 7"` vs `"WiFi 7"` | Helper built (`cli/audit_normalize.py` → `audit-normalize`); awaits T6.1 data |
-| T6.3 | Conflict logic test — manually edit a cell, re-run refresh, verify queue catches it | Validated — `tests/ingest/test_runner.py::test_ingest_value_disagreement_enqueues` + `tests/ingest/test_catalog_resolve.py::test_chip_specs_overwrite_and_queue_when_needs_review_cell_disagrees` |
-| T6.4 | Low-confidence test — verify uncertain extractions skip the DB and route to queue | Validated — `tests/ingest/test_runner.py::test_ingest_needs_review_candidate_skips_db_and_queues` + `::test_ingest_product_keeps_needs_review_offering_separate` |
-| T6.5 | Manual-edit nested field test — verify helper handles nested paths cleanly (e.g., `display_offerings.0.nits_peak`) | Validated — `tests/cli/test_manual_edit.py::test_manual_edit_writes_offering_leaf` (Stage 5) |
-| T6.6 | HP tier test — verify line-0-base / rest-optional logic on real HP products | Validated — `tests/bridge/test_hp.py::test_parse_live_keyboard_tier_flags_base_and_optional` + `::test_parse_synthetic_keyboard_first_line_is_base_rest_optional` |
-| T6.7 | Document any schema gaps surfaced during validation; update `DATA_MODEL.md` if needed | Pending — depends on T6.1 + T6.2 findings |
+| T6.1 | Sample-audit — refresh 2 products per vendor; cross-check populated cells against the actual vendor pages by hand | Partial — 6/8 products refreshed (Dell 2/2, HP 1/2 upstream-blocked, Lenovo 1/2 deferred, ASUS 2/2). Manual cell-by-cell cross-check NOT done; deferred to Stage 7 alongside bridge fixes (no point auditing data we'll re-ingest). |
+| T6.2 | Normalization audit | Done — 6 vocabulary findings (camera res, display res-label, boards.label, lighting residue, keyboard desc shape, anti_glare enum) rolled into T6.7. No Wi-Fi/DDR5/MT-s drift detected. |
+| T6.3 | Conflict logic test | Validated (Session 11) |
+| T6.4 | Low-confidence test | Validated (Session 11) |
+| T6.5 | Manual-edit nested field test | Validated (Session 11) |
+| T6.6 | HP tier test | Validated (Session 11) |
+| T6.7 | Document any schema gaps surfaced during validation; update `DATA_MODEL.md` if needed | Done — 16 findings captured in `SESSION_LOG.md` Session 12. Notable: Lenovo multi-URL merge ingest (architectural addition; full design + slug-parser sketch in Session 12). DATA_MODEL.md unchanged; future `family_code` and `source_model_codes` additions land with the Stage 7 merge ingest work. |
 
-Stage exit criterion: data layer is trusted enough to be the foundation for Phase 2 UI work.
+Stage exit criterion: data layer is trusted enough to be the foundation for Phase 2 UI work. **Met.**
 
 ---
 
 ## Stage 7 — Polish
 
-| Task | Deliverable |
-|---|---|
-| T7.1 | Update `README.md` with setup instructions, common workflows, CLI reference |
-| T7.2 | End-to-end smoke test across all four vendors |
-| T7.3 | Update `SESSION_LOG.md` with implementation milestones as they land |
+| Task | Deliverable | Status |
+|---|---|---|
+| T7.0a | Lenovo multi-URL merge ingest — slug parser + family-code detection + append-vs-new ingest path. Adds `family_code` and `source_model_codes` fields. Design in `SESSION_LOG.md` Session 12. | New (Stage 6 finding #16) |
+| T7.0b | Bridge bug sweep from Stage 6 findings — Dell Design section, ASUS auto-append `/spec/`, Lenovo www→psref redirect handling, model_code double-year-suffix, year_inferred cross-contamination. Each ~1-3 hours. See `SESSION_LOG.md` Session 12 #1-9, #11-12. | New |
+| T7.1 | Update `README.md` with setup instructions, common workflows, CLI reference | |
+| T7.2 | End-to-end smoke test across all four vendors | |
+| T7.3 | Update `SESSION_LOG.md` with implementation milestones as they land | |
 
 Stage exit criterion: a fresh clone plus the docs is enough for someone (or future-me) to set up the project, run a refresh, inspect data, and resolve a conflict without external help.
 
@@ -136,3 +138,4 @@ Stage exit criterion: a fresh clone plus the docs is enough for someone (or futu
 | Admin UI | Phase 2 — depends on validation pass completion. View layer ready for it. |
 | History layer | Design preserves the option; no implementation in Phase 1 |
 | Hosted Postgres migration | Reserved for if/when team access becomes real |
+| Manual T6.1 cell-by-cell cross-check across 6 products | Tedious; deferred until after bridge fixes land in Stage 7 (no point auditing data we'll re-ingest) |

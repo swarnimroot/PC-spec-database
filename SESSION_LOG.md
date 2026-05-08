@@ -6,6 +6,141 @@ Newest sessions at the top.
 
 ---
 
+## Session 12 — 2026-05-08 (Stage 6 audit pass + Lenovo multi-URL merge design)
+
+**Goal:** Execute the T6.1 + T6.2 audit pass end-to-end across all 4 vendors. Surface every bridge bug, CLI ergonomic issue, ingest-policy gap, and normalization drift. Close Stage 6 by capturing findings in T6.7; scope fixes into Stage 7.
+
+**Outcome:** Audit phase complete. T6.1 partial-complete at 6/8 products (HP first URL upstream-blocked; Lenovo second deferred pending merge ingest). T6.2 done. T6.7 captures 16 findings spanning bridge bugs, CLI ergonomics, ingest policy, normalization, and one architectural addition (Lenovo's per-architecture model code structure → multi-URL merge ingest). Stage 6 closes here; fixes scoped into Stage 7.
+
+### Refreshes attempted
+
+| Vendor | URL | Result |
+|---|---|---|
+| Dell | `alienware-area-51-aa18250-gaming-laptop` | ✓ aa18250-2026 |
+| Dell | `alienware-aurora-ac16251-gaming-laptop` | ✓ ac16251-2026 |
+| HP | `omen-transcend-14-inch-laptop-pc-14-fb0023nr` | ✗ upstream `scrapers-lib` regression on this PDP |
+| HP | `hyperx-omen-max-gaming-laptop-16t-ah100-16-cn3g9av-1` | ✓ 16t-ah100-2026 |
+| Lenovo | `Legion_Pro_7_16AFR10H` (PSREF, from Stage 3) | ✓ 16AFR10H-2026 |
+| Lenovo | `www.lenovo.com/.../len101g0041` (consumer shop) | ✗ bridge requires PSREF host |
+| ASUS | `rog-zephyrus-g16-2026/spec/` (Stage 4 row) | ✓ rog-zephyrus-g16-2026 |
+| ASUS | `rog-strix-g16-2026/` (no /spec/) | ✗ ASUS bridge needs `/spec/` subpath |
+| ASUS | `rog-strix-g16-2026/spec/` | ✓ rog-strix-g16-2026-2026 |
+
+DB final: 6 products, all 4 vendors covered. T6.1 partial-complete at 6/8 (HP first URL upstream-blocked; Lenovo second deferred pending merge ingest).
+
+### 16 findings → T6.7
+
+**Bridge bugs (code fix):**
+1. **HP bridge URL-specific PDP regression** — `scrapers_lib.tier2.hp.parse_hp_product_page` raises `RuntimeError: hp: no pdpCTOConfiguration.configurations` on the OMEN Transcend 14 PDP. Other HP URLs parse fine. HP has shifted PDP structure on some products; scrapers-lib needs an updated handler.
+2. **Dell Design section gap** — Dell Area-51 has 6 empty Design fields (a/c/d cover materials, thermal_shelf, lighting). Lenovo classifies equivalents as `vendor-doesn't-publish`. Dell bridge isn't reaching the Design section.
+3. **Lenovo bridge accepts only `psref.lenovo.com`** — rejects `www.lenovo.com` consumer shop URLs. Either add a shop-page parser or document the constraint loudly in README.
+4. **ASUS bridge requires `/spec/` subpath** — landing-page URLs (`rog.asus.com/.../rog-strix-g16-2026/`) fail with zero spec-section matches; `/spec/` URLs parse cleanly. Either auto-append `/spec/` in the bridge or document as URL convention.
+5. **Camera resolution unit drift** — Lenovo emits `5.0MP`; Dell/HP/ASUS emit `1080p`/etc. Lenovo bridge stores raw scrape; needs unit-normalization to vertical-pixel form.
+6. **Display resolution_label drift** — `WQXGA` vs `2.5K` for the same 2560×1600 panel. Either normalize to one form or accept both as a documented enum.
+7. **boards.label off-by-one on Dell ac16251** — labels start at `MB2` instead of `MB1`. Dell parser numbering bug.
+8. **lighting field has scrape residue** — embedded quotes in Lenovo `lighting` value (e.g., `"Legion" logo with RGB...`). Bridge isn't stripping quotes.
+9. **keyboard description shape inconsistency** — free-text marketing blobs of wildly varying verbosity (one is a 200-char Copilot legal disclaimer). Either cap length, structure as offerings, or accept free-text and document.
+
+**Ingest policy:**
+10. **`year_inferred` cross-contamination** — when ingestion infers year from `fetched_at`, *non-conflicting* string fields (e.g., `vendor_full_name`) get routed to review queue alongside the year cell. Confirmed 2/2 on first-touch HP + Dell-2nd refreshes. Pattern: queue should only hold the actually-conflicted cell, not its siblings.
+
+**CLI ergonomics:**
+11. **`find-conflicts` and `find-empty` reject `<slug>-<year>`** — they require bare slug. Refresh stdout prints `[<slug>-<year>]`, so users naturally copy that and either get silent empty results (find-conflicts) or a hard error (find-empty). Either accept both forms or print the bare slug at refresh-end.
+12. **Model_code double-year suffix** — `rog-strix-g16-2026` slug already contains the year, but the year-suffix logic appends another → `rog-strix-g16-2026-2026`. Suffix logic should detect existing year in slug.
+
+**Enum / schema policy:**
+13. **anti_glare values:** `matte` vs `glossy`. Confirm intended enum: `matte | glossy | none`?
+
+**Documentation:**
+14. **Vendor URL conventions** — each vendor has a non-obvious URL constraint:
+    - Lenovo: must be `psref.lenovo.com`, not `www.lenovo.com`
+    - ASUS: must include `/spec/` subpath
+    - HP: PDP URLs work, but some products have drifted structurally
+    - Dell: `--model <slug>` works against `dell.com/.../spd/<slug>`
+    Belongs in README under "Refreshing products."
+
+**Architecture / design (deferred):**
+15. **`year_inferred` confidence vs cell-level routing** — see #10. Deserves a separate ingest-flow review.
+16. **Lenovo multi-URL merge ingest** — full design captured below. Defer to Stage 7+.
+
+### Lenovo multi-URL merge design (T6.7 finding #16)
+
+Lenovo splits per chip-architecture, with each architecture published as its own PSREF model code. To represent "Legion Pro 5 Gen 10" as a single product (matching user's mental model), need to merge multiple PSREF URLs into one product row. Schema *can* hold this (boards array supports cross-architecture variants); ingest is the missing piece.
+
+**Slug parser (right-to-left scan, regex):**
+
+```text
+PSREF slug pattern:  <Line>_<Size><Arch><Gen>[Suffix]
+
+  Trailing digits   → gen
+  Letters before    → architecture (IRX = Intel+RTX, ADR = AMD+Radeon-discrete,
+                                    IAX = Intel+AMD-GPU, ARX = AMD+RTX, AFR = ?, ...)
+  Digits before     → screen size
+  Everything before → product line
+
+Family code:  <line>-<size>-gen-<gen>  (lowercase, hyphens)
+
+Examples:
+  Legion_Pro_5_16IRX10  → family: legion-pro-5-16-gen-10  arch: intel-rtx
+  Legion_Pro_5_16ADR10  → family: legion-pro-5-16-gen-10  arch: amd-radeon
+  Legion_Pro_5_16IAX10  → family: legion-pro-5-16-gen-10  arch: intel-amd-gpu
+  Legion_Pro_5_16ARX8   → family: legion-pro-5-16-gen-8   arch: amd-rtx  ← gen 8, separate family
+```
+
+**Two slug conventions exist:** compressed (`Legion_Pro_5_16IRX10`) and verbose (`Legion_Pro_7i_Gen_10`). Verbose splits cleanly on `_Gen_`. Parser handles both.
+
+**Trailing letter suffixes** (e.g., `H` in `Legion_Pro_7_16AFR10H`) — meaning unknown without sampling. Default: treat as part of architecture marker until catalog sampling clarifies.
+
+**Append flow:**
+
+```text
+refresh --brand lenovo --url <url> [--year <yyyy>]
+  ↓
+parse slug → derive family_code + arch
+  ↓
+does a product row with this family_code exist?
+  ├─ yes → append new URL's snapshot to existing row
+  │         · boards.append (with arch attribution)
+  │         · display_offerings, memory_offerings, etc. = union (deduped)
+  │         · dimensions, weight, etc. usually identical (same chassis); conflict→queue
+  │         · year already set; no re-prompt
+  └─ no  → create new product row
+            · prompt for year if not passed (or auto if URL has gen→year hint)
+```
+
+**Schema additions:**
+
+```text
+products
+  + family_code:        TEXT   (e.g., 'legion-pro-5-16-gen-10')
+  + source_model_codes: JSON   (array, e.g., ['16IRX10', '16ADR10', '16IAX10'])
+
+boards (already array)
+  + arch_marker:        TEXT   (e.g., 'intel-rtx', 'amd-radeon') — within-family attribution
+```
+
+**First-time UX:** CLI prints derived family code + existing-row contents and asks "append? [y/N]" before merging. Avoids silent surprises while the rule beds in.
+
+**Validation gate:** sample ~30 PSREF slugs across Legion / IdeaPad / ThinkPad lines and validate the regex covers them. Edge cases fall back to a manual `--family` flag.
+
+**Effort:** 1–2 sessions. Slug parsing: ~half a session (regex + tests). Merge ingest + conflict policy + CLI ergonomics: bulk of remaining time.
+
+**Scope:** Lenovo only. Other vendors stay on the existing single-URL ingest path.
+
+### Decisions locked this session
+
+1. **T6.1 declared partial-complete at 6/8.** HP first URL upstream-blocked (scrapers-lib regression); Lenovo second product deferred pending merge ingest. T6.1's job is bug-hunting, not collection completeness.
+2. **T6.2 done.** No vocabulary drift on Wi-Fi / DDR5 / MT-s fields; 6 normalization issues surfaced (#5–9, #13) and rolled into T6.7.
+3. **Lenovo multi-URL merge ingest deferred to Stage 7.** Design captured here. Schema *can* hold it; ingest is the missing piece. Not the right call mid-Stage 6.
+4. **`family_code`** to be added to product schema as part of merge ingest work. Lowercase, hyphenated form.
+5. **Audit phase exit criterion:** Stage 6 closes once T6.7 captures findings (this session). T6.7 is "documented gaps," not "fixed gaps" — fixes happen in Stage 7+.
+
+### Next session recommendation
+
+Move to Stage 7 with two priority items: (1) Lenovo multi-URL merge ingest (design above), (2) bridge bug sweep across findings #1-9, #11-12. Remaining Stage 7 polish (T7.1 README, T7.2 smoke test, T7.3 milestones) follows naturally.
+
+---
+
 ## Session 11 — 2026-05-08 (validation map + Stage 6 kickoff)
 
 **Goal:** Open Stage 6 — validation pass per `TASKS.md` §Stage 6. Identify which T6 deliverables are already covered by existing unit tests vs which need new live work; build any automation gap; hand off the live portion as a concrete checklist.

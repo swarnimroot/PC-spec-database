@@ -6,7 +6,7 @@ A persistent, queryable database of competitor gaming-laptop specs from Dell, HP
 
 ## Status
 
-**Phase: Data layer + view layer + operational CLI — Stages 1–5 complete; Stage 6 (validation pass) underway.** Foundation, schema, provenance helpers, all four Stage 3 vendor bridges, the Stage 4 view layer + `inspect-product` CLI, and the Stage 5 operational helpers (`find-conflicts`, `find-empty`, `manual-edit`, `resolve`) are implemented and tested. 172/172 tests pass. Stage 6 audit (Session 11) found T6.3 / T6.4 / T6.5 / T6.6 already validated by existing unit tests; T6.2 helper (`audit-normalize`) shipped; T6.1 (live sample-audit, 1 more product per vendor) is handed off to the user as a checklist in `SESSION_LOG.md` Session 11. Live refresh has been validated against the Alienware Area-51 (Dell), the OMEN Transcend 14 (HP), the Legion Pro 7 16AFR10H (Lenovo, AMD cousin used as a placeholder for the Intel Pro 7i Gen 10), and the ROG Zephyrus G16 2026 (ASUS); `inspect-product` validated against the live ROG Zephyrus G16 row; `find-empty` / `find-conflicts` / `audit-normalize` validated against the live DB.
+**Phase: Data layer + view layer + operational CLI — Stages 1–5 complete; Stage 6 (validation pass) closed in Session 12 (2026-05-08); Stage 7 (polish) in progress.** Foundation, schema, provenance helpers, all four Stage 3 vendor bridges, the Stage 4 view layer + `inspect-product` CLI, the Stage 5 operational helpers (`find-conflicts`, `find-empty`, `manual-edit`, `resolve`), and the Stage 6 `audit-normalize` helper are implemented and tested. 172/172 tests pass. The live DB carries 6 products across all 4 vendors (Dell ×2, HP ×1, Lenovo ×1, ASUS ×2). T6.1 closed partial at 6/8 — the HP first URL (OMEN Transcend 14 fb0023nr) is upstream-blocked in `scrapers-lib`, and the Lenovo second product is deferred pending a multi-URL merge-ingest design. T6.2 done. T6.7 captured 16 findings spanning bridge bugs, CLI ergonomics, ingest policy, normalization, and one architectural addition (Lenovo multi-URL merge ingest). Full list and design sketches live in `SESSION_LOG.md` Session 12.
 
 - All 16 field categories from the source 80-column Excel (`Competitor Columns.xlsx`) are mapped to a data shape.
 - Schema connective tissue (catalog references, unknown-chip handling, provenance record format, naming, enum policy) is locked.
@@ -19,9 +19,9 @@ A persistent, queryable database of competitor gaming-laptop specs from Dell, HP
 - Stage 5 (Session 10): four CLI helpers shipped (`find-conflicts`, `find-empty`, `manual-edit`, `resolve`). Each views module gained a `field_paths(product)` registry, exposed via `views/orchestrator.all_field_paths()`; `find-empty` reuses the section structure for grouped output. Path syntax for writes is dotted — `<column>` for scalars, `<offerings_column>.<idx>.<leaf_key>` for offering leaves; catalog cells are not editable via `manual-edit` (plain text, no provenance scaffolding). 18 new CLI happy-path tests landed under `tests/cli/`. See `SESSION_LOG.md` Session 10.
 
 **Immediate next phase:**
-1. Stage 6 T6.1 (live sample-audit) — refresh 1 more product per vendor and cross-check against the vendor's actual spec page. Concrete checklist in `SESSION_LOG.md` Session 11.
-2. T6.2 (`audit-normalize`) + T6.7 (DATA_MODEL.md gap doc) follow once T6.1 data lands.
-3. Stage 7 (polish) follows. Setup instructions and CLI reference land there.
+1. Stage 7 T7.0a — Lenovo multi-URL merge ingest (slug parser + family-code detection + append-vs-new ingest path). Full design in `SESSION_LOG.md` Session 12.
+2. Stage 7 T7.0b — bridge bug sweep across the Stage 6 findings (Dell Design section, ASUS auto-append `/spec/`, Lenovo www→psref redirect, model_code double-year suffix, year_inferred cross-contamination, etc.).
+3. Then T7.1 (README setup + CLI reference), T7.2 (end-to-end smoke test across all four vendors), and T7.3 (rolling SESSION_LOG milestones).
 
 ---
 
@@ -145,6 +145,32 @@ Workspace/
     ├── VIEWS.md                  # view-layer format choices and conventions
     └── TESTING.md                # (future) test strategy
 ```
+
+---
+
+## Vendor URL conventions
+
+Each vendor's bridge expects a specific URL shape. Using the wrong shape produces silent or noisy failures.
+
+- **Lenovo** — must be `psref.lenovo.com/l/Product/...` (the spec catalog). The consumer shop (`www.lenovo.com/...`) is rejected outright.
+- **ASUS** — must include the `/spec/` subpath, e.g. `https://rog.asus.com/laptops/.../<model>/spec/`. The bare landing page returns no spec sections.
+- **HP** — PDP URLs (`hp.com/us-en/shop/pdp/...`) work for most products. Some products (e.g. OMEN Transcend 14 fb0023nr) currently fail upstream in `scrapers-lib`; this is a known gap.
+- **Dell** — `--brand dell --model <slug>` derives the URL automatically; or pass `--url https://www.dell.com/.../spd/<slug>` explicitly.
+
+---
+
+## CLI commands
+
+All subcommands run via `python -m competitive_database <command>`.
+
+- **`db-init`** — bootstrap a fresh SQLite DB with the full schema (tables + indexes). `--path` overrides the default `competitive.db` location.
+- **`refresh`** — fetch one vendor product page, parse it via the bridge, and ingest the result. `--brand <vendor> --model <slug>` for vendors with stable slugs; `--brand <vendor> --url <full URL>` otherwise. `--all` is recognized but not yet implemented.
+- **`inspect-product`** — print the orchestrated, status-marked spec dump for one product. Positional `model_code`; `--year` disambiguates if multiple yearly variants exist.
+- **`find-empty`** — list empty and `vendor-doesn't-publish` cells for a product, grouped by the same 16 sections as `inspect-product`. `--product <model_code>` or `--all`.
+- **`find-conflicts`** — list unresolved `review_queue` rows (one line each: id, product, conflict type, field path, existing-vs-candidate summary). `--product` filters to one product.
+- **`manual-edit`** — write a manual cell at a dotted field path (`<column>` for scalars, `<offerings_column>.<idx>.<leaf_key>` for offering leaves). Status / `entered_by` / `entered_at` are filled in automatically.
+- **`resolve`** — close one `review_queue` row in a single transaction. Four actions: `accept_candidate`, `kept_existing`, `manual_override`, `dropped`.
+- **`audit-normalize`** — walk every product and surface paths where the same conceptual field carries 2+ distinct value strings (e.g., `Wi-Fi 7` vs `WiFi 7`). `--all` prints every filled path; `--strings-only` excludes numeric / boolean values.
 
 ---
 
