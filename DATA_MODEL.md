@@ -93,7 +93,7 @@ Each product identified by `(model_code, year)`.
 
 | Sub-field | Type | Notes |
 |---|---|---|
-| `label` | string | Vendor convention (e.g., MB1, MB2, MB3). |
+| `label` | string | Vendor convention (e.g., MB1, MB2, MB3). Storage value; the display value is renumbered per-product at render time (see "Display ordinals" below). |
 | `tpp_max` | number (W) | Total platform power cap on this board. Sometimes scraped, often manual. |
 | `tgp_max` | number (W) | Board's max GPU TGP — single ceiling value. When a vendor publishes per-GPU TGPs (e.g., Lenovo PSREF lists `TGP: 175W` for one GPU and `TGP: 140W` for another on the same board), the bridge stores the **maximum** across the board's GPUs. The column name (`tgp_max`) reflects this aggregation. |
 | `gpus` | list of strings | All GPUs supported on this board. Each = a GPU `model` from `gpu_catalog`. |
@@ -120,6 +120,10 @@ Vendors don't publish per-product board labels. The bridge layer assigns labels 
 Implemented as `bridge/helpers.GPU_TO_BOARD` plus `bridge/helpers.lookup_board(gpu_model)`. Match is case-insensitive on the canonical model token (NVIDIA / GeForce / AMD / Radeon prefixes are stripped before lookup).
 
 **Unmapped GPUs:** the bridge emits a boards entry with `label: null` and the GPU bundle marked `needs-review`. The runner's existing `low_confidence_extraction` queue (and `new_chip_unverified` via catalog auto-add) covers it — no separate "unmapped GPU" queue type. Add the GPU to the table when its power class is known.
+
+#### Display ordinals (view layer)
+
+Storage labels (`MB1`/`MB2`/`MB3`) are load-bearing for cross-tile merge — `_merge_boards` unions board entries by matching label across tiles. The user-visible label is **synthesized at render time**: the boards view sorts entries by tier (MB1 < MB2 < MB3, unmapped last) and renames them to per-product ordinals (`MB1`, `MB2`, ...) starting from 1. So a product whose vendor only ships the lower two tiers shows `MB1` + `MB2` instead of `MB2` + `MB3`. Unmapped (label-null) entries don't consume an ordinal slot and render with the default `[?]` marker. Implemented in `views/boards.py:render` (`_label_tier_sort_key` helper); bridge / merge / DB unchanged.
 
 `tpp_max` stays `vendor-doesn't-publish` across Dell, HP, and Lenovo — no vendor exposes board-level TPP. `tgp_max` stays `vendor-doesn't-publish` for Dell and HP, and is populated by Lenovo (max of the per-GPU TGPs PSREF publishes per row). ASUS bridge landed in Stage 3 (Session 8); board-level `tpp_max` / `tgp_max` coverage to be re-verified during the Stage 7 bridge sweep.
 

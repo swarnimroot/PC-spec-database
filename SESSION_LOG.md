@@ -6,6 +6,35 @@ Newest sessions at the top.
 
 ---
 
+## Session 14 — 2026-05-08 (Stage 7 T7.0c: boards.label per-product ordinal renumbering)
+
+**Goal:** Land Session 13's `boards.label` policy decision as a view-layer rewrite — bridges keep tier labels (MB1/MB2/MB3) for cross-tile merge, view layer renames to per-product ordinals at render time so a product without the top tier shows MB1 + MB2 instead of MB2 + MB3.
+
+**Outcome:** Shipped. 192 → 198 tests. No bridge / ingest / `field_paths` changes; one view module + one test file touched.
+
+### Code that landed
+
+- `views/boards.py` — `render()` now sorts offerings by underlying label tier ascending (MB1 < MB2 < MB3, unmapped `label.value=None` entries last) before assigning ordinals. The label leaf is synthesized as `MB{ordinal} {marker}` for mapped entries; unmapped entries fall back to default `format_leaf` rendering (shows `label:  [?]` from the bundle's needs-review marker, no ordinal consumed). New helper `_label_tier_sort_key` documents the rationale (`_merge_boards` preserves tile-iteration order across candidates, which isn't tier-ascending).
+- `tests/views/__init__.py` + `tests/views/test_boards.py` — new test module (first tests targeting view layer directly; previously only exercised via CLI tests). 6 cases: empty, single-board, three-board identity, gap (the ac16251 case), out-of-tier-order bridge emission, and unmapped-board edge case.
+
+### Decisions made this session
+
+- **Sort by tier before renumbering.** Session 13 said "presence order at render time"; literal interpretation breaks if `_merge_boards` lands boards out of tier-ascending order (which can happen since merge preserves tile-iteration order across candidates). Sort-by-tier guarantees the example outcome ("ac16251 shows MB1 + MB2") regardless of upstream emission order. Output is identical when the bridge already emits tier-ordered.
+- **Unmapped boards (label.value=None) sort last and don't consume an ordinal slot.** Preserves the "we don't know its tier" semantic — claiming MB1 for an unclassified GPU would falsely imply tier knowledge.
+
+### Caveat surfaced (not addressed)
+
+- `views/boards.py:field_paths()` still includes `boards.{idx}.label` so `manual-edit` lets a user set the label. After this change, any manual label edit is silently masked at render (display always uses synthesized `MB{ordinal}`). Options for next session: (a) drop label from field_paths so manual-edit no longer exposes it; (b) leave as-is on the principle that bridge/refresh always overwrites manual edits next refresh anyway. Not blocking.
+
+### Where we left off (pickup pointers)
+
+- T7.0c committable: 2 files modified / 2 files created (1 empty `__init__.py`), 198/198 tests green. User has not committed yet.
+- TASKS.md updated this turn (T7.0c row marked Done; Stage 7 Status line bumped to Session 14).
+- README.md "Status" section (lines 6–23) still drifts — folded into T7.1 sweep.
+- Next likely task: T7.0a (Lenovo multi-URL merge — schema addition, one bridge) or T7.0d (keyboard structured offerings — schema addition, all 4 bridges). T7.0a is more contained.
+
+---
+
 ## Session 13 — 2026-05-08 (Stage 7 T7.0b: bridge bug sweep + CLI ergonomics + 3 policy decisions)
 
 **Goal:** Execute the actionable bridge + CLI fixes from Session 12's 16-finding list (T7.0b), surface the policy items that block remaining fixes, and capture the resulting new tasks.

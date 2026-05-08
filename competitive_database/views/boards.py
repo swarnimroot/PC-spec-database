@@ -25,6 +25,7 @@ _BOARD_SCALAR_LEAVES: list[tuple[str, str]] = [
     ("TPP max (W)", "tpp_max"),
 ]
 
+
 _GPU_CATALOG_PLAIN_LEAVES: list[tuple[str, str]] = [
     ("architecture", "architecture"),
     ("CUDA cores", "cuda_cores"),
@@ -32,6 +33,16 @@ _GPU_CATALOG_PLAIN_LEAVES: list[tuple[str, str]] = [
     ("base clock (GHz)", "base_clock"),
     ("boost clock (GHz)", "boost_clock"),
 ]
+
+
+def _label_tier_sort_key(offering: dict[str, Any]) -> tuple[int, str]:
+    # Sort tier-ascending (MB1 < MB2 < MB3) with unmapped (label.value
+    # is null) last. The bridge's _merge_boards preserves tile-iteration
+    # order across candidates, which isn't guaranteed tier-ascending; we
+    # sort here so per-product ordinals always follow tier order.
+    bundle = offering.get("label")
+    val = bundle.get("value") if isinstance(bundle, dict) else None
+    return (1, "") if val is None else (0, str(val))
 
 
 def field_paths(product: dict[str, Any]) -> list[tuple[str, str]]:
@@ -50,9 +61,15 @@ def render(product: dict[str, Any], gpu_catalog: dict[str, dict[str, Any]]) -> s
     if not offerings:
         return section_heading("Boards", MARKER_EMPTY)
 
+    # Display order: tier-ascending with unmapped entries last. Per-product
+    # ordinals (MB1, MB2, ...) are synthesized from this order; the bridge's
+    # underlying MB1/MB2/MB3 tier labels stay intact for cross-tile merge.
+    offerings_sorted = sorted(offerings, key=_label_tier_sort_key)
+
     out = [section_heading("Boards")]
-    total = len(offerings)
-    for idx, offering in enumerate(offerings, 1):
+    total = len(offerings_sorted)
+    ordinal = 0
+    for idx, offering in enumerate(offerings_sorted, 1):
         if total > 1:
             out.append(f"  Board {idx}")
             indent = "    "
@@ -60,7 +77,12 @@ def render(product: dict[str, Any], gpu_catalog: dict[str, dict[str, Any]]) -> s
             indent = "  "
 
         for label, key in _BOARD_SCALAR_LEAVES:
-            out.append(f"{indent}{format_leaf(label, offering.get(key))}")
+            bundle = offering.get(key)
+            if key == "label" and isinstance(bundle, dict) and bundle.get("value") is not None:
+                ordinal += 1
+                out.append(f"{indent}label: MB{ordinal} {marker_for_bundle(bundle)}")
+                continue
+            out.append(f"{indent}{format_leaf(label, bundle)}")
 
         gpus = offering.get("gpus") or []
         if not gpus:
