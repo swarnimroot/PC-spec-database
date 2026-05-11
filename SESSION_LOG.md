@@ -6,6 +6,75 @@ Newest sessions at the top.
 
 ---
 
+## Session 17 — 2026-05-11 (Stage 7 T7.2: end-to-end smoke test across all 4 vendors)
+
+**Goal:** Run live refreshes for all 6 products across all 4 vendor bridges; verify pipeline holds end-to-end; surface drift via `find-conflicts` and `audit-normalize`; document findings.
+
+**Outcome:** T7.2 closed. Pipeline verified healthy end-to-end across all 4 vendors. **All 6 products refresh successfully** when invoked with their correct URLs. Initial run failed 4 of 6 with "page structure may have changed" parser errors; I attributed those to `scrapers-lib` parser regressions and wrote them up as such. User pushed back ("scrapers-lib was working on all these vendor URLs — maybe we are giving incorrect URLs?"). Investigation by reading the stored `source_url` out of DB provenance (`products.brand` bundle JSON) showed the failures were caused by the CLI's hard-coded URL templates in `cli/refresh.py` emitting URLs that differ from what was originally ingested. **Re-running the 4 failures with `--url` overrides using the DB-stored URLs succeeded for all 4.** Scrapers-lib is not regressed. Real T7.2 finding: URL template gap in competitive-database. 242/242 tests unchanged. 15 → 23 unresolved review_queue rows (+8 from live drift across Lenovo + Dell aa18250 + year_inferred refresh re-fires).
+
+### Refresh outcomes (final, after URL correction)
+
+| Product | URL used | Result |
+|---|---|---|
+| Dell aa18250 | `.../alienware-18-area-51-gaming-laptop/spd/alienware-area-51-aa18250-gaming-laptop` | ✅ 3 snapshots; inserted=5 refreshed=43 conflicts=2 year_inferred=1 (real drift on `storage_slots` and `keyboard_offerings`) |
+| Dell ac16251 | `.../alienware-16x-aurora-gaming-laptop/spd/alienware-aurora-ac16251-gaming-laptop` | ✅ 3 snapshots; inserted=0 refreshed=49 conflicts=0 year_inferred=1 |
+| HP 16t-ah100 | `.../shop/pdp/hyperx-omen-max-gaming-laptop-16t-ah100-16-cn3g9av-1` | ✅ 3 snapshots; inserted=0 refreshed=45 conflicts=0 year_inferred=1 |
+| Lenovo Legion Pro 7 | `Legion_Pro_7_16AFR10H` (template) | ✅ 1 snapshot; refreshed=47 conflicts=2 year_inferred=1; family_code merge confirmed end-to-end |
+| ASUS Zephyrus G16 | `rog-zephyrus-g16-2026` (template) | ✅ 1 snapshot; refreshed=51 conflicts=0; clean |
+| ASUS Strix G16 | `https://rog.asus.com/laptops/rog-strix/rog-strix-g16-2026/spec/` (no `/us/` prefix) | ✅ 1 snapshot; refreshed=51 conflicts=0; clean |
+
+### The URL template gap (real finding)
+
+`cli/refresh.py` defines four `DEFAULT_*_URL_TMPL` constants. Three of them work only for the *original* product they were designed around:
+
+- **`DEFAULT_DELL_URL_TMPL`** = `…/alienware-18-area-51-gaming-laptop/spd/{slug}` — hard-coded to the Alienware Area-51 line. Bare model code (`aa18250`) doesn't redirect to the full-slug PDP, and the segment is wrong for any non-Area-51 Alienware product. `ac16251` lives at `alienware-16x-aurora-gaming-laptop` with the full slug `alienware-aurora-ac16251-gaming-laptop`.
+- **`DEFAULT_HP_URL_TMPL`** = `…/shop/pdp/{slug}` — accepts bare slugs but the landing page returned by `16t-ah100` doesn't carry the same `pdpCTOConfiguration` JSON shape as the full marketing slug PDP (`hyperx-omen-max-gaming-laptop-16t-ah100-16-cn3g9av-1`).
+- **`DEFAULT_LENOVO_URL_TMPL`** = `…/Legion/{slug}?tab=spec` — PSREF accepts the bare ProductKey, works as-is.
+- **`DEFAULT_ASUS_URL_TMPL`** = `…/us/laptops/rog-zephyrus/{slug}/spec/` — hard-coded to the Zephyrus line *and* with a `/us/` regional prefix. The stored Strix URL doesn't carry `/us/`; whether that's deliberate or vendor-side ambiguity is unclear.
+
+The fix surface: ingest already stores each product's working `source_url` in bundle provenance. A "refresh by stored source_url" CLI subcommand (or a `--from-db` flag) would let returning users refresh existing products without remembering the full marketing slug. Filed as **T7.4 (new)**.
+
+### What the live drift on aa18250 caught
+
+Dell appears to have updated the aa18250 PDP between Session 12's ingest (2026-05-08) and today (2026-05-11):
+
+- **`storage_slots`** existing = 2 slots (Gen4 + Gen5); candidate = 1 slot (Gen4 only). Either a real product change or page restructure.
+- **`keyboard_offerings`** existing = 2 tiers (base RGB + CherryMX optional); candidate = 1 tier (base only). Tier consolidation or page restructure.
+
+Both flagged for manual review. Healthy conflict-detection signal — exactly the point of `value_disagreement`.
+
+### Audit-normalize findings (unchanged from initial run)
+
+48 paths flagged with >1 distinct value across the 6 products. Most are genuinely-per-product noise. Two real normalization candidates:
+
+1. **`display_offerings.0.resolution_label`** — 3 products use `WQXGA` (Dell aa18250, Dell ac16251, Lenovo), 3 use `2.5K` (HP, ASUS Strix, ASUS Zephyrus). Both halves of the T7.1 enum-pair, each vendor preserves its own form. **Decision deferred:** keep vendor-preserved form; T7.1 enum-pair doc is the equivalence record.
+2. **`camera_offerings.0.resolution`** — 4 products store video resolution (`1080p`), Lenovo stores sensor megapixels (`5.0MP`, now `1440p` after this refresh). Different units, same field. **Deferred:** future camera-leaf shape conversation, not scoped into T7.2.
+
+### Lenovo merge verification (positive signal)
+
+The Lenovo refresh exercised the T7.0a merge path end-to-end against live PSREF: slug `Legion_Pro_7_16AFR10H` (AMD machine code) → bridge derived `family_code = legion-pro-7-16-gen-10`, `source_model_codes = ["16AFR10H"]`, board `arch_marker = amd-radeon` → refresh runner coerced `model_code → family_code` at grouping (`[legion-pro-7-16-gen-10-2026 tiles=Legion_Pro_7_16AFR10H]`) → ingest applied 47 cell refreshes against the existing merged row, captured 2 new value_disagreement rows (PSREF updated lighting label punctuation and camera resolution), re-fired the year_inferred flag. No data loss, no PK collision, no duplicate row. **This is the headline T7.0a verification.**
+
+### Decisions made this session
+
+1. **T7.2 is closed.** Pipeline verified across all 4 vendors with all 6 products refreshing successfully. Conflict detection, family merge, year-inferred flagging, and queue insertion all confirmed end-to-end against live vendor data. Real-page drift captured on Dell aa18250.
+2. **URL template gap is filed as T7.4, not retrofitted into T7.2.** The clean fix is a "refresh by stored source_url" CLI subcommand (reads `products.<bundle>.source_url` and uses that, bypassing templates). Templates remain as a convenience for first-time ingests.
+3. **`resolution_label` stays vendor-preserved.** No canonicalization. T7.1 enum-pair doc is the equivalence record.
+4. **`camera_offerings.0.resolution` unit mismatch deferred.** Future camera-leaf shape conversation.
+
+### Process lesson (saved as feedback memory)
+
+I initially attributed the 4 refresh failures to scrapers-lib parser regressions and wrote that into SESSION_LOG + TASKS.md Deferred without verifying my own URL construction. The user caught it: scrapers-lib had worked on these URLs before, so the regression claim was the wrong default hypothesis. The correct first step was to read each product's stored `source_url` out of DB provenance and compare. The wrong claims were rolled back this session. Saved as `feedback_url_template_check.md` to avoid repeating the mistake.
+
+### Where we left off (pickup pointers)
+
+- T7.2 closed; pipeline declared healthy.
+- T7.3 still **Partial** — Session 17 entry adds a milestone; final stage-close milestone pending T7.0d.
+- Stage 7 remaining: **T7.0d** (keyboard structured offerings; the largest task left) and **T7.4** (new, small — refresh-by-stored-source_url CLI).
+- 242/242 tests green (no code touched this session).
+- Live DB state: 6 products, 23 unresolved review_queue rows (+8 from live drift this session — 2 value_disagreement on Lenovo lighting + camera, 2 value_disagreement on Dell aa18250 storage_slots + keyboard_offerings, 4 year_inferred re-fires across Lenovo + Dell aa18250 + Dell ac16251 + HP 16t-ah100). 5 new cells inserted on Dell aa18250.
+
+---
+
 ## Session 16 — 2026-05-11 (Stage 7 T7.1: docs polish + Session 15 leftovers)
 
 **Goal:** Close T7.1 (README setup + CLI reference + `resolution_label` enum-pair doc) and fold in the two Session 15 leftovers — PRD doc-sweep status and migration-gotcha surface. Doc-only session.
