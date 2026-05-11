@@ -48,10 +48,17 @@ def _label_tier_sort_key(offering: dict[str, Any]) -> tuple[int, str]:
 def field_paths(product: dict[str, Any]) -> list[tuple[str, str]]:
     """Fillable bundle paths on the board (excludes per-GPU bundles in
     ``gpus`` arrays — those use a 4-level path not yet supported by
-    ``manual-edit`` and are populated via ``refresh``)."""
+    ``manual-edit`` and are populated via ``refresh``).
+
+    ``label`` is excluded: the view layer synthesizes per-product
+    ordinals (``MB{n}``) at render time (T7.0c), so any manual edit
+    would be silently masked. The bridge owns the underlying tier label.
+    """
     out: list[tuple[str, str]] = []
     for idx, _ in enumerate(product.get("boards") or []):
         for _label, key in _BOARD_SCALAR_LEAVES:
+            if key == "label":
+                continue
             out.append((f"boards.{idx}.{key}", f"board {idx} - {key}"))
     return out
 

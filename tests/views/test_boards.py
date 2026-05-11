@@ -8,7 +8,7 @@ tier-ascending with unmapped (label.value=None) entries last.
 from __future__ import annotations
 
 from competitive_database.db.helpers import make_scraped_bundle
-from competitive_database.views.boards import render
+from competitive_database.views.boards import field_paths, render
 
 
 SOURCE_URL = "https://example.com/spec"
@@ -97,6 +97,26 @@ def test_bridge_emission_out_of_tier_order_is_sorted():
         "label: MB2 [verified]",
         "label: MB3 [verified]",
     ]
+
+
+def test_field_paths_excludes_label():
+    # T7.0e: label is synthesized per-product at render time (MB{ordinal}),
+    # so manual-edit must not expose it as an editable cell — any edit
+    # would be silently masked by the view.
+    product = {
+        "boards": [
+            _board("MB1"),
+            _board("MB2"),
+        ]
+    }
+    paths = field_paths(product)
+    keys = [path for path, _label in paths]
+    assert "boards.0.label" not in keys
+    assert "boards.1.label" not in keys
+    # Other scalar leaves still editable.
+    assert "boards.0.tgp_max" in keys
+    assert "boards.0.tpp_max" in keys
+    assert "boards.1.tgp_max" in keys
 
 
 def test_unmapped_board_does_not_consume_ordinal():
