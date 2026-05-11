@@ -37,10 +37,19 @@ Newest sessions at the top.
 - **T7.0d** — keyboard structured offerings; touches all 4 bridges + schema. Still open.
 - **T7.1 / T7.2 / T7.3** — README setup + smoke test + rolling SESSION_LOG. Stage 7 close-out.
 
+### Live verification + post-commit tail
+
+After `60fa4c2`, user ran live verification on the production DB:
+
+1. **Migration gotcha discovered.** `python -m competitive_database backfill-lenovo-families` failed against the user's pre-T7.0a DB with `sqlite3.OperationalError: no such column: family_code`. Root cause: `db/connection.py::connect()` opens the SQLite handle but does NOT call `apply_schema()` — only the `db-init` subcommand does. The M6 smoke agent had incorrectly claimed otherwise. Any CLI subcommand that touches the new M1 columns will fail on a pre-T7.0a DB until the user runs `db-init` once.
+2. **Decision: leave the auto-migrate gap as-is.** Proposed making `connect()` auto-call `apply_schema()` (one-line fix, ~2 regression tests). User chose to leave the explicit `db-init` step as the migration boundary. The manual step is a known one-time gotcha for upgrading users; the migration itself is already idempotent (`PRAGMA table_info` guard + `ALTER TABLE ADD COLUMN`).
+3. **Backfill proof-of-feature.** User then ran `python -m competitive_database db-init` (initialized fine) followed by `python -m competitive_database backfill-lenovo-families`. Output: `16AFR10H -> family legion-pro-7-16-gen-10, arch amd-radeon`. One product updated, zero deleted, zero unchanged. The live DB's Lenovo row is now in the merged shape.
+4. **PRD untouched in the docs sweep.** Doc-alignment agent's judgment: T7.0a is an internal ingestion mechanic, not a PRD-level user-visible feature claim. User accepted; no PRD edit this session.
+
 ### Where we left off (pickup pointers)
 
-- T7.0a is committed across the 7 SHAs above. 242/242 tests green.
-- Live DB: the existing Lenovo row should be cleaned up via `python -m competitive_database backfill-lenovo-families` whenever the user is ready; the second Lenovo product (deferred at Session 12) can now be re-ingested via the merge path.
+- T7.0a is committed across the 7 SHAs above plus the `60fa4c2` docs sweep plus a Session 15 tail commit. 242/242 tests green.
+- Live DB: the existing Lenovo row (`16AFR10H`) was migrated this session to `legion-pro-7-16-gen-10` with board `arch_marker = amd-radeon`. The deferred Lenovo second product can now be re-ingested via the merge path.
 - Doc-alignment sweep ran this session — README / ARCHITECTURE / DATA_MODEL / TASKS / SESSION_LOG / VIEWS updated to reflect T7.0a state.
 - Next likely task: T7.0d (keyboard structured offerings) or T7.1 (README setup + CLI reference + resolution_label enum-pair doc). T7.0d is bridge-heavy; T7.1 is doc-only.
 
