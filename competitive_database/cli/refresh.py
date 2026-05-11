@@ -132,10 +132,25 @@ def main(args: argparse.Namespace) -> None:
         # union per Decision 3. In practice Dell ships several tiles
         # all targeting the same model_code+year — they should land as
         # one merged product, one transaction.
+        #
+        # Lenovo Intel/AMD merge (Stage 7 T7.0a M4): when a candidate
+        # carries ``family_code`` (Lenovo only, and only when the slug
+        # parser produced one), the merged row uses ``family_code`` as
+        # its canonical ``model_code``. The original Lenovo machine code
+        # is preserved in ``source_model_codes``. This keeps the
+        # ``(model_code, year)`` PK intact and lets the runner stay
+        # generic — by the time it sees a group, every member already
+        # shares the coerced PK.
         candidates_by_pk: dict[tuple[str, int], list] = {}
         per_tile_ids: dict[tuple[str, int], list[str]] = {}
         for snapshot in snapshots:
             candidate = dispatch(snapshot)
+            if candidate.family_code is not None:
+                # Coerce model_code to the shared family_code so all
+                # Intel/AMD variants of the same Lenovo platform group
+                # under one PK. The original machine code is already
+                # captured in source_model_codes by the bridge.
+                candidate.model_code = candidate.family_code
             pk = (candidate.model_code, candidate.year)
             candidates_by_pk.setdefault(pk, []).append(candidate)
             per_tile_ids.setdefault(pk, []).append(snapshot.source_id)

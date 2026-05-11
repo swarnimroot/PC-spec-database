@@ -112,6 +112,16 @@ def ingest(
         report.new_cpus = cat_report["new_cpus"]
         report.new_gpus = cat_report["new_gpus"]
 
+        # Lenovo Intel/AMD merge (Stage 7 T7.0a M4): when the row may
+        # already exist with sibling-arch data (e.g. Intel ingested last
+        # week, AMD arrives today), pre-union the candidate's
+        # ``boards`` and ``source_model_codes`` with whatever the DB row
+        # already has. Without this, the diff path would enqueue a
+        # value_disagreement on the partial AMD-only boards list. The
+        # union only runs when ``family_code`` is set on the candidate.
+        if candidate.family_code is not None:
+            _premerge_lenovo_existing_row(conn, pk, candidate)
+
         # PK row guarantee: if no row yet, write the vendor_full_name
         # bundle first (it's the only column we always emit) so the row
         # exists before the per-cell diffs run.
@@ -138,6 +148,17 @@ def ingest(
             if cand_offerings is None:
                 continue
             _diff_offerings(conn, pk, col, cand_offerings, report)
+
+        # Write the two plain-text Lenovo merge columns last, after the
+        # row is guaranteed to exist. These are NOT provenance bundles;
+        # they live as flat scalars per the M1 schema.
+        if candidate.family_code is not None:
+            _write_lenovo_merge_columns(
+                conn,
+                pk,
+                family_code=candidate.family_code,
+                source_model_codes=candidate.source_model_codes,
+            )
 
     return report
 
@@ -196,11 +217,16 @@ def _cpu_id(off: dict[str, Any]) -> Any:
 
 
 def _gpu_id(off: dict[str, Any]) -> Any:
-    # boards entries: identity = (label, frozenset of GPU model names)
+    # boards entries: identity = (label, arch_marker, frozenset of GPU model
+    # names). ``arch_marker`` (Lenovo Intel/AMD merge, Stage 7 T7.0a) keeps
+    # boards from different arches separate even when the vendor happens to
+    # reuse the same label across them. Absent for non-Lenovo bridges and
+    # for Lenovo bridges that couldn't derive a family.
     label = _value(off.get("label"))
     gpus = off.get("gpus") or []
     gpu_names = tuple(sorted(_value(g) for g in gpus if isinstance(g, dict)))
-    return (label, gpu_names)
+    arch = off.get("arch_marker")
+    return (label, arch, gpu_names)
 
 
 def _display_id(off: dict[str, Any]) -> Any:
@@ -317,31 +343,44 @@ def _merge_offerings(
 
 
 def _merge_boards(candidates: list[CandidateProduct]) -> Optional[OfferingsList]:
-    """Special-case boards merge: union GPUs within the same label.
+    """Special-case boards merge: union GPUs within the same (label, arch).
 
     Each candidate's boards entries already group GPUs by label (via the
     bridge's static-map lookup). Cross-tile, we collapse same-label
     entries and dedupe their GPU lists by model name, preserving the
     first-seen GPU bundle (which carries provenance).
+
+    Lenovo Intel/AMD merge (Stage 7 T7.0a M4): the collapse key is
+    ``(label, arch_marker)`` so the Intel ``MB1`` and the AMD ``MB1`` of
+    the same family stay as distinct entries with their own GPU lists
+    and arch tag. ``arch_marker`` is absent for non-Lenovo bridges and
+    for unparseable Lenovo slugs — those collapse on label alone (the
+    arch component is ``None`` and matches across entries).
     """
-    # label_value -> {"label_bundle", "tpp_max", "tgp_max", "gpus_by_name"}
-    by_label: dict[Any, dict[str, Any]] = {}
-    label_order: list[Any] = []
+    # (label_value, arch_marker) -> {"label", "tpp_max", "tgp_max",
+    #                                "arch_marker", "gpus_by_name"}
+    by_key: dict[Any, dict[str, Any]] = {}
+    key_order: list[Any] = []
     for c in candidates:
         boards = c.boards
         if boards is None:
             continue
         for entry in boards:
             label_val = _value(entry.get("label"))
-            if label_val not in by_label:
-                by_label[label_val] = {
+            arch = entry.get("arch_marker")
+            key = (label_val, arch)
+            if key not in by_key:
+                slot: dict[str, Any] = {
                     "label": entry.get("label"),
                     "tpp_max": entry.get("tpp_max"),
                     "tgp_max": entry.get("tgp_max"),
                     "gpus_by_name": {},
                 }
-                label_order.append(label_val)
-            slot = by_label[label_val]
+                if arch is not None:
+                    slot["arch_marker"] = arch
+                by_key[key] = slot
+                key_order.append(key)
+            slot = by_key[key]
             for gpu in entry.get("gpus") or []:
                 if not isinstance(gpu, dict):
                     continue
@@ -349,19 +388,20 @@ def _merge_boards(candidates: list[CandidateProduct]) -> Optional[OfferingsList]
                 if name in slot["gpus_by_name"]:
                     continue
                 slot["gpus_by_name"][name] = gpu
-    if not by_label:
+    if not by_key:
         return None
     out: OfferingsList = []
-    for label_val in label_order:
-        slot = by_label[label_val]
-        out.append(
-            {
-                "label": slot["label"],
-                "tpp_max": slot["tpp_max"],
-                "tgp_max": slot["tgp_max"],
-                "gpus": list(slot["gpus_by_name"].values()),
-            }
-        )
+    for key in key_order:
+        slot = by_key[key]
+        entry: dict[str, Any] = {
+            "label": slot["label"],
+            "tpp_max": slot["tpp_max"],
+            "tgp_max": slot["tgp_max"],
+            "gpus": list(slot["gpus_by_name"].values()),
+        }
+        if "arch_marker" in slot:
+            entry["arch_marker"] = slot["arch_marker"]
+        out.append(entry)
     return out
 
 
@@ -438,6 +478,29 @@ def _merge_candidates(candidates: list[CandidateProduct]) -> CandidateProduct:
     merged = CandidateProduct(model_code=base.model_code, year=base.year)
     merged.year_was_inferred = any(c.year_was_inferred for c in candidates)
 
+    # Lenovo merge (Stage 7 T7.0a M4): family_code is shared by all
+    # candidates in this group (the grouping layer keyed on it). Union
+    # source_model_codes across the group, preserving first-seen order.
+    family_codes = {c.family_code for c in candidates if c.family_code is not None}
+    if family_codes:
+        # All non-None family_codes must agree — guaranteed by grouping
+        # in cli/refresh.py, but assert defensively.
+        if len(family_codes) > 1:
+            raise ValueError(
+                f"_merge_candidates: candidates disagree on family_code: "
+                f"{sorted(family_codes)}"
+            )
+        merged.family_code = next(iter(family_codes))
+        seen_codes: list[str] = []
+        seen_set: set[str] = set()
+        for c in candidates:
+            for code in c.source_model_codes or ():
+                if code in seen_set:
+                    continue
+                seen_set.add(code)
+                seen_codes.append(code)
+        merged.source_model_codes = seen_codes or None
+
     seen_notes: set[str] = set()
     for c in candidates:
         for n in c.notes:
@@ -467,6 +530,117 @@ def _merge_candidates(candidates: list[CandidateProduct]) -> CandidateProduct:
             setattr(merged, col, merged_value)
 
     return merged
+
+
+# ---------------------------------------------------------------------------
+# Lenovo Intel/AMD merge — pre-union with existing DB row + flat-column write
+# ---------------------------------------------------------------------------
+
+
+def _premerge_lenovo_existing_row(
+    conn: sqlite3.Connection,
+    pk: dict[str, Any],
+    candidate: CandidateProduct,
+) -> None:
+    """Union the candidate's ``boards`` and ``source_model_codes`` with the
+    existing DB row, then write the merged ``boards`` directly and clear
+    the candidate's copy so the per-cell diff doesn't re-run on it.
+
+    Without this short-circuit, an AMD-arch refresh arriving after the
+    Intel-arch row was already stored would present a *unioned* boards
+    list (its own AMD entries plus the existing Intel ones), and the
+    diff path would see "existing differs from candidate" — because the
+    candidate is now strictly larger — and enqueue a
+    ``value_disagreement``. Writing directly here bypasses that.
+
+    Idempotent: re-running the same arch refresh produces the same
+    union (the dedup key on ``_merge_boards`` is set-based).
+    """
+    existing_boards = read_offerings(conn, "products", pk, "boards")
+    if existing_boards is not None:
+        # Wrap the existing row as a synthetic CandidateProduct so we
+        # can reuse the cross-tile merge code path verbatim.
+        existing_holder = CandidateProduct(
+            model_code=str(pk["model_code"]), year=int(pk["year"])
+        )
+        existing_holder.boards = existing_boards
+        cand_holder = CandidateProduct(
+            model_code=str(pk["model_code"]), year=int(pk["year"])
+        )
+        cand_holder.boards = candidate.boards
+        merged_boards = _merge_boards([existing_holder, cand_holder])
+        if merged_boards is not None:
+            write_offerings(conn, "products", pk, "boards", merged_boards)
+            # Clear the candidate's boards so the diff path doesn't
+            # re-process them and enqueue a false conflict.
+            candidate.boards = None
+
+    # Union source_model_codes (existing row's JSON-array column with
+    # the candidate's list). Preserve first-seen order. Direct UPDATE
+    # of source_model_codes runs later via _write_lenovo_merge_columns.
+    existing_codes_raw = _read_flat_column(conn, pk, "source_model_codes")
+    if existing_codes_raw:
+        try:
+            existing_codes = json.loads(existing_codes_raw)
+        except (json.JSONDecodeError, TypeError):
+            existing_codes = []
+        if isinstance(existing_codes, list):
+            seen: list[str] = []
+            seen_set: set[str] = set()
+            for code in existing_codes:
+                if isinstance(code, str) and code not in seen_set:
+                    seen_set.add(code)
+                    seen.append(code)
+            for code in candidate.source_model_codes or ():
+                if code not in seen_set:
+                    seen_set.add(code)
+                    seen.append(code)
+            candidate.source_model_codes = seen
+
+
+def _read_flat_column(
+    conn: sqlite3.Connection, pk: dict[str, Any], column: str
+) -> Optional[str]:
+    """Read one plain-text column from the products row at ``pk``.
+
+    Returns ``None`` if the row is missing or the column is NULL. Used
+    for the two flat Lenovo merge columns (``family_code``,
+    ``source_model_codes``) which are NOT provenance bundles.
+    """
+    row = conn.execute(
+        "SELECT {col} FROM products WHERE model_code = ? AND year = ?".format(
+            col=column
+        ),
+        (pk["model_code"], pk["year"]),
+    ).fetchone()
+    if row is None:
+        return None
+    return row[0]
+
+
+def _write_lenovo_merge_columns(
+    conn: sqlite3.Connection,
+    pk: dict[str, Any],
+    *,
+    family_code: str,
+    source_model_codes: Optional[list[str]],
+) -> None:
+    """Write the flat ``family_code`` and ``source_model_codes`` columns.
+
+    ``source_model_codes`` is JSON-encoded as an array of strings; the
+    schema declares the column as plain TEXT (Stage 7 T7.0a M1). The
+    row is guaranteed to already exist by the time this runs — every
+    Lenovo ingest path writes ``vendor_full_name`` (or some other
+    column) first, so we always UPDATE, never INSERT, here.
+    """
+    codes_json = (
+        json.dumps(list(source_model_codes)) if source_model_codes else None
+    )
+    conn.execute(
+        "UPDATE products SET family_code = ?, source_model_codes = ? "
+        "WHERE model_code = ? AND year = ?",
+        (family_code, codes_json, pk["model_code"], pk["year"]),
+    )
 
 
 # ---------------------------------------------------------------------------
