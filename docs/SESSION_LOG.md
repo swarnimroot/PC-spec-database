@@ -25,11 +25,24 @@ T7.3 was rolling across Sessions 13, 14, 15, 17, 18 — one entry per landed tas
 1. **T7.0d deferred, not done.** Keyboard structured split shelved; `description` blob stays. Reverses Session 13 Finding #9 design intent.
 2. **Stage 7 closed.** All remaining tasks either Done (T7.0a, T7.0b, T7.0c, T7.0e, T7.1, T7.2, T7.3, T7.4) or explicitly Deferred (T7.0d).
 
+### TASKS.md compact restructure
+
+Audit caught drift: Stages 1–3 rows were clean (Task / Deliverable / Status one-liners), Stage 4 introduced a Status column, and by Stage 7 the rows had bloated into multi-paragraph entries (80–150 words per row, with rationale + cross-refs + sub-bullets repeating what already lives in SESSION_LOG). User authorized a compact-bullet restructure: **Active / Next / Deferred / Closed stages** instead of per-stage tables. Each closed stage collapses to one line with the close date pulled from the relevant SESSION_LOG heading (Stages 1–5 → 2026-05-07, Stage 6 → 2026-05-08, Stage 7 → 2026-05-11). Phasing principle compressed to one line. **150 → 32 lines, zero info loss** — every rationale already lived in SESSION_LOG, which is the authoritative per-stage detail source (the new closing line `(Per-stage task detail: SESSION_LOG.md)` makes that explicit).
+
+### ASUS `tpp_max` / `tgp_max` verification + DATA_MODEL.md L131 rewrite
+
+`DATA_MODEL.md` L131 carried stale "to be re-verified during the Stage 7 bridge sweep" phrasing for `tpp_max` / `tgp_max`. Verified the ASUS path against the code: `bridge/asus.py::_build_boards()` calls `_extract_asus_tgp()`, which runs `_TGP_MANUAL_RE` first (Manual-mode wattage — the unlocked ceiling) with fallback to `_TGP_TURBO_RE` (Turbo-mode wattage). Per-GPU values are collapsed via `max()` into `tgp_max_by_label` and emitted as a verified bundle per board. `tpp_max` stays `vendor-doesn't-publish` across all four vendors (no vendor exposes board-level TPP). Live test `test_parse_live_boards_merge_by_static_label_max_per_gpu_tgp` confirms the math on real ASUS fixtures. L131 rewritten to credit the Stage 7 T7.0b sweep and name ASUS's Manual-mode + Turbo-mode fallback explicitly; mirrors the Session 7 Lenovo `tgp_max = max-per-board` convention.
+
+### docs/ folder reorganization
+
+Six markdown files moved via `git mv` from repo root → `docs/`: `PRD.md`, `VIEWS.md`, `ARCHITECTURE.md`, `DATA_MODEL.md`, `SESSION_LOG.md`, `TASKS.md`. **`README.md` stays at root** — GitHub landing-page convention; it's the first file a visitor reads. Six cross-references updated across the moved files: `README.md` retargets to `docs/<file>.md`; intra-`docs/` references go bare (same-dir) or to `../README.md`. The ASCII repo-layout tree inside `ARCHITECTURE.md` (and the matching one in `README.md`) was updated to show the new `docs/` subfolder. No code files reference doc paths at runtime — verified by grep. Two commits landed this session: **`154a9bd`** (Stage 7 close + content fixes — TASKS restructure, DATA_MODEL L131 rewrite, README Status bump) and **`495c879`** (docs/ reorg — `git mv` + cross-ref retargets + tree-diagram updates).
+
 ### Where we left off (pickup pointers)
 
 - Stage 7 closed. Stages 1–7 done; T7.0d deferred.
 - 253/253 tests green (no code changes this session — no test run needed).
-- Working tree at session close: TASKS.md + SESSION_LOG.md modifications only (+ a small README status-line drift fix to reflect Stage 7 closure).
+- Working tree at session close: **clean** after both commits (`154a9bd`, `495c879`). All 7 docs cleanly organized: `README.md` at root, the other six under `docs/`.
+- TASKS.md now in compact-bullet form (32 lines) and lives at `docs/TASKS.md`.
 - **Carryforward (unchanged):** 23 unresolved review_queue rows from Session 17 live drift — Dell aa18250 `storage_slots` 2→1 + `keyboard_offerings` tier consolidation, Lenovo lighting + camera `value_disagreement`, 4 `year_inferred` re-fires across Lenovo + Dell aa18250 + Dell ac16251 + HP 16t-ah100. `camera_offerings.0.resolution` unit mismatch still parked. HP Transcend 14 fb0023nr still upstream-blocked.
 - **Phase 2 (UI) is unscoped.** Stage 8 not yet planned.
 

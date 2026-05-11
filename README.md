@@ -192,13 +192,13 @@ Workspace/
 ├── scrapers-lib/                 # sibling — vendor-specific scrapers
 └── competitive-database/         # this repo
     ├── README.md                 # this file — overview, scope, policy
-    ├── DATA_MODEL.md             # full field-by-field schema reference
-    ├── PRD.md                    # product requirements
-    ├── SESSION_LOG.md            # decision log per session
-    ├── ARCHITECTURE.md           # detailed system design
-    ├── TASKS.md                  # work breakdown
-    ├── VIEWS.md                  # view-layer format choices and conventions
-    └── TESTING.md                # (future) test strategy
+    └── docs/
+        ├── PRD.md                # product requirements
+        ├── DATA_MODEL.md         # full field-by-field schema reference
+        ├── ARCHITECTURE.md       # detailed system design
+        ├── SESSION_LOG.md        # decision log per session
+        ├── TASKS.md              # work breakdown
+        └── VIEWS.md              # view-layer format choices and conventions
 ```
 
 ---
