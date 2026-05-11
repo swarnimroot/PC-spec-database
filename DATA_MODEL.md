@@ -128,7 +128,7 @@ Implemented as `bridge/helpers.GPU_TO_BOARD` plus `bridge/helpers.lookup_board(g
 
 Storage labels (`MB1`/`MB2`/`MB3`) are load-bearing for cross-tile merge — `_merge_boards` unions board entries by matching label across tiles. The user-visible label is **synthesized at render time**: the boards view sorts entries by tier (MB1 < MB2 < MB3, unmapped last) and renames them to per-product ordinals (`MB1`, `MB2`, ...) starting from 1. So a product whose vendor only ships the lower two tiers shows `MB1` + `MB2` instead of `MB2` + `MB3`. Unmapped (label-null) entries don't consume an ordinal slot and render with the default `[?]` marker. Implemented in `views/boards.py:render` (`_label_tier_sort_key` helper); bridge / merge / DB unchanged.
 
-`tpp_max` stays `vendor-doesn't-publish` across Dell, HP, and Lenovo — no vendor exposes board-level TPP. `tgp_max` stays `vendor-doesn't-publish` for Dell and HP, and is populated by Lenovo (max of the per-GPU TGPs PSREF publishes per row). ASUS bridge landed in Stage 3 (Session 8); board-level `tpp_max` / `tgp_max` coverage to be re-verified during the Stage 7 bridge sweep.
+`tpp_max` stays `vendor-doesn't-publish` across Dell, HP, Lenovo, and ASUS — no vendor exposes board-level TPP. `tgp_max` stays `vendor-doesn't-publish` for Dell and HP, and is populated by Lenovo (max of the per-GPU TGPs PSREF publishes per row) and ASUS (max of the per-GPU Manual-mode wattages parsed from the Graphics row, falling back to Turbo-mode wattage; mirrors the Lenovo Session 7 convention — verified in the Stage 7 T7.0b bridge sweep).
 
 ### Display
 

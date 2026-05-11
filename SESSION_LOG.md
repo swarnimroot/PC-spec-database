@@ -6,6 +6,35 @@ Newest sessions at the top.
 
 ---
 
+## Session 19 — 2026-05-11 (Stage 7 close-out: T7.0d deferred, T7.3 final milestone)
+
+**Goal:** Close Stage 7. Two decisions: (1) defer T7.0d (keyboard structured offerings) rather than implement it; (2) write the final T7.3 milestone so the rolling SESSION_LOG can stop rolling. Doc-only session.
+
+**Outcome:** Stage 7 declared closed. T7.0d marked Deferred in TASKS.md; T7.3 marked Done with this entry as the final milestone. No code changes this session. **Tests unchanged at 253/253 (no source touched, no test run needed).** Working tree dirty on TASKS.md + SESSION_LOG.md (+ a minimal README drift fix) only.
+
+### T7.0d — deferred (reversed from Session 13 Finding #9)
+
+Session 13 Finding #9 scoped the work: split `keyboard_offerings.<idx>.description` into four discrete bundle leaves (`backlight`, `copilot_key`, `layout`, `travel_mm`) across all four bridges (Dell, HP, Lenovo, ASUS), with schema additions and the matching field-paths registry update. T7.0a / T7.0b experience shows that's a ~4-bridge + schema + ingest + ~253-test surface to touch. Payoff would be filterable keyboard data ("which products have a per-key RGB backlight?", "which products ship a Copilot key?"). Reversing here because the payoff isn't clearly real yet — no Phase 2 UI scope locked, no concrete query I want to run today that the free-text `description` blob blocks. Keep keyboard as a single `description` blob for now. Re-openable if/when filterable keyboard data becomes a real need — the Finding #9 scope in `SESSION_LOG.md` Session 13 stands as the restart sketch.
+
+### T7.3 — final milestone (rolling SESSION_LOG closed)
+
+T7.3 was rolling across Sessions 13, 14, 15, 17, 18 — one entry per landed task. This entry is the final milestone: Stage 7 closes here, so the rolling task closes here. Marked Done in TASKS.md.
+
+### Decisions made this session
+
+1. **T7.0d deferred, not done.** Keyboard structured split shelved; `description` blob stays. Reverses Session 13 Finding #9 design intent.
+2. **Stage 7 closed.** All remaining tasks either Done (T7.0a, T7.0b, T7.0c, T7.0e, T7.1, T7.2, T7.3, T7.4) or explicitly Deferred (T7.0d).
+
+### Where we left off (pickup pointers)
+
+- Stage 7 closed. Stages 1–7 done; T7.0d deferred.
+- 253/253 tests green (no code changes this session — no test run needed).
+- Working tree at session close: TASKS.md + SESSION_LOG.md modifications only (+ a small README status-line drift fix to reflect Stage 7 closure).
+- **Carryforward (unchanged):** 23 unresolved review_queue rows from Session 17 live drift — Dell aa18250 `storage_slots` 2→1 + `keyboard_offerings` tier consolidation, Lenovo lighting + camera `value_disagreement`, 4 `year_inferred` re-fires across Lenovo + Dell aa18250 + Dell ac16251 + HP 16t-ah100. `camera_offerings.0.resolution` unit mismatch still parked. HP Transcend 14 fb0023nr still upstream-blocked.
+- **Phase 2 (UI) is unscoped.** Stage 8 not yet planned.
+
+---
+
 ## Session 18 — 2026-05-11 (Stage 7 T7.4: `refresh --from-db` CLI flag)
 
 **Goal:** Close the URL-template gap surfaced by Session 17 — let `refresh` read each product's stored `source_url` directly from the local DB instead of formatting via the hard-coded `DEFAULT_*_URL_TMPL` constants. Removes the "remember the full marketing slug" trap for any product already ingested.
