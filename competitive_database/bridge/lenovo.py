@@ -86,8 +86,21 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
     sub_brand = _derive_lenovo_sub_brand(snapshot.title or "", snapshot.url or "")
     series = _derive_lenovo_series(snapshot.title or "", snapshot.url or "")
 
+    # Lenovo Intel/AMD merge (Stage 7 T7.0a): family_code groups variants
+    # that share a physical platform; arch_marker attributes each board to
+    # its CPU/GPU vendor mix. Unparseable slugs leave both ``None`` and the
+    # runner skips the merge dispatch for this product.
+    family_code, arch_marker = _derive_lenovo_family_and_arch(
+        snapshot.title or "", snapshot.url or "", model_code
+    )
+
     cand = CandidateProduct(model_code=model_code, year=year)
     cand.year_was_inferred = year_inferred
+    cand.family_code = family_code
+    if family_code is not None:
+        # Single-element list — merge ingest (M4) will extend it across
+        # snapshots that share the same family_code.
+        cand.source_model_codes = [model_code]
 
     # vendor_full_name carries the meaningful identity provenance. If the
     # year was inferred from fetched_at (not the title/URL), flag the
@@ -126,6 +139,15 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
     # --- GPU + boards ---------------------------------------------------
     gpu_text = specs.get("Performance > Graphics > Graphics")
     cand.boards = _build_boards(gpu_text, source_url, captured_at)
+
+    # Stamp arch_marker on every board in this snapshot — all boards in a
+    # single Lenovo snapshot share one arch (the CPU/GPU vendor mix is a
+    # property of the model code, not per-board). Absent when arch_marker
+    # is None (don't write a literal ``null`` leaf the JSON-shaped views
+    # would have to special-case).
+    if arch_marker is not None and cand.boards:
+        for board in cand.boards:
+            board["arch_marker"] = arch_marker
 
     # --- Memory ---------------------------------------------------------
     mem_max_text = specs.get("Performance > Memory > Max Memory")
@@ -316,6 +338,203 @@ def _derive_lenovo_model_code(title: str, url: str) -> str:
 _LENOVO_MODEL_CODE_RE = re.compile(
     r"(?=.*\d)(?=.*[A-Z])[A-Z0-9]{5,}",
 )
+
+
+# Compressed model-code shape: ``<size><arch_token><gen>[suffix]`` — e.g.
+# ``16IRX10``, ``16AFR10H``, ``15ARX8``. ``arch_token`` is 2–4 uppercase
+# letters; ``suffix`` is an optional trailing single uppercase letter
+# (typically ``H``, meaning unknown without sampling — see Session 12).
+_LENOVO_COMPRESSED_CODE_RE = re.compile(
+    r"^(?P<size>\d+)(?P<arch_token>[A-Z]{2,4})(?P<gen>\d+)(?P<suffix>[A-Z])?$"
+)
+
+
+# Arch-token → ``arch_marker`` mapping for the compressed convention
+# (Session 12 spec). ``AFR`` is treated identically to ``ADR`` (A=AMD,
+# FR=Radeon-family).
+#
+# Trailing-suffix policy: any trailing single uppercase letter on the
+# compressed code (e.g. the ``H`` in ``16AFR10H``) does NOT contribute to
+# ``arch_marker``. ``arch_marker`` is the *within-family attribution* key —
+# variants of the same Intel/AMD split that differ only in suffix (e.g.
+# ``16IRX10`` vs ``16IRX10H``) must collapse to the same marker so a single
+# family stays grouped. The full code (including the suffix) is preserved
+# verbatim in ``source_model_codes``, so no information is lost.
+_LENOVO_ARCH_TOKEN_MAP = {
+    "IRX": "intel-rtx",
+    "IAX": "intel-amd-gpu",
+    "ADR": "amd-radeon",
+    "ARX": "amd-rtx",
+    "AFR": "amd-radeon",
+}
+
+
+# Recognized Lenovo line tokens (lowercase, hyphen-joined) — the order
+# matters only for arch suffix stripping below. Used to validate the line
+# portion of a slug parsed for family-code derivation.
+_LENOVO_FAMILY_LINE_PREFIXES = (
+    "legion-pro",
+    "legion-slim",
+    "legion",
+    "loq",
+    "thinkpad",
+    "ideapad",
+    "yoga",
+)
+
+
+def _normalize_lenovo_line(raw: str) -> str:
+    """Lowercase a slug fragment and collapse separators to single hyphens.
+
+    ``"Legion_Pro 5"`` / ``"Legion-Pro_5"`` → ``"legion-pro-5"``. Caller is
+    responsible for stripping the model-code / ``_Gen_`` portion first.
+    """
+    text = re.sub(r"[\s_]+", "-", raw.strip())
+    text = re.sub(r"-+", "-", text)
+    return text.strip("-").lower()
+
+
+def _strip_verbose_line_arch_suffix(line: str) -> tuple[str, Optional[str]]:
+    """Strip a trailing ``i`` / ``a`` arch hint from a verbose-slug line.
+
+    Returns ``(line_without_suffix, arch_hint)`` where ``arch_hint`` is
+    ``"intel"`` for trailing ``i``, ``"amd"`` for trailing ``a``, or
+    ``None``. The trailing hint is dropped from the line so the family
+    code stays arch-agnostic (``legion-pro-7i`` and ``legion-pro-7``
+    collapse to the same family).
+    """
+    # Suffix only counts if the last hyphen-segment is a digit-then-letter
+    # token like ``7i`` / ``7a`` (not e.g. ``slim`` or ``pro``). We won't
+    # strip the ``i`` off ``ideapad`` or off the segment ``i`` alone.
+    m = re.match(r"^(.*-\d+)([ia])$", line)
+    if m is None:
+        return line, None
+    return m.group(1), {"i": "intel", "a": "amd"}[m.group(2)]
+
+
+def _derive_lenovo_family_and_arch(
+    title: str, url: str, model_code: str
+) -> tuple[Optional[str], Optional[str]]:
+    """Derive ``(family_code, arch_marker)`` from a Lenovo title/URL/code.
+
+    Lenovo PSREF slugs come in two conventions; both look like
+    ``<Line>[_Variant]_<Size><ArchToken><Gen>[Suffix]``:
+
+    * **Compressed** (e.g. ``Legion_Pro_5_16IRX10``) — single token at
+      the end carries ``size``, ``arch_token``, and ``gen``. ``arch_token``
+      maps via ``_LENOVO_ARCH_TOKEN_MAP``; unknown tokens leave
+      ``arch_marker=None``.
+    * **Verbose** (e.g. ``Legion_Pro_7i_Gen_10``) — split on ``_Gen_``;
+      left side is the line, right side is the gen. ``i`` / ``a`` suffix
+      on the line indicates ``intel`` / ``amd`` (best-effort, no GPU info).
+
+    ``family_code`` is lowercase-hyphenated and always ends with ``-gen-N``.
+    The arch token is dropped from the family — family is the *grouping*
+    key, must be arch-agnostic so Intel/AMD variants collapse onto it.
+
+    Returns ``(None, None)`` if neither convention parses. Caller skips
+    merge for that product; never raises.
+    """
+    # Build a haystack from URL slug first (more structured), falling back
+    # to title with whitespace-as-separator normalization. Both convert to
+    # hyphen-joined lowercase form for consistent matching below.
+    url_slug = ""
+    if url:
+        last = url.rstrip("/").rsplit("/", 1)[-1]
+        url_slug = last.split("?", 1)[0].split("#", 1)[0]
+
+    candidates: list[str] = []
+    if url_slug:
+        candidates.append(url_slug)
+    if title:
+        candidates.append(title)
+
+    for raw in candidates:
+        family, arch = _try_parse_lenovo_slug(raw, model_code)
+        if family is not None:
+            return family, arch
+
+    return None, None
+
+
+def _try_parse_lenovo_slug(
+    raw: str, model_code: str
+) -> tuple[Optional[str], Optional[str]]:
+    """Single-pass parse over one candidate string. Returns (family, arch)."""
+    # Normalize: replace whitespace AND underscores with hyphens, drop a
+    # trailing parenthesized year ``(2026)`` so title forms match.
+    norm = re.sub(r"\(\s*\d{4}\s*\)\s*$", "", raw.strip())
+    norm = _normalize_lenovo_line(norm)
+    if not norm:
+        return None, None
+
+    # ---- Verbose convention: ``...-gen-N`` ------------------------------
+    m = re.search(r"^(?P<line>.+?)-gen-(?P<gen>\d+)$", norm)
+    if m is not None:
+        line_raw = m.group("line")
+        gen = m.group("gen")
+        line, arch_hint = _strip_verbose_line_arch_suffix(line_raw)
+        if not _line_is_known_lenovo(line):
+            return None, None
+        family = f"{line}-gen-{gen}"
+        return family, arch_hint
+
+    # ---- Compressed convention: trailing ``<size><arch><gen>[suffix]`` -
+    # The model code is the canonical trailing token; prefer it if it
+    # matches the compressed pattern, falling back to a scan over the
+    # last hyphen segment.
+    code = model_code or ""
+    code_match = _LENOVO_COMPRESSED_CODE_RE.match(code)
+    if code_match is None:
+        # Try the last hyphen-segment of the normalized slug — handles
+        # the case where caller passes an empty model_code but the slug
+        # itself has the compressed tail.
+        tail = norm.rsplit("-", 1)[-1].upper()
+        code_match = _LENOVO_COMPRESSED_CODE_RE.match(tail)
+        if code_match is None:
+            return None, None
+
+    size = code_match.group("size")
+    arch_token = code_match.group("arch_token")
+    gen = code_match.group("gen")
+    # suffix intentionally ignored for arch_marker (see _LENOVO_ARCH_TOKEN_MAP
+    # docstring above). source_model_codes preserves it verbatim.
+
+    # Strip the trailing model-code segment off the normalized slug to
+    # recover the line. The model code may not appear verbatim in the
+    # normalized slug (lower-cased), so we look for the lowercased form.
+    code_segment = code_match.group(0).lower()
+    if norm.endswith("-" + code_segment):
+        line = norm[: -(len(code_segment) + 1)]
+    else:
+        # The slug didn't include the code at all; rely on the title-derived
+        # form falling through to the other candidate.
+        return None, None
+
+    # Also strip a redundant ``i`` / ``a`` arch suffix off the line for the
+    # compressed convention (e.g. ``legion-pro-7i`` from
+    # ``Legion_Pro_7i_16IRX10H``). The arch is already carried by the
+    # compressed arch_token; keeping the line suffix would split Intel
+    # and AMD variants of the same family apart.
+    line, _ = _strip_verbose_line_arch_suffix(line)
+
+    if not _line_is_known_lenovo(line):
+        return None, None
+
+    arch_marker = _LENOVO_ARCH_TOKEN_MAP.get(arch_token)
+    family = f"{line}-{size}-gen-{gen}"
+    return family, arch_marker
+
+
+def _line_is_known_lenovo(line: str) -> bool:
+    """Reject lines that don't look like a Lenovo gaming/portable family.
+
+    Avoids stamping family_code on a malformed slug whose tail happens to
+    look like a compressed model code.
+    """
+    if not line:
+        return False
+    return any(line == p or line.startswith(p + "-") for p in _LENOVO_FAMILY_LINE_PREFIXES)
 
 
 # Sub-brand → recognized name patterns. Order matters: more specific first.

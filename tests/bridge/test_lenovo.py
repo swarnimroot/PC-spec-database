@@ -468,6 +468,188 @@ def test_parse_synthetic_camera_unknown_mp_value_flags_needs_review():
     assert res["status"] == "needs-review"
 
 
+# ---------------------------------------------------------------------------
+# Lenovo slug parser — ``_derive_lenovo_family_and_arch`` (Stage 7 T7.0a M2)
+# ---------------------------------------------------------------------------
+
+
+def test_family_arch_compressed_intel_rtx_irx():
+    """``Legion_Pro_5_16IRX10`` → Intel CPU + RTX GPU → intel-rtx."""
+    family, arch = lenovo_bridge._derive_lenovo_family_and_arch(
+        "Legion Pro 5 16IRX10",
+        "https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16IRX10",
+        "16IRX10",
+    )
+    assert family == "legion-pro-5-16-gen-10"
+    assert arch == "intel-rtx"
+
+
+def test_family_arch_compressed_amd_radeon_adr():
+    """``Legion_Pro_5_16ADR10`` → AMD CPU + Radeon GPU → amd-radeon.
+    Family matches the IRX10 variant so merge ingest collapses them."""
+    family, arch = lenovo_bridge._derive_lenovo_family_and_arch(
+        "Legion Pro 5 16ADR10",
+        "https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16ADR10",
+        "16ADR10",
+    )
+    assert family == "legion-pro-5-16-gen-10"
+    assert arch == "amd-radeon"
+
+
+def test_family_arch_compressed_amd_rtx_arx_different_gen():
+    """``Legion_Pro_5_16ARX8`` → AMD CPU + RTX GPU → amd-rtx. Gen 8 lands
+    on its own family (separate from the Gen 10 family above)."""
+    family, arch = lenovo_bridge._derive_lenovo_family_and_arch(
+        "Legion Pro 5 16ARX8",
+        "https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16ARX8",
+        "16ARX8",
+    )
+    assert family == "legion-pro-5-16-gen-8"
+    assert arch == "amd-rtx"
+
+
+def test_family_arch_compressed_intel_amd_gpu_iax():
+    """``Legion_Pro_5_16IAX10`` → Intel CPU + AMD GPU → intel-amd-gpu."""
+    family, arch = lenovo_bridge._derive_lenovo_family_and_arch(
+        "Legion Pro 5 16IAX10",
+        "https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16IAX10",
+        "16IAX10",
+    )
+    assert family == "legion-pro-5-16-gen-10"
+    assert arch == "intel-amd-gpu"
+
+
+def test_family_arch_compressed_afr_collapses_to_amd_radeon():
+    """``AFR`` is mapped to amd-radeon (same as ``ADR``). The trailing
+    ``H`` suffix is dropped from arch_marker (variants that differ only
+    in suffix collapse to the same marker — full code stays in
+    source_model_codes)."""
+    family, arch = lenovo_bridge._derive_lenovo_family_and_arch(
+        "Legion Pro 7 16AFR10H",
+        "https://psref.lenovo.com/l/Product/Legion/Legion_Pro_7_16AFR10H",
+        "16AFR10H",
+    )
+    assert family == "legion-pro-7-16-gen-10"
+    assert arch == "amd-radeon"
+
+
+def test_family_arch_verbose_gen_split_intel_hint_from_line_suffix():
+    """``Legion_Pro_7i_Gen_10`` → split on ``_Gen_``; the trailing ``i``
+    on the line indicates Intel. No size in slug → family has no size."""
+    family, arch = lenovo_bridge._derive_lenovo_family_and_arch(
+        "Legion Pro 7i Gen 10",
+        "https://psref.lenovo.com/l/Product/Legion/Legion_Pro_7i_Gen_10",
+        "",
+    )
+    assert family == "legion-pro-7-gen-10"
+    assert arch == "intel"
+
+
+def test_family_arch_intel_and_amd_variants_share_family_code():
+    """The whole point of family_code: the AMD ``16AFR10H`` cousin and
+    the Intel ``16IRX10H`` variant of the Pro 7 Gen 10 platform produce
+    the same family_code so the merge dispatcher can pair them."""
+    family_amd, _ = lenovo_bridge._derive_lenovo_family_and_arch(
+        "Legion Pro 7 16AFR10H",
+        "https://psref.lenovo.com/l/Product/Legion/Legion_Pro_7_16AFR10H",
+        "16AFR10H",
+    )
+    family_intel, _ = lenovo_bridge._derive_lenovo_family_and_arch(
+        "Legion Pro 7i 16IRX10H (2026)",
+        "https://psref.lenovo.com/l/Product/Legion/Legion_Pro_7i_16IRX10H",
+        "16IRX10H",
+    )
+    assert family_amd == family_intel == "legion-pro-7-16-gen-10"
+
+
+def test_family_arch_unparseable_returns_none_none():
+    """A slug that matches neither convention returns ``(None, None)``;
+    the caller skips merge dispatch (and does NOT raise)."""
+    family, arch = lenovo_bridge._derive_lenovo_family_and_arch(
+        "Some Random ThinkBook 14",
+        "https://example.com/random",
+        "ZZZZZ",
+    )
+    assert family is None
+    assert arch is None
+
+
+def test_family_arch_unknown_arch_token_returns_family_but_no_arch():
+    """A compressed slug whose ``arch_token`` isn't in the known table
+    still yields a family code (so the merge layer can group variants)
+    but leaves ``arch_marker`` ``None``."""
+    family, arch = lenovo_bridge._derive_lenovo_family_and_arch(
+        "Legion Slim 5 14APH9",
+        "https://psref.lenovo.com/l/Product/Legion/Legion_Slim_5_14APH9",
+        "14APH9",
+    )
+    assert family == "legion-slim-5-14-gen-9"
+    assert arch is None
+
+
+# ---------------------------------------------------------------------------
+# Lenovo bridge integration — family_code / source_model_codes / arch_marker
+# stamping (Stage 7 T7.0a M3)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_live_stamps_family_code_and_source_model_codes():
+    """Live AMD fixture lands family_code + single-element source list."""
+    snap = _load_snapshot(LIVE_LEGION)
+    cand = lenovo_bridge.parse(snap)
+
+    assert cand.family_code == "legion-pro-7-16-gen-10"
+    assert cand.source_model_codes == ["16AFR10H"]
+
+
+def test_parse_live_stamps_arch_marker_on_every_board():
+    """Every board in a single snapshot shares the snapshot's arch."""
+    snap = _load_snapshot(LIVE_LEGION)
+    cand = lenovo_bridge.parse(snap)
+
+    assert cand.boards is not None
+    for board in cand.boards:
+        assert board["arch_marker"] == "amd-radeon"
+
+
+def test_parse_synthetic_stamps_intel_rtx_arch_marker():
+    """Synthetic Intel-variant fixture stamps the Intel-RTX arch."""
+    snap = _load_snapshot(SYNTH)
+    cand = lenovo_bridge.parse(snap)
+
+    assert cand.family_code == "legion-pro-7-16-gen-10"
+    assert cand.source_model_codes == ["16IRX10H"]
+    assert cand.boards is not None
+    for board in cand.boards:
+        assert board["arch_marker"] == "intel-rtx"
+
+
+def test_parse_unparseable_title_leaves_family_code_and_arch_marker_absent():
+    """When neither slug convention matches, family_code and
+    source_model_codes stay ``None`` and no board has an ``arch_marker``
+    key (we don't write a literal ``null`` leaf)."""
+    if not _HAS_SCRAPERS:
+        pytest.skip("scrapers-lib not installed")
+    raw = json.loads((FIXTURE_DIR / LIVE_LEGION).read_text(encoding="utf-8"))
+    for k in list(raw.keys()):
+        if k.startswith("_"):
+            raw.pop(k)
+    # Stomp the title + URL with shapes neither convention parses. The
+    # underlying model code regex still matches ``ZZZZZ9`` (>=5 chars,
+    # has digit+letter) so model_code is non-empty, but the compressed
+    # arch token ``ZZZZZ`` isn't in the family-line allow-list.
+    raw["title"] = "Generic Notebook ZZZZZ9"
+    raw["url"] = "https://example.com/random/notebook"
+    snap = ProductSnapshot.model_validate(raw)
+    cand = lenovo_bridge.parse(snap)
+
+    assert cand.family_code is None
+    assert cand.source_model_codes is None
+    assert cand.boards is not None
+    for board in cand.boards:
+        assert "arch_marker" not in board
+
+
 def test_parse_synthetic_lighting_strips_curly_quotes():
     """Quotes around brand tokens — straight or curly — are stripped
     so the stored prose is clean (Session 12 Finding #8).

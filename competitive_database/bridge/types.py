@@ -50,6 +50,17 @@ class CandidateProduct:
     # generic ``low_confidence_extraction`` bucket.
     year_was_inferred: bool = False
 
+    # --- Lenovo Intel/AMD merge (plain scalars, NOT bundles) ----------
+    # ``family_code`` groups Lenovo variants that share a physical
+    # platform (e.g. ``legion-pro-5-16-gen-10`` is shared by the Intel
+    # ``16IRX10`` and the AMD ``16ADR10``). ``source_model_codes`` is the
+    # list of Lenovo machine codes that merged into this product (each
+    # parser emits a single-element list; M4 merge ingest extends it).
+    # Both stay ``None`` for non-Lenovo bridges and for Lenovo slugs the
+    # parser couldn't parse (the runner skips merge dispatch then).
+    family_code: Optional[str] = None
+    source_model_codes: Optional[list[str]] = None
+
     # --- Identity (bundles) --------------------------------------------
     vendor_full_name: Optional[Bundle] = None
     brand: Optional[Bundle] = None
