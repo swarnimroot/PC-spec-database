@@ -6,7 +6,7 @@ A persistent, queryable database of competitor gaming-laptop specs from Dell, HP
 
 ## Status
 
-**Phase: Data layer + view layer + operational CLI — Stages 1–5 complete; Stage 6 (validation pass) closed in Session 12 (2026-05-08); Stage 7 (polish) in progress — T7.0a, T7.0b, T7.0c, T7.0e, T7.1, T7.2 shipped (T7.0d and T7.4 open; T7.3 rolling).** Foundation, schema, provenance helpers, all four Stage 3 vendor bridges, the Stage 4 view layer + `inspect-product` CLI, the Stage 5 operational helpers (`find-conflicts`, `find-empty`, `manual-edit`, `resolve`), the Stage 6 `audit-normalize` helper, and the Stage 7 `backfill-lenovo-families` helper are implemented and tested. 242/242 tests pass. The live DB carries 6 products across all 4 vendors (Dell ×2, HP ×1, Lenovo ×1, ASUS ×2). T6.1 closed partial at 6/8 — the HP first URL (OMEN Transcend 14 fb0023nr) is upstream-blocked in `scrapers-lib`, and the Lenovo second product is now unblocked by T7.0a merge ingest (re-ingest pending). T6.2 done. T6.7 captured 16 findings; T7.0b (Session 13) closed the actionable bridge + CLI fixes (#2, #4, #5, #8, #11, #12) and resolved three policy items (#6 → T7.1 doc, #7 → T7.0c, #9 → T7.0d); T7.0a (Session 15) shipped Lenovo merge ingest and subsumed Finding #3; T7.2 (Session 17) shipped end-to-end smoke — all 6 products refresh successfully across all 4 vendors, T7.0a family_code merge confirmed end-to-end on live PSREF, and surfaced a CLI URL template gap (the hard-coded `DEFAULT_*_URL_TMPL` constants in `cli/refresh.py` don't reach Dell Aurora / HP full-slug / ASUS Strix variants) now filed as T7.4. Finding #1 (HP Transcend 14 upstream) remains deferred. Full list and design sketches live in `SESSION_LOG.md` Sessions 12, 13, 15, and 17.
+**Phase: Data layer + view layer + operational CLI — Stages 1–5 complete; Stage 6 (validation pass) closed in Session 12 (2026-05-08); Stage 7 (polish) in progress — T7.0a, T7.0b, T7.0c, T7.0e, T7.1, T7.2, T7.4 shipped (T7.0d open; T7.3 rolling).** Foundation, schema, provenance helpers, all four Stage 3 vendor bridges, the Stage 4 view layer + `inspect-product` CLI, the Stage 5 operational helpers (`find-conflicts`, `find-empty`, `manual-edit`, `resolve`), the Stage 6 `audit-normalize` helper, and the Stage 7 `backfill-lenovo-families` helper are implemented and tested. 253/253 tests pass. The live DB carries 6 products across all 4 vendors (Dell ×2, HP ×1, Lenovo ×1, ASUS ×2). T6.1 closed partial at 6/8 — the HP first URL (OMEN Transcend 14 fb0023nr) is upstream-blocked in `scrapers-lib`, and the Lenovo second product is now unblocked by T7.0a merge ingest (re-ingest pending). T6.2 done. T6.7 captured 16 findings; T7.0b (Session 13) closed the actionable bridge + CLI fixes (#2, #4, #5, #8, #11, #12) and resolved three policy items (#6 → T7.1 doc, #7 → T7.0c, #9 → T7.0d); T7.0a (Session 15) shipped Lenovo merge ingest and subsumed Finding #3; T7.2 (Session 17) shipped end-to-end smoke — all 6 products refresh successfully across all 4 vendors, T7.0a family_code merge confirmed end-to-end on live PSREF, and surfaced a CLI URL template gap (the hard-coded `DEFAULT_*_URL_TMPL` constants in `cli/refresh.py` don't reach Dell Aurora / HP full-slug / ASUS Strix variants) filed as T7.4; T7.4 (Session 18) shipped `refresh --from-db` — reads each product's stored `source_url` from bundle provenance and bypasses the per-vendor URL templates entirely, closing the gap. Finding #1 (HP Transcend 14 upstream) remains deferred. Full list and design sketches live in `SESSION_LOG.md` Sessions 12, 13, 15, 17, and 18.
 
 - All 16 field categories from the source 80-column Excel (`Competitor Columns.xlsx`) are mapped to a data shape.
 - Schema connective tissue (catalog references, unknown-chip handling, provenance record format, naming, enum policy) is locked.
@@ -20,8 +20,7 @@ A persistent, queryable database of competitor gaming-laptop specs from Dell, HP
 
 **Immediate next phase:**
 1. Stage 7 T7.0d — keyboard structured offerings: extract `backlight` / `copilot_key` / `layout` / `travel_mm` as discrete bundle leaves across all four bridges. Schema additions. Spawned by Session 13 Finding #9 decision.
-2. Stage 7 T7.4 — refresh-by-stored-source_url CLI subcommand (or `refresh --from-db` flag): read a product's stored `source_url` from `products.<bundle>` provenance and use that for live fetch, bypassing the hard-coded URL templates. Small, surfaced by Session 17 smoke.
-3. Then T7.3 (rolling SESSION_LOG milestones).
+2. Then T7.3 (rolling SESSION_LOG milestones).
 
 ---
 
@@ -240,18 +239,27 @@ python -m competitive_database db-init
 Fetch a vendor product page, parse via the bridge, and ingest the result. Single SQLite transaction per product; cross-tile offerings are unioned.
 
 ```
-refresh --brand BRAND [--model SLUG | --url URL] [--db DB] [--profiles-dir DIR]
+refresh --brand BRAND (--model SLUG | --url URL | --from-db --model SLUG [--year YEAR])
+        [--db DB] [--profiles-dir DIR]
 ```
 
 - `--brand` — `dell` / `hp` / `lenovo` / `asus`. Required.
 - `--model` — URL slug for the product (vendor-specific). Mutually exclusive with `--url`.
 - `--url` — Full vendor URL. Recommended for Lenovo (`psref.lenovo.com/l/Product/...`) and ASUS (`/spec/` subpath required).
+- `--from-db` — Read the product's stored `source_url(s)` from bundle provenance in the local DB instead of formatting via the per-vendor template. Recommended for refreshing an already-ingested product — the template-formatted URL doesn't always match the URL the product was originally ingested from (e.g. Dell Aurora line, HP full marketing slug, ASUS Strix no-`/us/`). See `SESSION_LOG.md` Sessions 17 + 18 for the full story. Requires `--model`; mutually exclusive with `--url`. For Lenovo Intel+AMD merged rows, refreshes from each stored URL once.
+- `--year` — Disambiguator for `--from-db` when the same `model_code` has multiple yearly variants in `products`.
 - `--all` — Refresh every configured product. **Not yet implemented.**
 - `--profiles-dir` — Persistent browser profiles directory for the Playwright stealth context. Default: `.profiles`.
 
 ```bash
+# First-time ingest — template-formatted URL.
 python -m competitive_database refresh --brand dell --model xps-13-9315
+
+# First-time ingest — explicit URL override.
 python -m competitive_database refresh --brand asus --url https://rog.asus.com/laptops/rog-zephyrus/rog-zephyrus-g16-2026/spec/
+
+# Returning refresh — read each stored URL out of the DB.
+python -m competitive_database refresh --brand dell --model aa18250 --from-db
 ```
 
 ### `inspect-product`

@@ -6,12 +6,21 @@ emitted snapshot via the bridge, and ingests each into the SQLite DB.
 Stage 3 supports ``dell``, ``hp``, ``lenovo``, and ``asus``. ``--all`` is
 recognized but errors out with "not implemented yet" — multi-vendor
 whole-catalog refresh is deferred until later stages.
+
+Stage 7 T7.4: URLs resolve via three modes — per-vendor
+``DEFAULT_*_URL_TMPL`` formatting (slug given as ``--model``); an
+explicit ``--url`` override; or ``--from-db`` which reads each product's
+stored ``source_url`` from bundle provenance and loops the fetch across
+every distinct URL on the row (handles Lenovo Intel+AMD merged products
+naturally).
 """
 
 from __future__ import annotations
 
 import argparse
-from typing import Callable, Optional
+import json
+import sqlite3
+from typing import Any, Callable, Optional
 
 from scrapers_lib import Anchor, AttributionRegex
 
@@ -83,6 +92,25 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
         help="Refresh every product configured. NOT YET IMPLEMENTED.",
     )
     p.add_argument(
+        "--from-db",
+        action="store_true",
+        dest="from_db",
+        help=(
+            "Read source_url(s) for this product from the local DB instead "
+            "of formatting via the per-vendor URL template. Requires "
+            "--model; use --year if the model has multiple yearly variants. "
+            "Mutually exclusive with --url."
+        ),
+    )
+    p.add_argument(
+        "--year",
+        type=int,
+        help=(
+            "Disambiguator for --from-db when --model has multiple yearly "
+            "variants in the DB."
+        ),
+    )
+    p.add_argument(
         "--db",
         default="competitive.db",
         help="Path to the SQLite DB file.",
@@ -120,11 +148,45 @@ def main(args: argparse.Namespace) -> None:
             f"known: {sorted(_VENDOR_TEMPLATES)}"
         )
 
-    if not (args.url or args.model):
-        raise SystemExit("refresh: provide either --url or --model")
+    from_db = getattr(args, "from_db", False)
+    year = getattr(args, "year", None)
+    if from_db:
+        if args.url:
+            raise SystemExit(
+                "refresh: --from-db is mutually exclusive with --url"
+            )
+        if not args.model:
+            raise SystemExit("refresh: --from-db requires --model")
+    else:
+        if not (args.url or args.model):
+            raise SystemExit("refresh: provide either --url or --model")
 
-    url, slug = _resolve_url(brand, args.url, args.model)
-    snapshots = _fetch_snapshots(brand, url, slug, args.profiles_dir)
+    if from_db:
+        conn_lookup = connect(args.db)
+        try:
+            urls = _collect_source_urls_from_product(
+                conn_lookup, model_code=args.model, year=year
+            )
+        finally:
+            conn_lookup.close()
+        if not urls:
+            year_str = f" year={year}" if year is not None else ""
+            raise SystemExit(
+                f"refresh --from-db: no scraped source_urls found for "
+                f"model_code={args.model!r}{year_str} "
+                f"(product may be manual-only, or missing from DB)"
+            )
+        snapshots: list = []
+        for u in urls:
+            coerced = _coerce_vendor_url(brand, u)
+            slug = coerced.rstrip("/").rsplit("/", 1)[-1]
+            print(f"[from-db] fetching {coerced}")
+            snapshots.extend(
+                _fetch_snapshots(brand, coerced, slug, args.profiles_dir)
+            )
+    else:
+        url, slug = _resolve_url(brand, args.url, args.model)
+        snapshots = _fetch_snapshots(brand, url, slug, args.profiles_dir)
 
     conn = connect(args.db)
     try:
@@ -252,3 +314,85 @@ def _fetch_snapshots(brand: str, url: str, slug: str, profiles_dir: str):
         f"refresh: brand {brand!r} has no fetcher wired in; "
         f"known: {sorted(_VENDOR_TEMPLATES)}"
     )
+
+
+# --- --from-db helpers ---------------------------------------------------
+
+
+def _collect_source_urls_from_product(
+    conn: sqlite3.Connection,
+    model_code: str,
+    year: Optional[int],
+) -> list[str]:
+    """Return the distinct scraped ``source_url`` values stored on the
+    product identified by ``(model_code, year)``.
+
+    Year disambiguation: when ``year`` is None and the model has multiple
+    rows in ``products``, errors out and asks the caller to pass --year.
+    Manual bundles (no ``source_url``) are skipped silently — a product
+    composed entirely of manual cells returns an empty list, which the
+    caller surfaces as a user-facing error. Returns urls in column-walk
+    order, deduplicated.
+    """
+    if year is not None:
+        rows = conn.execute(
+            "SELECT * FROM products WHERE model_code = ? AND year = ?",
+            (model_code, year),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM products WHERE model_code = ?",
+            (model_code,),
+        ).fetchall()
+    if not rows:
+        year_str = f" year={year}" if year is not None else ""
+        raise SystemExit(
+            f"refresh --from-db: product not found in DB: "
+            f"model_code={model_code!r}{year_str}"
+        )
+    if len(rows) > 1:
+        years = sorted(r["year"] for r in rows)
+        raise SystemExit(
+            f"refresh --from-db: model_code={model_code!r} has multiple "
+            f"yearly variants ({years}); pass --year to disambiguate"
+        )
+    row = rows[0]
+
+    collected: list[str] = []
+    for key in row.keys():
+        if key in ("model_code", "year"):
+            continue
+        raw = row[key]
+        if raw is None:
+            continue
+        try:
+            decoded = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            # Plain-text columns (family_code, arch_marker, etc.).
+            continue
+        _walk_source_urls(decoded, collected)
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in collected:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def _walk_source_urls(payload: Any, sink: list[str]) -> None:
+    """Recursively append every non-empty string ``source_url`` value
+    found in ``payload`` into ``sink``. Handles scalar bundles (dict
+    with ``source_url``) and offering lists (list of dicts whose values
+    are leaf bundles)."""
+    if isinstance(payload, dict):
+        url = payload.get("source_url")
+        if isinstance(url, str) and url:
+            sink.append(url)
+        for v in payload.values():
+            if isinstance(v, (dict, list)):
+                _walk_source_urls(v, sink)
+    elif isinstance(payload, list):
+        for item in payload:
+            _walk_source_urls(item, sink)

@@ -6,6 +6,62 @@ Newest sessions at the top.
 
 ---
 
+## Session 18 — 2026-05-11 (Stage 7 T7.4: `refresh --from-db` CLI flag)
+
+**Goal:** Close the URL-template gap surfaced by Session 17 — let `refresh` read each product's stored `source_url` directly from the local DB instead of formatting via the hard-coded `DEFAULT_*_URL_TMPL` constants. Removes the "remember the full marketing slug" trap for any product already ingested.
+
+**Outcome:** T7.4 shipped. `cli/refresh.py` gains `--from-db` and `--year` flags. When `--from-db` is set, the CLI loads the product row by `(model_code, year)`, walks every JSON-encoded bundle column on that row, collects the distinct scraped `source_url` values, and loops the existing fetch + ingest path across each URL. Mutually exclusive with `--url`. Manual-only products (no `source_url` anywhere on the row) error with a helpful message. Multi-URL products — specifically Lenovo Intel+AMD merged rows that carry distinct `source_url`s on the per-arch leaves — are handled naturally by fetching each distinct URL once; the existing PK-grouping + `_premerge_lenovo_existing_row` path unions the candidates downstream as it already did at original ingest time. 11 new tests in `tests/cli/test_refresh.py` (5 walker, 6 DB collector). **242 → 253 tests, all passing.** Working tree dirty, no commit.
+
+### What the new flag does
+
+```
+refresh --brand <brand> --model <model_code> --from-db [--year <year>]
+```
+
+- Skips the per-vendor `DEFAULT_*_URL_TMPL` constants entirely; reads source_url(s) out of `products.<col>` JSON.
+- Mutually exclusive with `--url` (the manual-override path is still there for first-time ingests).
+- `--year` is required only when the same `model_code` has multiple yearly variants in `products`.
+- Errors clearly when the product isn't in DB, has multiple year variants and no `--year`, or has only manual cells (no `source_url` anywhere).
+
+### Implementation shape (all in `cli/refresh.py`)
+
+- **`_walk_source_urls(payload, sink)`** — pure recursive walker over a JSON-decoded column value; appends every non-empty `source_url` string it finds. Caller dedupes. Handles scalar bundles (top-level dict with `source_url`) and offering lists (list of dicts whose values are leaf bundles).
+- **`_collect_source_urls_from_product(conn, model_code, year)`** — `SELECT * FROM products WHERE model_code = ? [AND year = ?]`, JSON-decodes each non-null column (plain TEXT columns like `family_code`, `arch_marker`, and `source_model_codes` fall through `json.JSONDecodeError` / `TypeError`), walks each, dedupes preserving order. Raises `SystemExit` with a helpful message on missing product or ambiguous year.
+- **`main()`** — branches before the existing `_resolve_url` call. From-db path: opens a short-lived connection, calls the collector, prints `[from-db] fetching <url>` per URL, loops `_fetch_snapshots(brand, url, slug, profiles_dir)` and accumulates snapshots. Slug is derived per URL the same way the existing `--url` path derives it (rightmost path segment after stripping trailing slash). Downstream PK-grouping + ingest loop is untouched.
+
+### Why the walker is schema-blind rather than column-aware
+
+The product row has 50+ columns of mixed shapes — scalar bundle JSONs (`brand`, `audio_jack`, ...), offering-list JSONs (`cpu_offerings`, `display_offerings`, ...), and plain TEXT (`family_code`, `arch_marker`, `source_model_codes`). A column-aware reader would enumerate columns and dispatch on shape. The walker just probes `json.loads` per column and recurses on dicts/lists. Two reasons it's the right call here: (1) shape changes are routine (T7.0a added two plain columns recently), and a schema-blind walker keeps working through future column additions without edits; (2) `source_url` only appears in scraped-bundle dicts — there's no risk of false positives because no other JSON shape in the row uses that key. The plain-TEXT fall-through (`try` / `except (json.JSONDecodeError, TypeError)`) is cheap and explicit; `TypeError` covers the integer `year` column which `json.loads` rejects.
+
+### Lessons and notes
+
+- **Dry-run verification against the live DB:** ran `_collect_source_urls_from_product` against `competitive.db` for all 6 ingested products. Each returns exactly the URL that succeeded in Session 17's manual `--url` override:
+  - `aa18250` → `…/alienware-18-area-51-gaming-laptop/spd/alienware-area-51-aa18250-gaming-laptop`
+  - `ac16251` → `…/alienware-16x-aurora-gaming-laptop/spd/alienware-aurora-ac16251-gaming-laptop`
+  - `16t-ah100` → `…/shop/pdp/hyperx-omen-max-gaming-laptop-16t-ah100-16-cn3g9av-1`
+  - `legion-pro-7-16-gen-10` → `…/psref.lenovo.com/l/Product/Legion/Legion_Pro_7_16AFR10H?tab=spec`
+  - `rog-strix-g16-2026` → `https://rog.asus.com/laptops/rog-strix/rog-strix-g16-2026/spec/` (no `/us/`)
+  - `rog-zephyrus-g16-2026` → `https://rog.asus.com/us/laptops/rog-zephyrus/rog-zephyrus-g16-2026/spec/` (with `/us/`)
+
+  All 4 Session-17 template-mismatch cases are closed at the read layer. End-to-end fetch + ingest still pending as the next smoke pass — but every URL returned here is the same one that worked in Session 17, so the fetch side is on a known-good footing.
+- Lenovo `legion-pro-7-16-gen-10` currently has only one stored URL (AMD-only ingest); the Intel variant isn't ingested yet (README notes "re-ingest pending" for the Lenovo second product). The multi-URL merge code path is covered by `test_collect_source_urls_multi_url_lenovo_pattern` rather than by live data — it will exercise live once the Intel ingest lands.
+- Session 17's `feedback_url_template_check.md` lesson — "verify refresh URL matches DB-stored source_url before claiming scrapers-lib regression" — now has a CLI affordance: `refresh --from-db` *is* that verification step for already-ingested products.
+- 23 unresolved review_queue rows still open from Session 17 drift (Dell aa18250 `storage_slots` + `keyboard_offerings`, Lenovo lighting + camera `value_disagreement`, 4 `year_inferred` re-fires). Untouched by T7.4 — side track.
+- `camera_offerings.0.resolution` unit mismatch (Lenovo MP vs others' video res) still deferred from Session 17.
+- No schema changes, no bridge changes, no ingest changes. All edits localized to `cli/refresh.py` (+ tests).
+
+### Stage 7 status snapshot
+
+- **Done:** T7.0a, T7.0b, T7.0c, T7.0e, T7.1, T7.2, **T7.4 (this session)**.
+- **Open:** T7.0d (keyboard structured offerings — bridge-heavy, largest remaining task).
+- **Rolling:** T7.3 (SESSION_LOG milestones — this entry counts).
+
+### Pickup pointer for next session
+
+T7.0d. Scope from Session 13 Finding #9: extract `backlight`, `copilot_key`, `layout`, `travel_mm` as discrete bundle leaves across all four bridges (Dell, HP, Lenovo, ASUS); `description` becomes vendor-doesn't-publish or a short normalized line. Schema additions needed. Re-read Session 13 Finding #9 before scoping the bridge work — the `description` policy decision shapes which existing leaf gets retired.
+
+---
+
 ## Session 17 — 2026-05-11 (Stage 7 T7.2: end-to-end smoke test across all 4 vendors)
 
 **Goal:** Run live refreshes for all 6 products across all 4 vendor bridges; verify pipeline holds end-to-end; surface drift via `find-conflicts` and `audit-normalize`; document findings.

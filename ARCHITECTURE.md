@@ -184,8 +184,11 @@ All helpers under `cli/`. Each is a thin wrapper over an underlying Python funct
 ### `refresh`
 Ingestion. See [Ingestion runner](#ingestion-runner).
 
+Three URL-resolution modes: per-vendor `DEFAULT_*_URL_TMPL` (first-time ingest, slug as `--model`); explicit `--url` (first-time ingest, exact URL); `--from-db` (returning refresh — reads each product's stored `source_url` from bundle provenance, bypassing templates, and loops fetch across every distinct URL on the row so Lenovo Intel+AMD merged products refresh both sides).
+
 ```
 python -m competitive_database refresh --brand dell --model alienware-m18
+python -m competitive_database refresh --brand dell --model aa18250 --from-db
 python -m competitive_database refresh --all
 ```
 
