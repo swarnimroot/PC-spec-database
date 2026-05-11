@@ -1648,21 +1648,6 @@ _CAM_RES_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Megapixel → vertical-pixel form for typical laptop webcam sensors.
-# Lenovo PSREF advertises camera resolution in MP (``"5.0MP"``); Dell /
-# HP / ASUS publish vertical-pixel form (``"720p"`` / ``"1080p"`` /
-# ``"4K"``). Normalize Lenovo values into the same enum so the catalog
-# is comparable across vendors. Values not in this table are kept as
-# the raw ``NMP`` form with ``status="needs-review"`` so manual review
-# can normalize anything unusual.
-_MP_TO_P_FORM = {
-    "0.9": "720p",
-    "1.0": "720p",
-    "2.0": "1080p",
-    "5.0": "1440p",
-    "8.0": "4K",
-}
-
 
 def _build_camera_offerings(
     text: Optional[str], source_url: str, captured_at: str
@@ -1677,26 +1662,7 @@ def _build_camera_offerings(
         res_val: Optional[str] = None
         res_status = "verified"
         if m is not None:
-            label = m.group(1).lower()
-            if label == "fhd":
-                res_val = "1080p"
-            elif label == "hd":
-                res_val = "720p"
-            elif label in ("uhd", "4k"):
-                res_val = "4K"
-            elif "mp" in label:
-                mp_str = re.sub(
-                    r"\s*mp\s*$", "", label, flags=re.IGNORECASE
-                ).strip()
-                normalized = _MP_TO_P_FORM.get(mp_str)
-                if normalized is not None:
-                    res_val = normalized
-                else:
-                    # Unknown MP value — keep raw form, flag for review.
-                    res_val = mp_str.upper().replace(" ", "") + "MP"
-                    res_status = "needs-review"
-            else:
-                res_val = label
+            res_val, res_status = h.normalize_camera_resolution(m.group(1))
         ir_val = bool(
             "ir camera" in low or "windows hello" in low or " ir " in low
         )

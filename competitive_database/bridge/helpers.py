@@ -439,3 +439,54 @@ def infer_gpu_brand(model: str) -> Optional[str]:
     if "intel" in low or "arc" in low or "iris" in low:
         return "Intel"
     return None
+
+
+# ---------------------------------------------------------------------------
+# Camera resolution normalization (shared by Lenovo + ASUS bridges)
+# ---------------------------------------------------------------------------
+
+
+# Megapixel → vertical-pixel form for typical laptop webcam sensors.
+# Lenovo PSREF advertises camera resolution in MP (``"5.0MP"``); some
+# ASUS pages do the same. Dell / HP publish vertical-pixel form
+# (``"720p"`` / ``"1080p"`` / ``"4K"``). Normalize MP into the same
+# enum so the catalog is comparable across vendors. Values not in this
+# table are kept as the raw ``NMP`` form with ``status="needs-review"``
+# so manual review can normalize anything unusual.
+CAMERA_MP_TO_P_FORM = {
+    "0.9": "720p",
+    "1.0": "720p",
+    "2.0": "1080p",
+    "5.0": "1440p",
+    "8.0": "4K",
+}
+
+
+def normalize_camera_resolution(label: str) -> tuple[str, str]:
+    """Map a regex-matched camera-resolution label to canonical p-form.
+
+    Accepts the labels matched by the shared camera-resolution regex —
+    ``720p / 1080p / 1440p / 4K / FHD / HD / UHD / NMP`` (case-
+    insensitive). Returns ``(value, status)``:
+
+    * Known forms (p-form, FHD/HD/UHD/4K, MP in
+      ``CAMERA_MP_TO_P_FORM``) → canonical p-form value with
+      ``status="verified"``.
+    * MP values not in the table → raw ``NMP`` form with
+      ``status="needs-review"`` so manual review can normalize them.
+    """
+    low = label.strip().lower()
+    if low == "fhd":
+        return "1080p", "verified"
+    if low == "hd":
+        return "720p", "verified"
+    if low in ("uhd", "4k"):
+        return "4K", "verified"
+    if "mp" in low:
+        mp_str = re.sub(r"\s*mp\s*$", "", low, flags=re.IGNORECASE).strip()
+        normalized = CAMERA_MP_TO_P_FORM.get(mp_str)
+        if normalized is not None:
+            return normalized, "verified"
+        return mp_str.upper().replace(" ", "") + "MP", "needs-review"
+    # Already in p-form (720p / 1080p / 1440p).
+    return low, "verified"

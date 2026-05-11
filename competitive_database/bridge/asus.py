@@ -1408,26 +1408,18 @@ def _build_camera_offerings(
         low = piece.lower()
         m = _CAM_RES_RE.search(piece)
         res_val: Optional[str] = None
+        res_status = "verified"
         if m is not None:
-            label = m.group(1).lower()
-            if label == "fhd":
-                res_val = "1080p"
-            elif label == "hd":
-                res_val = "720p"
-            elif label in ("uhd", "4k"):
-                res_val = "4K"
-            elif "mp" in label:
-                res_val = re.sub(r"\s*mp\s*$", "MP", label, flags=re.IGNORECASE)
-                res_val = res_val.upper().replace(" ", "")
-            else:
-                res_val = label
+            res_val, res_status = h.normalize_camera_resolution(m.group(1))
         ir_val = bool(
             "ir camera" in low or "windows hello" in low or " ir " in low
         )
         shutter_val = bool("shutter" in low or "e-shutter" in low)
         offerings.append(
             {
-                "resolution": _maybe_bundle(res_val, source_url, captured_at),
+                "resolution": _maybe_bundle(
+                    res_val, source_url, captured_at, status=res_status
+                ),
                 "ir_supported": _scraped_bundle(ir_val, source_url, captured_at),
                 "privacy_shutter": _scraped_bundle(
                     shutter_val, source_url, captured_at

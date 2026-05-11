@@ -424,6 +424,46 @@ def test_parse_synthetic_camera_with_privacy_shutter():
     assert cand.camera_offerings[0]["ir_supported"]["value"] is True
 
 
+def test_parse_synthetic_camera_known_mp_value_normalized_to_p_form():
+    """A vendor MP value present in ``CAMERA_MP_TO_P_FORM`` maps to
+    canonical p-form with ``status="verified"`` (mirrors Lenovo; shared
+    via ``helpers.normalize_camera_resolution``)."""
+    if not _HAS_SCRAPERS:
+        pytest.skip("scrapers-lib not installed")
+    raw = json.loads((FIXTURE_DIR / SYNTH).read_text(encoding="utf-8"))
+    for k in list(raw.keys()):
+        if k.startswith("_"):
+            raw.pop(k)
+    raw["specs"]["Camera"] = "2.0MP IR camera"
+    snap = ProductSnapshot.model_validate(raw)
+    cand = asus_bridge.parse(snap)
+
+    assert cand.camera_offerings is not None
+    res = cand.camera_offerings[0]["resolution"]
+    assert res["value"] == "1080p"
+    assert res["status"] == "verified"
+
+
+def test_parse_synthetic_camera_unknown_mp_value_flags_needs_review():
+    """An MP value not in ``CAMERA_MP_TO_P_FORM`` falls back to the
+    raw ``NMP`` form and is flagged ``needs-review`` (shared via
+    ``helpers.normalize_camera_resolution``)."""
+    if not _HAS_SCRAPERS:
+        pytest.skip("scrapers-lib not installed")
+    raw = json.loads((FIXTURE_DIR / SYNTH).read_text(encoding="utf-8"))
+    for k in list(raw.keys()):
+        if k.startswith("_"):
+            raw.pop(k)
+    raw["specs"]["Camera"] = "3.0MP IR camera"
+    snap = ProductSnapshot.model_validate(raw)
+    cand = asus_bridge.parse(snap)
+
+    assert cand.camera_offerings is not None
+    res = cand.camera_offerings[0]["resolution"]
+    assert res["value"] == "3.0MP"
+    assert res["status"] == "needs-review"
+
+
 def test_parse_synthetic_adapter_usbc_pd_connector():
     """Synthetic Power Supply: ``"USB Type-C, 100W AC Adapter"`` →
     connector USB-C PD."""

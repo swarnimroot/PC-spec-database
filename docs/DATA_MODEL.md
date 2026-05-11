@@ -232,7 +232,7 @@ Storage labels (`MB1`/`MB2`/`MB3`) are load-bearing for cross-tile merge — `_m
 
 | Sub-field | Type | Notes |
 |---|---|---|
-| `resolution` | string | 720p / 1080p / 1440p / 4K |
+| `resolution` | string | 720p / 1080p / 1440p / 4K (vendor MP normalized via `bridge/helpers.CAMERA_MP_TO_P_FORM`; unknown MP → `status="needs-review"`) |
 | `ir_supported` | boolean | Windows Hello support |
 | `privacy_shutter` | boolean | |
 | `tier` | string | base / optional |
