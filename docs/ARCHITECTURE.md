@@ -1,6 +1,6 @@
 # Architecture — System Design
 
-For project scope and policy, see [`README.md`](README.md). For full schema, see [`DATA_MODEL.md`](DATA_MODEL.md).
+For project scope and policy, see [`README.md`](../README.md). For full schema, see [`DATA_MODEL.md`](DATA_MODEL.md).
 
 ---
 
@@ -268,12 +268,13 @@ python -m competitive_database backfill-lenovo-families --db path/to/competitive
 ```
 competitive-database/
 ├── README.md
-├── PRD.md
-├── DATA_MODEL.md
-├── ARCHITECTURE.md            # this file
-├── SESSION_LOG.md
-├── TASKS.md
-├── VIEWS.md                   # view-layer format choices
+├── docs/
+│   ├── PRD.md
+│   ├── DATA_MODEL.md
+│   ├── ARCHITECTURE.md        # this file
+│   ├── SESSION_LOG.md
+│   ├── TASKS.md
+│   └── VIEWS.md               # view-layer format choices
 ├── pyproject.toml
 ├── competitive_database/
 │   ├── __init__.py

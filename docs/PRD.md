@@ -1,6 +1,6 @@
 # Product Requirements Document — Competitive Gaming-Laptop Spec Database
 
-For project scope, architecture, and policy details, see [`README.md`](README.md). For full schema, see [`DATA_MODEL.md`](DATA_MODEL.md).
+For project scope, architecture, and policy details, see [`README.md`](../README.md). For full schema, see [`DATA_MODEL.md`](DATA_MODEL.md).
 
 ---
 

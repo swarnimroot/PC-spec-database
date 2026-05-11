@@ -107,7 +107,7 @@ Three tables:
 2. **`gpu_catalog`** — chip-level data per GPU model (e.g., RTX 5070 Ti). Populated deterministically from NVIDIA and AMD spec pages.
 3. **`products`** — one row per gaming-laptop product, identified by **(model code, year)**. References catalogs by model name string for chip data. Carries product-decided values directly (TGP, TDP max, board configuration, etc.).
 
-Detailed schema: see [`DATA_MODEL.md`](DATA_MODEL.md).
+Detailed schema: see [`DATA_MODEL.md`](docs/DATA_MODEL.md).
 
 ---
 

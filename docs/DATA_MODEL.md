@@ -1,6 +1,6 @@
 # Data Model — Field-by-Field Schema Reference
 
-Full schema reference for the competitive gaming-laptop spec database. For project scope, architecture, and policy, see [`README.md`](README.md).
+Full schema reference for the competitive gaming-laptop spec database. For project scope, architecture, and policy, see [`README.md`](../README.md).
 
 ---
 
