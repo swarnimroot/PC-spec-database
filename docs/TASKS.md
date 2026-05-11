@@ -18,7 +18,7 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 - History layer — Phase 2
 - Hosted Postgres migration — if/when team access becomes real
 - Manual T6.1 cell-by-cell cross-check across 6 products — low payoff post-T7.0a/b
-- `camera_offerings.0.resolution` unit mismatch (Lenovo MP vs others' video res) — future camera-leaf shape conversation
+- review_queue resolver CLI doesn't accept column-level offering paths (e.g. `camera_offerings`) — Stage 5 follow-up (Session 20)
 
 ## Closed stages
 - Stage 1 — Foundation — 2026-05-07 (5)

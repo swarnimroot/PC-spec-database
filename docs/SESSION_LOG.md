@@ -6,6 +6,78 @@ Newest sessions at the top.
 
 ---
 
+## Session 20 — 2026-05-11 (Carryforward sweep: fb0023nr retired, camera resolution Option A executed, Stage 5 CLI gap surfaced)
+
+**Goal:** Sweep parked carryforward items in simplicity order, smallest first. Item 1: re-examine "HP Transcend 14 fb0023nr upstream-blocked" (Session 19 L46 / Session 12 Finding #1). Item 2: settle the long-deferred `camera_offerings.0.resolution` unit-mismatch shape question (Session 17 L184, L195; parked since Stage 6).
+
+**Outcome:** Two carryforward items retired, one new architectural finding raised. **(1)** `fb0023nr` confirmed as a phantom SKU (absent from HP's current shop catalog), not upstream-blocked — carryforward retired (no code / DB / test changes for this item). **(2)** Camera resolution shape settled via Option A: vendor megapixels normalized to canonical p-form (`720p / 1080p / 1440p / 4K`) per a 5-value table shared between Lenovo and ASUS bridges. ASUS bridge tightened (was a latent contract violation), Lenovo refactored to use the shared helper (behavior-preserving), MP table lifted to `bridge/helpers.py`. **(3)** New finding: the review_queue resolver CLI requires leaf-level paths (`<column>.<idx>.<leaf>`) but the runner produces column-level offering conflicts (e.g. `camera_offerings`) — row #18 cannot be resolved through the current CLI; deferred as a Stage 5 follow-up. **Tests 253 → 255** (2 new ASUS MP-normalization tests; full suite green; Lenovo refactor confirmed behavior-preserving).
+
+### Investigation
+
+1. **Direct URL probe** (PowerShell `Invoke-WebRequest` from this environment) timed out for both the suspect URL and the known-working `16t-ah100` URL. Inconclusive — environment-level slowness / rate-limiting, not a per-URL signal.
+2. **Site-restricted web search of `hp.com` for `fb0023nr`:** zero direct hits — the SKU is absent from HP's current shop, support, and product-family pages.
+3. **Open web search for `"fb0023nr" HP OMEN Transcend 14 specs`:** all retailer references (Best Buy, Micro Center, Consumer Reports, Tom's Guide) point to **`fb0023dx`**, the Best Buy / retail-exclusive variant (`dx` suffix). The `nr` variant is unattested anywhere.
+4. **Current HP Transcend 14 family on hp.com:**
+   - `fb0097nr` — current HP-direct retail variant (32 GB / 2 TB), live at `/shop/pdp/omen-transcend-laptop-14-fb0097nr`.
+   - `14t-fb100` — current CTO (configurable) page, live at `/shop/pdp/omen-transcend-14-inch-gaming-laptop-pc-pdk-a88y7av-1`.
+   - `fb0023dx` — Best Buy / Micro Center channel, never on hp.com shop.
+5. **Re-attribution of the original error.** The Session 12 Finding #1 attribution ("scrapers-lib needs an updated HP PDP handler") was an honest reading of the error message at the time. With the SKU now confirmed phantom, the parsimonious explanation is: HP returned a non-PDP page (landing / redirect / 404-ish HTML), which legitimately lacks the `pdpCTOConfiguration.configurations` JSON block the parser searches for. The parser is functioning as designed — it refuses to coerce a non-PDP into a PDP.
+
+### Camera resolution shape decision — Option A executed
+
+Doc contract in `DATA_MODEL.md` L235 already locked `resolution` as the p-form enum (`720p / 1080p / 1440p / 4K`). Audit confirmed code drift: Dell / HP regex emit p-form only (matches the contract); Lenovo regex accepts MP and normalizes 5 known values to p-form via a local `_MP_TO_P_FORM` table (unknowns fall to `needs-review`); **ASUS regex accepts MP with no normalization at all** — a latent contract violation that would silently write a raw `NMP` string to the DB on any future ASUS PDP that publishes MP. DB state matched the doc for 5/6 products; only `legion-pro-7-16-gen-10` still held `5.0MP` (pre-mapping capture from 2026-05-08); the 2026-05-11 refresh produced candidate `1440p` and the resulting conflict sits in review_queue row #18.
+
+Three options were laid out via output-mockup previews — (A) normalize MP→p, (B) add a sibling `megapixels` leaf for lossless capture, (C) keep MP raw with `needs-review`. **User chose A.** Rationale: doc contract already on p-form, no downstream consumer reads resolution semantically (`views/camera.py` renders strings as-is; `ingest/runner.py` does opaque value-equality), and Option B (sibling leaf) is more surface than YAGNI justifies until something queries on sensor megapixels.
+
+Code changes:
+- `bridge/helpers.py` — added `CAMERA_MP_TO_P_FORM` (lifted from Lenovo) and `normalize_camera_resolution(label) -> (value, status)`. Single source of truth for the policy; both bridges call it. Camera section is the third helpers cluster (after unit parsing and chip-brand inference).
+- `bridge/lenovo.py` — removed the local `_MP_TO_P_FORM` dict and the inline FHD/HD/UHD/4K/MP branching in `_build_camera_offerings`; replaced with a one-line call to `h.normalize_camera_resolution(m.group(1))`. Byte-identical table; preserved unknown-MP `needs-review` fallthrough; status flag still threaded into `_maybe_bundle`. Refactor only — no behavior delta.
+- `bridge/asus.py` — same refactor: inline FHD/HD/UHD/4K/MP branching replaced with the helper call; the `resolution` bundle now takes `status=res_status` so unknown-MP rows can flag `needs-review` (previously ASUS never set status on the resolution leaf — that's the latent-bug fix).
+- `tests/bridge/test_asus.py` — added two synthetic-fixture tests mirroring Lenovo's existing camera tests: `test_parse_synthetic_camera_known_mp_value_normalized_to_p_form` (verifies `"2.0MP IR camera"` → `1080p`, `verified`) and `test_parse_synthetic_camera_unknown_mp_value_flags_needs_review` (verifies `"3.0MP IR camera"` → `3.0MP`, `needs-review`).
+
+Doc change:
+- `DATA_MODEL.md` L235 — added one-line policy note to the `resolution` row Notes column: `(vendor MP normalized via bridge/helpers.CAMERA_MP_TO_P_FORM; unknown MP → status="needs-review")`.
+
+Test count: **253 → 255**. Both new tests pass; existing 253 unchanged including Lenovo's MP-related tests (`test_parse_synthetic_camera_unknown_mp_value_flags_needs_review`, `test_parse_synthetic_camera_ir_supported`), confirming the Lenovo refactor is behavior-preserving.
+
+### Stage 5 resolver CLI gap (new finding)
+
+Discovered while attempting to resolve review_queue row #18 — the natural follow-through of the camera shape decision. The CLI `python -m competitive_database resolve --id 18 --action accept_candidate` errored:
+
+```
+resolve: queue row id=18 has a field_path shape not supported by Stage 5 (offering path must be '<column>.<idx>.<leaf>', got 'camera_offerings').
+```
+
+Inspection: row #18's `field_path` is `camera_offerings` (column-level). The runner's conflict detector (`ingest/runner.py`) treats the offerings JSON as opaque value-equality during merge — `_camera_id` aligns offerings by identity but the conflict itself fires at the column level when the resulting JSON arrays differ. The resolver CLI's `accept_candidate` path was built for the per-leaf model (write one provenance Bundle to one leaf inside the JSON) and hard-rejects column-level paths.
+
+Three resolution paths existed: (A) direct SQL bypass — write the candidate JSON to `products.camera_offerings` and mark row #18 resolved manually; (B) defer + document — leave row #18 open as a Stage 5 architectural finding; (C) widen the resolver in this session — extend `accept_candidate` to handle column-level offering paths by writing the full JSON blob. **User chose B.** Rationale: the mismatch is architectural, not row-specific — any future column-level offering conflict (display_offerings, keyboard_offerings, etc.) will hit the same wall — and bypassing the gap with SQL would paper over the right fix. A proper resolver-design pass belongs in a future session, ideally when Phase 2 needs the review_queue workflow live.
+
+Row #18 remains open. The 1440p candidate sits unresolved in queue; DB still holds `5.0MP` on `legion-pro-7-16-gen-10`'s camera_offerings[0].resolution. The shape question is settled (bridge code now enforces p-form across all four vendors), but the specific DB row will only flip to `1440p` once the resolver supports column-level offering paths — or when the user is willing to bypass with SQL.
+
+Added one row to TASKS.md Deferred: `review_queue resolver CLI doesn't accept column-level offering paths (e.g. \`camera_offerings\`) — Stage 5 follow-up (Session 20)`.
+
+### Decisions made this session
+
+1. **fb0023nr retired from carryforward.** Phantom SKU, not an upstream blocker.
+2. **Earlier session entries left unchanged.** Session 12 (first report) and Session 13 (deferral) record what we believed at the time; rewriting them would break the append-only / honest-log convention.
+3. **No Transcend 14 row added.** Whether to ever ingest one (using a real SKU — `fb0097nr` retail or the `14t-fb100` CTO URL) is a separate scope decision, not in this session.
+4. **Camera resolution policy = p-form.** Vendor MP normalized via a shared 5-value table; unknown MP flagged `needs-review`. Option A chosen over Option B (sibling `megapixels` leaf — YAGNI deferred) and Option C (keep MP raw — violates doc contract).
+5. **`CAMERA_MP_TO_P_FORM` lifted to `bridge/helpers.py`.** Two-vendor reuse of identical normalization logic justified extraction (matches the existing helpers.py convention for cross-vendor parsing primitives). Lenovo refactor is behavior-preserving (existing tests prove it).
+6. **ASUS latent-bug fix:** the resolution bundle now carries `status=res_status` so unknown MP values flag `needs-review` (previously dropped to default `"verified"`).
+7. **review_queue row #18 deferred, not resolved.** Stage 5 CLI gap for column-level offering paths surfaced as a new architectural finding (TASKS.md Deferred). Direct-SQL bypass declined.
+
+### Where we left off (pickup pointers)
+
+- Stage 7 closed. Stages 1–7 done; T7.0d deferred.
+- **255/255 tests green** (253 pre-session + 2 new ASUS MP normalization tests). Full suite confirms Lenovo refactor is behavior-preserving.
+- Working tree at session close: **clean** after two commits — code+tests+contract doc commit, then session-docs commit (see git log for SHAs).
+- **Carryforward (updated):** 23 unresolved review_queue rows still open. The `camera_offerings.0.resolution` unit-mismatch **shape question is settled** (Option A executed; bridge code now enforces p-form across all four vendors), but row #18 itself remains open due to the Stage 5 CLI gap (below). **HP fb0023nr retired** (Session 20: phantom SKU; not upstream-blocked).
+- **New deferred item:** review_queue resolver CLI doesn't accept column-level offering paths (e.g. `camera_offerings`) — the runner emits these but the resolver requires `<column>.<idx>.<leaf>`. Symptom: row #18 cannot be resolved via CLI. Logged in TASKS.md under Deferred as a Stage 5 follow-up.
+- **Phase 2 (UI) is unscoped.** Stage 8 not yet planned.
+- **Open question (non-blocking):** whether to ever add a Transcend 14 DB row using `fb0097nr` (retail) or `14t-fb100` CTO. Not currently in scope.
+
+---
+
 ## Session 19 — 2026-05-11 (Stage 7 close-out: T7.0d deferred, T7.3 final milestone)
 
 **Goal:** Close Stage 7. Two decisions: (1) defer T7.0d (keyboard structured offerings) rather than implement it; (2) write the final T7.3 milestone so the rolling SESSION_LOG can stop rolling. Doc-only session.
