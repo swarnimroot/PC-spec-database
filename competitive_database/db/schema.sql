@@ -32,6 +32,14 @@ CREATE TABLE IF NOT EXISTS products (
     model_code      TEXT NOT NULL,
     year            INTEGER NOT NULL,
 
+    -- Lenovo Intel/AMD merge (Stage 7 T7.0a M1) — plain scalars, not bundles.
+    -- family_code is a canonical family identifier (e.g.
+    -- "legion-pro-5-16-gen-10"). source_model_codes is a JSON array of strings
+    -- (the per-vendor machine codes that merged into this product). Both NULL
+    -- for non-Lenovo rows and for legacy Lenovo rows until backfilled.
+    family_code         TEXT,
+    source_model_codes  TEXT,
+
     -- Identity (bundles)
     vendor_full_name TEXT,
     brand            TEXT,
