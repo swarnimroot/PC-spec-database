@@ -142,7 +142,7 @@ Storage labels (`MB1`/`MB2`/`MB3`) are load-bearing for cross-tile merge — `_m
 |---|---|---|
 | `size_inches` | number | E.g., 16, 18 |
 | `panel_type` | string | IPS / OLED / mini-LED / IPS-level / *open enum* |
-| `resolution_label` | string | e.g., "QHD+", "WQXGA" |
+| `resolution_label` | string | e.g., "QHD+", "WQXGA". Documented enum-pair (FHD ↔ 1080p, WQXGA ↔ 2.5K, UHD ↔ 4K) — vendors publish either form; both stored as-is. Full table in `README.md` § Normalization notes. |
 | `resolution_pixels` | string | e.g., "2560×1600" |
 | `refresh_rate_hz` | number | |
 | `nits_peak` | number | |

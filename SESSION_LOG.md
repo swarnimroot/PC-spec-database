@@ -6,6 +6,44 @@ Newest sessions at the top.
 
 ---
 
+## Session 16 — 2026-05-11 (Stage 7 T7.1: docs polish + Session 15 leftovers)
+
+**Goal:** Close T7.1 (README setup + CLI reference + `resolution_label` enum-pair doc) and fold in the two Session 15 leftovers — PRD doc-sweep status and migration-gotcha surface. Doc-only session.
+
+**Outcome:** T7.1 shipped. 242/242 tests unchanged (doc-only, no code touched). README gained Setup, Upgrading, and Normalization notes sections; CLI commands expanded into a per-CLI CLI reference covering all 9 subcommands. DATA_MODEL.md cross-links `resolution_label` to the README enum-pair table. PRD intentionally untouched — Session 15 tail-point #4 sweep already evaluated and skipped (T7.0a/T7.1 are internal mechanics / reference material, not PRD-level user-visible claims); reconfirmed for T7.1. Migration gotcha (`connect()` does not auto-apply schema; re-run `db-init` after schema pulls) now surfaced in README Upgrading, not only in memory + `apply_schema()` docstring.
+
+### Doc edits that landed
+
+- `README.md` — new sections:
+  - **Setup** (after Status): prerequisites (Python 3.12+, `scrapers-lib` sibling layout, optional DB Browser), install (venv + editable installs, PowerShell + POSIX variants), bootstrap (`db-init`), first-refresh + inspect walkthrough.
+  - **CLI reference** (replaces brief "CLI commands"): per-CLI subsection (purpose, usage signature, args, example) for all 9 subcommands — `db-init`, `refresh`, `inspect-product`, `find-empty`, `find-conflicts`, `manual-edit`, `resolve`, `audit-normalize`, `backfill-lenovo-families`.
+  - **Upgrading**: surfaces the `connect()` non-auto-migrate gotcha; explains the idempotent `apply_schema()` path and the one-time data-backfill CLI pattern.
+  - **Normalization notes**: `resolution_label` enum-pair table (FHD ↔ 1080p, WQXGA ↔ 2.5K, UHD ↔ 4K) per Session 13 Finding #6 decision.
+- `README.md` — Status headline updated to include T7.0b + T7.1 in shipped list (T7.0b was already in the body but missing from the headline; corrected in-line while updating for T7.1).
+- `DATA_MODEL.md` — Display section: `resolution_label` row now carries the enum-pair note and cross-links to README § Normalization notes.
+
+### Session 15 leftovers — resolution
+
+1. **PRD doc-sweep — confirmed skip.** Per Session 15 tail point #4, the doc-alignment agent's judgment that T7.0a is an internal ingestion mechanic, not a PRD-level user-visible feature claim, still holds for T7.1. The PRD scope (goals, target users, success criteria, phase definition) doesn't move when reference material (Setup walkthrough, CLI reference, normalization table) lands. No PRD edit this session.
+2. **Migration gotcha — surfaced in README.** Previously documented only in `db/connection.py::apply_schema` docstring and the memory record `migration_gotcha.md`. New users reading the README now see the re-run-`db-init`-after-pull rule before they hit a `no such column` error. The Session 15 decision to leave the auto-migrate gap as-is is preserved — the doc surfaces the boundary, doesn't change it.
+
+### Decisions made this session
+
+- **Setup goes after Status, near the top.** User-first ordering: a reader hitting the README wants to know "what is this" → "how do I run it" before architecture. The project-history Status block stays at the top because it's already structured as the project-state header.
+- **CLI reference uses per-CLI subsections, not a single table.** `manual-edit` and `resolve` carry enough flag complexity that a row-per-CLI table would be cramped; per-CLI subsections give room for the usage / args / example block without compressing critical detail.
+- **Enum-pair table stays minimal — three confirmed pairs only.** Session 13 Finding #6 named FHD / WQXGA / UHD specifically. Tempting to add QHD+ / UHD+ rows but the canonical list is what's locked; speculative pairs would be premature. Future entries land when a vendor case forces them.
+
+### Where we left off (pickup pointers)
+
+- T7.1 closed. Both Session 15 leftovers folded in and closed.
+- 242/242 tests green (doc-only — no code touched, no tests added).
+- Memory `project_overview.md` updated: 8 → 9 CLIs; T7.1 moved from open to shipped; Session 16 status header. `MEMORY.md` index line updated.
+- Stage 7 still open: **T7.0d** (keyboard structured offerings — bridge-heavy, touches all 4 vendors + schema additions; largest remaining task), **T7.2** (end-to-end smoke test across all 4 vendors), **T7.3** (rolling SESSION_LOG closeout milestones — Session 16 counts as a partial bump but the final stage-close milestone is still pending).
+- Next likely task: **T7.0d** if a coding session, **T7.2** if a verification session.
+- Uncommitted Session 16 doc edits at session close.
+
+---
+
 ## Session 15 — 2026-05-08 (Stage 7 T7.0a: Lenovo multi-URL merge ingest)
 
 **Goal:** Land the Lenovo per-architecture merge ingest design from Session 12 — one `family_code`-keyed product row collapses the Intel / AMD machine-code cousins PSREF publishes separately. Plus the Step 0 caveat fix from Session 14 (drop `boards.{idx}.label` from manual-edit field_paths) on the way in.
