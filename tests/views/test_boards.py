@@ -119,6 +119,42 @@ def test_field_paths_excludes_label():
     assert "boards.1.tgp_max" in keys
 
 
+def test_field_paths_includes_arch_marker():
+    # User Decision 2: arch_marker is hand-editable via manual-edit, so
+    # field_paths() must expose it. (Complement of the label exclusion.)
+    product = {
+        "boards": [
+            _board("MB1"),
+            _board("MB2"),
+        ]
+    }
+    paths = field_paths(product)
+    keys = [path for path, _label in paths]
+    assert "boards.0.arch_marker" in keys
+    assert "boards.1.arch_marker" in keys
+
+
+def test_render_surfaces_arch_marker():
+    # M3 stamps arch_marker on each board so users can tell Intel and AMD
+    # variants apart when they inspect-product. The render must surface
+    # it. Boards without arch_marker (non-Lenovo / unparseable) skip the
+    # line entirely instead of printing None.
+    intel_board = _board("MB1")
+    intel_board["arch_marker"] = "intel-rtx"
+    amd_board = _board("MB2")
+    amd_board["arch_marker"] = "amd-radeon"
+    product = {"boards": [intel_board, amd_board]}
+    out = render(product, {})
+    assert "intel-rtx" in out
+    assert "amd-radeon" in out
+    # And a non-Lenovo board (no arch_marker key) doesn't print a stray
+    # arch line.
+    product_no_arch = {"boards": [_board("MB1")]}
+    out_no_arch = render(product_no_arch, {})
+    assert "arch:" not in out_no_arch
+    assert "None" not in out_no_arch
+
+
 def test_unmapped_board_does_not_consume_ordinal():
     # An unmapped GPU emits a board with label.value=None and
     # status=needs-review. It sorts last and keeps the default leaf

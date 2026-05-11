@@ -23,6 +23,11 @@ _BOARD_SCALAR_LEAVES: list[tuple[str, str]] = [
     ("label", "label"),
     ("TGP max (W)", "tgp_max"),
     ("TPP max (W)", "tpp_max"),
+    # arch_marker is a plain string leaf (e.g. "intel-rtx" / "amd-radeon"),
+    # not a provenance bundle. User Decision 2 keeps it hand-editable via
+    # manual-edit, so it lives in this list for field_paths(); render()
+    # special-cases it (like ``label``) since it isn't bundle-shaped.
+    ("Architecture marker", "arch_marker"),
 ]
 
 
@@ -88,6 +93,13 @@ def render(product: dict[str, Any], gpu_catalog: dict[str, dict[str, Any]]) -> s
             if key == "label" and isinstance(bundle, dict) and bundle.get("value") is not None:
                 ordinal += 1
                 out.append(f"{indent}label: MB{ordinal} {marker_for_bundle(bundle)}")
+                continue
+            if key == "arch_marker":
+                # Plain string leaf, not a bundle. Omit the line entirely
+                # when absent (non-Lenovo or unparseable) so the rendered
+                # output stays uncluttered for the common case.
+                if isinstance(bundle, str) and bundle:
+                    out.append(f"{indent}arch: {bundle}")
                 continue
             out.append(f"{indent}{format_leaf(label, bundle)}")
 

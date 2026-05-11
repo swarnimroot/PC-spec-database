@@ -434,6 +434,54 @@ def test_rerun_is_idempotent(tmp_path, capsys):
 # ---------------------------------------------------------------------------
 
 
+def test_backfill_falls_back_to_brand_source_url_when_vendor_full_name_missing(
+    tmp_path, capsys
+):
+    """The user's real DB has Lenovo rows where ``vendor_full_name`` was
+    never written, but the brand bundle's ``source_url`` carries the
+    PSREF slug. The backfill must fall back to that URL so the slug
+    parser can still derive family_code + arch_marker."""
+    conn = _fresh_db(tmp_path)
+    try:
+        pk = {"model_code": "16AFR10H", "year": 2026}
+        url_pro7_amd = (
+            "https://psref.lenovo.com/l/Product/Legion/Legion_Pro_7_16AFR10H"
+        )
+        with transaction(conn):
+            # Brand bundle carries the slug; vendor_full_name intentionally
+            # left NULL (matches the real-DB shape from the user's smoke).
+            write_scalar(
+                conn, "products", pk, "brand",
+                _scraped("Lenovo", source_url=url_pro7_amd),
+            )
+            write_offerings(
+                conn, "products", pk, "boards",
+                [_board("MB1", ["Radeon RX 8060S"], source_url=url_pro7_amd)],
+            )
+    finally:
+        conn.close()
+
+    _run(tmp_path)
+    out = capsys.readouterr().out
+    assert "Parseable: 1" in out
+    assert "16AFR10H -> family legion-pro-7-16-gen-10" in out
+    assert "1 product(s) updated" in out
+
+    conn = connect(tmp_path / "backfill.db")
+    try:
+        row = conn.execute(
+            "SELECT model_code, family_code, source_model_codes, boards "
+            "FROM products"
+        ).fetchone()
+        assert row["model_code"] == "legion-pro-7-16-gen-10"
+        assert row["family_code"] == "legion-pro-7-16-gen-10"
+        assert json.loads(row["source_model_codes"]) == ["16AFR10H"]
+        boards = json.loads(row["boards"])
+        assert boards[0]["arch_marker"] == "amd-radeon"
+    finally:
+        conn.close()
+
+
 def test_scalar_conflict_during_merge_enqueues(tmp_path, capsys):
     """Two rows in the same family with disagreeing ``weight_kg_max`` →
     merge proceeds with canonical's value kept; the disagreement is

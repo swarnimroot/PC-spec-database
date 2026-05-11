@@ -179,18 +179,55 @@ def _select_unbackfilled_lenovo(
 def _read_lenovo_title_and_url(
     conn: sqlite3.Connection, model_code: str, year: int
 ) -> tuple[Optional[str], Optional[str]]:
-    """Pull the title (``vendor_full_name.value``) and source URL
-    (``vendor_full_name.source_url``) out of the provenance bundle so the
-    M2+M3 derivation can run on data already in the DB."""
-    bundle = read_scalar(
-        conn, "products", {"model_code": model_code, "year": year},
-        "vendor_full_name",
-    )
-    if not isinstance(bundle, dict):
-        return None, None
-    title = bundle.get("value") if isinstance(bundle.get("value"), str) else None
-    url = bundle.get("source_url") if isinstance(bundle.get("source_url"), str) else None
+    """Pull the title and source URL out of the provenance bundles so the
+    M2+M3 derivation can run on data already in the DB.
+
+    Priority order (the parser only needs the slug present in title OR URL):
+      1. ``vendor_full_name`` (both title + source_url)
+      2. ``brand`` (source_url only; the value is just "Lenovo" — not
+         useful as a title, so we pass empty title alongside)
+      3. Any remaining bundle in ``_FALLBACK_URL_FIELDS`` whose
+         ``source_url`` is non-empty
+
+    Real-DB rows with ``vendor_full_name IS NULL`` are common when the
+    pre-M2 ingest path didn't populate the title cell; the slug still
+    lives on ``brand.source_url`` and the other identity bundles.
+    """
+    pk = {"model_code": model_code, "year": year}
+
+    primary = read_scalar(conn, "products", pk, "vendor_full_name")
+    title: Optional[str] = None
+    url: Optional[str] = None
+    if isinstance(primary, dict):
+        if isinstance(primary.get("value"), str):
+            title = primary.get("value")
+        if isinstance(primary.get("source_url"), str) and primary.get("source_url"):
+            url = primary.get("source_url")
+
+    if url:
+        return title, url
+
+    # Fall back through bundles known to carry a usable source_url. We
+    # don't grab provenance from arbitrary fields — only ones whose URL
+    # is reliably the product page slug.
+    for col in _FALLBACK_URL_FIELDS:
+        bundle = read_scalar(conn, "products", pk, col)
+        if not isinstance(bundle, dict):
+            continue
+        candidate_url = bundle.get("source_url")
+        if isinstance(candidate_url, str) and candidate_url:
+            # Title from these bundles isn't useful (brand="Lenovo",
+            # status/segment are enums) — pass empty title so the parser
+            # works off the URL slug alone.
+            return title or "", candidate_url
+
     return title, url
+
+
+# Bundles whose ``source_url`` reliably points at the per-product page
+# slug. Order matches user-stated priority (brand first, then segment/
+# status — both are scraped from the same vendor page).
+_FALLBACK_URL_FIELDS: tuple[str, ...] = ("brand", "segment", "status")
 
 
 # ---------------------------------------------------------------------------

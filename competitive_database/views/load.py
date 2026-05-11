@@ -26,7 +26,15 @@ _OFFERINGS_FIELDS = frozenset(
     }
 )
 
-_PLAIN_PRODUCT_FIELDS = frozenset({"model_code", "year"})
+# Plain (non-bundle) products columns. ``family_code`` is plain TEXT.
+# ``source_model_codes`` is stored as a JSON array of strings (see
+# ``db/schema.sql``); it's decoded into a Python list below in a small
+# special-case arm rather than left as raw JSON, so callers don't have
+# to ``json.loads`` it themselves.
+_PLAIN_PRODUCT_FIELDS = frozenset(
+    {"model_code", "year", "family_code", "source_model_codes"}
+)
+_JSON_LIST_PRODUCT_FIELDS = frozenset({"source_model_codes"})
 
 # In ``cpu_catalog`` / ``gpu_catalog`` only ``brand`` is a JSON-bundled
 # column. Every other spec column is plain text (or NULL).
@@ -77,7 +85,10 @@ def load_product(
     out: dict[str, Any] = {}
     for col, raw in zip(cols, row):
         if col in _PLAIN_PRODUCT_FIELDS:
-            out[col] = raw
+            if col in _JSON_LIST_PRODUCT_FIELDS and raw is not None:
+                out[col] = json.loads(raw)
+            else:
+                out[col] = raw
         elif raw is None:
             out[col] = None
         else:
