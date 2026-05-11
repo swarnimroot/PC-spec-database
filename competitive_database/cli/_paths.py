@@ -47,6 +47,20 @@ _PRODUCT_PK_COLUMNS = frozenset({"model_code", "year"})
 
 _CATALOG_TABLES = ("cpu_catalog", "gpu_catalog")
 
+# Offering leaves stored as plain Python values rather than provenance
+# bundles. ``arch_marker`` is parser-derived metadata (the within-family
+# attribution key), conceptually a peer of ``family_code`` /
+# ``source_model_codes`` — those are the M1 plain product columns. Bridge,
+# backfill CLI, _merge_boards, _gpu_id, and views/boards.py::render all
+# treat it as a plain string; manual-edit must write the same shape so a
+# hand-edit doesn't shadow the bridge's value with a dict-shaped leaf.
+#
+# Keys are ``(offerings_column, leaf_key)`` tuples — add new entries here
+# when another parser-derived leaf needs the same plain-shape treatment.
+_PLAIN_OFFERING_LEAVES: frozenset[tuple[str, str]] = frozenset(
+    {("boards", "arch_marker")}
+)
+
 
 @dataclass(frozen=True)
 class ParsedPath:
@@ -132,6 +146,21 @@ def read_at_path(
     raise ValueError(f"unknown parsed kind {parsed.kind!r}")
 
 
+def is_plain_offering_leaf(parsed: ParsedPath) -> bool:
+    """True when the path points at a plain-shape offering leaf (no bundle).
+
+    A few offering leaves are stored as plain Python values rather than
+    provenance bundles (see ``_PLAIN_OFFERING_LEAVES``). Callers that
+    construct manual bundles must check this first and write the raw
+    value instead — wrapping in a bundle would silently shadow the
+    bridge's plain-shape value with a dict the rest of the codebase
+    doesn't recognize.
+    """
+    if parsed.kind != "products_offering_leaf":
+        return False
+    return (parsed.column, parsed.leaf_key) in _PLAIN_OFFERING_LEAVES
+
+
 def write_bundle_at_path(
     conn: sqlite3.Connection,
     pk: dict,
@@ -143,6 +172,11 @@ def write_bundle_at_path(
         write_scalar(conn, "products", pk, parsed.column, bundle)
         return
     if parsed.kind == "products_offering_leaf":
+        if is_plain_offering_leaf(parsed):
+            raise ValueError(
+                f"path {parsed.column}.{parsed.offering_idx}.{parsed.leaf_key} "
+                "is a plain-shape leaf; use write_plain_at_path"
+            )
         offerings = read_offerings(conn, "products", pk, parsed.column) or []
         assert parsed.offering_idx is not None
         if parsed.offering_idx >= len(offerings):
@@ -156,6 +190,35 @@ def write_bundle_at_path(
     raise ValueError(
         "cannot write bundle at catalog path; use write_catalog_text_at_path"
     )
+
+
+def write_plain_at_path(
+    conn: sqlite3.Connection,
+    pk: dict,
+    parsed: ParsedPath,
+    value: Any,
+) -> None:
+    """Write a plain (non-bundle) value at a plain offering-leaf path.
+
+    Companion to ``write_bundle_at_path`` for the small set of
+    offering leaves that the bridge stores as plain Python values
+    rather than provenance bundles (see ``_PLAIN_OFFERING_LEAVES``).
+    """
+    if not is_plain_offering_leaf(parsed):
+        raise ValueError(
+            "write_plain_at_path only supports plain offering leaves; "
+            f"got kind={parsed.kind!r} column={parsed.column!r} "
+            f"leaf={parsed.leaf_key!r}"
+        )
+    offerings = read_offerings(conn, "products", pk, parsed.column) or []
+    assert parsed.offering_idx is not None
+    if parsed.offering_idx >= len(offerings):
+        raise IndexError(
+            f"offering index {parsed.offering_idx} out of range "
+            f"(have {len(offerings)} offerings on {parsed.column})"
+        )
+    offerings[parsed.offering_idx][parsed.leaf_key] = value
+    write_offerings(conn, "products", pk, parsed.column, offerings)
 
 
 def write_catalog_text_at_path(

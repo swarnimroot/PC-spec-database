@@ -25,10 +25,12 @@ from ..db.helpers import make_manual_bundle
 from ..views import load
 from ._paths import (
     format_product_pk,
+    is_plain_offering_leaf,
     parse_path,
     parse_product_arg,
     read_at_path,
     write_bundle_at_path,
+    write_plain_at_path,
 )
 
 
@@ -106,13 +108,23 @@ def main(args: argparse.Namespace) -> None:
         )
 
     value = _decode_value(args)
-    entered_by = args.entered_by or _default_entered_by()
-    bundle = make_manual_bundle(
-        value=value,
-        entered_by=entered_by,
-        source_note=args.note,
-        status=args.status,
-    )
+    plain_leaf = is_plain_offering_leaf(parsed)
+    if plain_leaf:
+        # Plain-shape leaves (e.g. ``boards.N.arch_marker``) carry no
+        # provenance — the bridge writes them as a bare Python value
+        # and the rest of the codebase (``_merge_boards``, ``_gpu_id``,
+        # ``views/boards.py::render``) reads them raw. Skip the manual
+        # bundle so a hand-edit lands the same shape the bridge writes.
+        entered_by = args.entered_by or _default_entered_by()
+        bundle = None
+    else:
+        entered_by = args.entered_by or _default_entered_by()
+        bundle = make_manual_bundle(
+            value=value,
+            entered_by=entered_by,
+            source_note=args.note,
+            status=args.status,
+        )
 
     conn = connect(args.db)
     try:
@@ -127,7 +139,11 @@ def main(args: argparse.Namespace) -> None:
 
         before = read_at_path(conn, pk, parsed)
         with transaction(conn):
-            write_bundle_at_path(conn, pk, parsed, bundle)
+            if plain_leaf:
+                write_plain_at_path(conn, pk, parsed, value)
+            else:
+                assert bundle is not None
+                write_bundle_at_path(conn, pk, parsed, bundle)
         after = read_at_path(conn, pk, parsed)
     finally:
         conn.close()
@@ -169,6 +185,10 @@ def _default_entered_by() -> str:
 def _fmt_bundle(b) -> str:
     if b is None:
         return "(empty)"
+    if not isinstance(b, dict):
+        # Plain-shape leaf (e.g. ``boards.N.arch_marker``) — no bundle
+        # scaffolding to unpack.
+        return f"value={b!r} (plain)"
     value = b.get("value")
     status = b.get("status")
     marker = "manual" if "entered_by" in b else "scraped"
