@@ -69,10 +69,12 @@ Each product identified by `(model_code, year)`.
 | `brand` | string | Mechanically derived (Dell / HP / Lenovo / ASUS / Acer / MSI). |
 | `sub_brand` | string | Mechanically derived (e.g., Alienware, ROG, Legion). |
 | `series` | string | Mechanically derived (e.g., Strix, Aurora). |
-| `model_code` | string | Mechanically derived (e.g., G16, m18). **Part of identity.** |
+| `model_code` | string | Mechanically derived (e.g., G16, m18). **Part of identity.** For Lenovo rows that came through the T7.0a merge ingest, `model_code` is set equal to `family_code` (e.g. `legion-pro-5-16-gen-10`) so the row PK is family-level, not per-architecture-cousin. |
 | `year` | number | Mechanically derived where in name; manual where not. **Part of identity.** |
 | `status` | string | Manual. `active` / `discontinued`. |
 | `segment` | string | Manual. `entry` / `premium` / `flagship`. |
+| `family_code` | string, nullable | Plain scalar — no bundle. Canonical family identifier (e.g. `legion-pro-5-16-gen-10`). Populated only on Lenovo rows that came through the T7.0a merge ingest (or were filled by `backfill-lenovo-families`); NULL on every other vendor's rows. |
+| `source_model_codes` | list of strings, nullable | Plain scalar (JSON-array-as-TEXT) — no bundle. The per-vendor machine codes that merged into this product (e.g. `["16IRX10H", "16AHP10"]`). Populated alongside `family_code` for Lenovo merge rows; NULL otherwise. |
 
 ### CPU
 
@@ -97,6 +99,7 @@ Each product identified by `(model_code, year)`.
 | `tpp_max` | number (W) | Total platform power cap on this board. Sometimes scraped, often manual. |
 | `tgp_max` | number (W) | Board's max GPU TGP — single ceiling value. When a vendor publishes per-GPU TGPs (e.g., Lenovo PSREF lists `TGP: 175W` for one GPU and `TGP: 140W` for another on the same board), the bridge stores the **maximum** across the board's GPUs. The column name (`tgp_max`) reflects this aggregation. |
 | `gpus` | list of strings | All GPUs supported on this board. Each = a GPU `model` from `gpu_catalog`. |
+| `arch_marker` | string, nullable | **Plain-shape leaf — no bundle.** Per-board CPU-architecture tag derived by the Lenovo bridge (`IRX` / `IAX` / `ADR` / `ARX` / `AFR`); load-bearing for the T7.0a merge ingest's board grouping (boards merge by `(label, arch_marker)` rather than label alone). Set only on Lenovo boards; absent on Dell / HP / ASUS. See "Plain-vs-bundle rule for offering leaves" below. |
 
 **Derived view "GPUs available on this product"** = distinct set of GPU model refs across all boards (deduped).
 
@@ -320,6 +323,16 @@ Every cell carries an attached provenance record + status flag. List-of-offering
 | `entered_at` | timestamp |
 | `source_note` | string (free-form) |
 | `status` | `vouched` / `needs-review` |
+
+### Plain-vs-bundle rule for offering leaves
+
+Most offering leaves are **vendor-published spec values** — they carry a full provenance bundle (`{value, source_url, captured_at, scraper_id, status}` or the manual equivalent), and `manual-edit` writes the bundle shape.
+
+A small set of offering leaves are **parser-derived identifiers / metadata** — they're a single plain scalar with no provenance scaffolding, because their source is the parser itself, not a vendor cell. `manual-edit` writes them as plain strings (no bundle), and the view layer renders them without a `[marker]`.
+
+The plain-leaf registry lives in `cli/_paths.py::_PLAIN_OFFERING_LEAVES` as a `frozenset[tuple[offerings_column, leaf_key]]`. As of T7.0a M7, the only entry is `("boards", "arch_marker")`. Future parser-derived leaves go in this set; calling `write_bundle_at_path` on a plain-leaf path raises loudly.
+
+This is peer to the existing plain-scalar identity columns (`model_code`, `year`, `family_code`, `source_model_codes`) — same idea (parser/PK-shaped, no bundle), different scope (whole-product column vs. per-offering leaf).
 
 ---
 

@@ -37,6 +37,7 @@ Each column corresponds to a DATA_MODEL field. Storage:
 
 - **Scalar fields** (`memory_max_gb`, `wifi_standard`, `width_mm`, etc.) — stored as a JSON object: `{value, ...provenance}`.
 - **List-of-offerings fields** (`cpu_offerings`, `boards`, `display_offerings`, etc.) — stored as a JSON array. Each element is itself a structured object whose leaf-cells each carry their own provenance bundle.
+- **Plain-scalar identity columns** (`model_code`, `year`, plus the Lenovo merge columns `family_code` and `source_model_codes` — added Stage 7 T7.0a) — stored as plain TEXT/INTEGER, no provenance bundle. `family_code` is the canonical family identifier (e.g. `legion-pro-5-16-gen-10`); `source_model_codes` is a JSON-array-as-TEXT of the per-vendor machine codes that merged into this product (e.g. `["16IRX10H", "16AHP10"]`). Both NULL for non-Lenovo rows and for legacy Lenovo rows until backfilled via `backfill-lenovo-families`.
 
 #### `review_queue`
 Operational table for unresolved items.
@@ -159,6 +160,17 @@ Single orchestrator: `ingest/runner.py`. CLI entry: `refresh`.
       - Candidate cell marked `needs-review` → enqueue `low_confidence_extraction`; do not write.
 4. **Print summary:** refreshed N, conflicts M, new chips K, low-confidence L.
 
+### Lenovo merge ingest (Stage 7 T7.0a)
+
+Lenovo's PSREF gives each Intel / AMD architecture cousin its own machine code (e.g. `16IRX10H` vs `16AHP10`) under one underlying product family (`Legion Pro 5 16 Gen 10`). The merge ingest path collapses those into a single row keyed by `family_code`.
+
+1. **Bridge** (`bridge/lenovo.py`): `_derive_lenovo_family_and_arch` parses the Lenovo title to derive `family_code` (canonical kebab slug, e.g. `legion-pro-5-16-gen-10`) and per-board `arch_marker` token (`IRX` / `IAX` / `ADR` / `ARX` / `AFR`). The H suffix (Hybrid / discrete-graphics indicator) is dropped from `arch_marker` but the original code is preserved in `source_model_codes`. The parser uses a known-line allowlist (`_LENOVO_FAMILY_LINE_PREFIXES`) — when Lenovo ships a new product line, the allowlist needs updating. Non-Lenovo bridges leave `family_code` and `source_model_codes` unset.
+2. **Grouping coercion** (`cli/refresh.py`): when a candidate has `family_code`, the grouping layer coerces `model_code` to `family_code` so candidates from the same family group together regardless of source machine code. Non-Lenovo (and legacy Lenovo without `family_code`) take the legacy path.
+3. **Multi-candidate merge** (`ingest/runner.py::_merge_candidates`): groups boards by `(label, arch_marker)` rather than label alone, unions `source_model_codes` across candidates, asserts all non-None `family_code`s agree.
+4. **Existing-row premerge** (`ingest/runner.py::_premerge_lenovo_existing_row`): handles "AMD ingest arrives after Intel row already exists" — unions boards + `source_model_codes` into the existing row before the normal diff path runs, so the second architecture appends rather than queueing every cell as a `value_disagreement`.
+
+Note: `products.model_code` has no FK references elsewhere — using `family_code` as the canonical PK value is safe.
+
 ### Atomicity
 
 Each `(snapshot → diff → writes + queue inserts)` runs inside a single SQLite transaction. Crash mid-refresh = clean rollback.
@@ -238,6 +250,14 @@ python -m competitive_database audit-normalize --all
 python -m competitive_database audit-normalize --strings-only
 ```
 
+### `backfill-lenovo-families`
+One-time cleanup for legacy Lenovo rows ingested before T7.0a. Reads every Lenovo row with `family_code IS NULL`, re-derives `family_code` + per-board `arch_marker` from the bundles already on the row (`vendor_full_name`, falling back to brand/segment/status `source_url`), then either updates the row in place (singleton family) or merges multiple rows into one (multi-row family — reuses `_merge_boards` / `_merge_offerings` / `_enqueue` from `ingest/runner.py`, unions `source_model_codes`). Idempotent: rerunning after a clean run is a no-op. Implementation: `cli/backfill_lenovo_families.py`.
+
+```
+python -m competitive_database backfill-lenovo-families
+python -m competitive_database backfill-lenovo-families --db path/to/competitive.db
+```
+
 ---
 
 ## Repo layout
@@ -292,7 +312,7 @@ competitive-database/
 │   │   ├── weight.py
 │   │   └── design.py
 │   └── cli/
-│       ├── _paths.py            # shared dotted-path helpers
+│       ├── _paths.py            # shared dotted-path helpers (incl. _PLAIN_OFFERING_LEAVES)
 │       ├── db_init.py
 │       ├── refresh.py
 │       ├── inspect_product.py
@@ -300,7 +320,8 @@ competitive-database/
 │       ├── manual_edit.py
 │       ├── find_empty.py
 │       ├── find_conflicts.py
-│       └── audit_normalize.py
+│       ├── audit_normalize.py
+│       └── backfill_lenovo_families.py   # one-time Lenovo family_code backfill
 ├── tests/
 │   ├── fixtures/              # sample ProductSnapshot JSON per vendor
 │   ├── bridge/

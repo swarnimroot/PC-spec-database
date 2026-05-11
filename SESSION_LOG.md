@@ -6,6 +6,46 @@ Newest sessions at the top.
 
 ---
 
+## Session 15 — 2026-05-08 (Stage 7 T7.0a: Lenovo multi-URL merge ingest)
+
+**Goal:** Land the Lenovo per-architecture merge ingest design from Session 12 — one `family_code`-keyed product row collapses the Intel / AMD machine-code cousins PSREF publishes separately. Plus the Step 0 caveat fix from Session 14 (drop `boards.{idx}.label` from manual-edit field_paths) on the way in.
+
+**Outcome:** Shipped across 7 commits. 198 → 242 tests (+44 across the chain). T7.0a closed end-to-end: schema migration → bridge parser + arch tagging → runner merge path → one-time backfill CLI → integration bug sweep → plain-leaf manual-edit shape fix.
+
+### Code that landed (commit-by-commit)
+
+- `b4b8b75` **Step 0** (T7.0e) — `views/boards.py::field_paths` no longer includes `boards.{idx}.label`. Addresses the Session 14 caveat: after T7.0c, manual edits to `label` were silently masked at render because the view always synthesizes `MB{ordinal}` from tier-sorted presence order. Dropping the leaf from `field_paths` keeps `manual-edit` honest.
+- `04abc56` **M1 — schema migration.** `db/schema.sql` + `db/connection.py::apply_schema` add `products.family_code TEXT` and `products.source_model_codes TEXT` (JSON-array-as-TEXT). Both plain scalars, no bundles. Idempotent ALTER on apply.
+- `3bb4b62` **M2+M3 — slug parser + bridge integration.** `bridge/lenovo.py::_derive_lenovo_family_and_arch` parses both compressed (`16IRX10H`) and verbose (`Legion Pro 5 16 Gen 10`) slug conventions, maps the arch token (`IRX` / `IAX` / `ADR` / `ARX` / `AFR`) per board, drops the trailing `H` (Hybrid / discrete-graphics indicator) from `arch_marker` but preserves the original code in `source_model_codes`. New `_LENOVO_FAMILY_LINE_PREFIXES` line allowlist. `bridge/types.py::CandidateProduct` gains `family_code: Optional[str] = None` and `source_model_codes: Optional[list[str]] = None`. Each board dict optionally carries a plain-string `arch_marker`.
+- `4ef3544` **M4 — merge runner.** `cli/refresh.py` grouping layer coerces `model_code` → `family_code` when set (legacy path otherwise). `ingest/runner.py::_merge_boards` keys by `(label, arch_marker)`; `_merge_candidates` unions `source_model_codes`; new `_premerge_lenovo_existing_row` handles "AMD ingest arrives after Intel row already exists" by unioning boards + `source_model_codes` into the existing row before the diff path runs. Confirmed no FK references to `products.model_code` exist — using `family_code` as the canonical PK is safe.
+- `61c2c84` **M5 — backfill CLI.** New `cli/backfill_lenovo_families.py` subcommand registered in `__main__.py`. Reads Lenovo rows with `family_code IS NULL`, re-derives family + arch from existing bundles, applies in-place updates for singletons or merges multi-row families. Reuses `_merge_boards` + `_merge_offerings` + `_enqueue` from `ingest/runner.py`. Idempotent.
+- `ca75ebf` **M6 — integration bug sweep from live smoke.** 4 fixes: `views/load.py::_PLAIN_PRODUCT_FIELDS` extended with the M1 columns (`source_model_codes` gets a JSON-decode arm); `views/boards.py::_BOARD_SCALAR_LEAVES` adds `arch_marker` so `field_paths` exposes it; `views/boards.py::render` surfaces `arch: <value>` per board; `backfill_lenovo_families::_read_lenovo_title_and_url` falls back to brand / segment / status bundle source_urls when `vendor_full_name` is empty.
+- `c14b05e` **M7 — arch_marker manual-edit shape.** Direction C: `arch_marker` is parser-derived metadata, peer of `family_code` / `source_model_codes`, kept as a plain string (no bundle). New `_PLAIN_OFFERING_LEAVES` frozenset in `cli/_paths.py` (currently `{("boards", "arch_marker")}`) with `is_plain_offering_leaf` + `write_plain_at_path` helpers; `cli/manual_edit.py` routes plain-leaf paths to `write_plain_at_path`; `write_bundle_at_path` now raises if called on a plain-leaf path (loud-fail). Closes "Direction A vs B vs C" debate.
+
+### Decisions locked this session
+
+1. **`model_code = family_code` for merged Lenovo rows.** PSREF assigns machine codes per architecture (`16IRX10H` vs `16AHP10`); the family is one product. Since `products.model_code` has no FK targets, swapping the PK value to the family slug at grouping time is safe and keeps the merged row addressable by its family identity.
+2. **Plain-vs-bundle rule for offering leaves.** Most offering leaves are vendor-published spec values with full provenance bundles; parser-derived identifiers / metadata leaves are plain scalars with no bundle. The registry is `cli/_paths.py::_PLAIN_OFFERING_LEAVES`. Today that's `{("boards", "arch_marker")}`; future parser-derived leaves go in the same set. Peer to the plain-scalar identity columns (`model_code`, `year`, `family_code`, `source_model_codes`).
+3. **H suffix is dropped from `arch_marker` but kept in `source_model_codes`.** The H token is metadata about discrete-graphics inclusion, not the architecture itself. Dropping it from `arch_marker` makes the merge key `(label, arch_marker)` correctly collapse cousins; preserving it in `source_model_codes` keeps the source machine code lossless.
+4. **Lenovo line allowlist over open parsing.** `_LENOVO_FAMILY_LINE_PREFIXES` is a hard-coded allowlist (Legion Pro 5, Legion Pro 7, etc.). When Lenovo ships a new gaming line, the allowlist needs updating — chosen over open-ended parsing to avoid silent mis-merges on unfamiliar shapes.
+5. **Backfill policy is cleanup-now via one-time CLI, not wait-for-next-refresh.** Confirms the design preference from Session 12. The one Lenovo row already in the live DB gets `family_code` populated immediately via `backfill-lenovo-families`, not on the next ingest.
+6. **`arch_marker` is editable via manual-edit.** Closes Direction B/C debate. The plain-leaf path machinery (`write_plain_at_path` + `_PLAIN_OFFERING_LEAVES`) makes it a peer-shape edit alongside other parser-derived columns.
+
+### Known follow-ups (not addressed this session)
+
+- **Lenovo line allowlist maintenance burden.** New product lines silently slip through with `family_code = None` unless the allowlist is updated. Acceptable today (Lenovo ships gaming lines slowly) but worth revisiting if the allowlist grows.
+- **T7.0d** — keyboard structured offerings; touches all 4 bridges + schema. Still open.
+- **T7.1 / T7.2 / T7.3** — README setup + smoke test + rolling SESSION_LOG. Stage 7 close-out.
+
+### Where we left off (pickup pointers)
+
+- T7.0a is committed across the 7 SHAs above. 242/242 tests green.
+- Live DB: the existing Lenovo row should be cleaned up via `python -m competitive_database backfill-lenovo-families` whenever the user is ready; the second Lenovo product (deferred at Session 12) can now be re-ingested via the merge path.
+- Doc-alignment sweep ran this session — README / ARCHITECTURE / DATA_MODEL / TASKS / SESSION_LOG / VIEWS updated to reflect T7.0a state.
+- Next likely task: T7.0d (keyboard structured offerings) or T7.1 (README setup + CLI reference + resolution_label enum-pair doc). T7.0d is bridge-heavy; T7.1 is doc-only.
+
+---
+
 ## Session 14 — 2026-05-08 (Stage 7 T7.0c: boards.label per-product ordinal renumbering)
 
 **Goal:** Land Session 13's `boards.label` policy decision as a view-layer rewrite — bridges keep tier labels (MB1/MB2/MB3) for cross-tile merge, view layer renames to per-product ordinals at render time so a product without the top tier shows MB1 + MB2 instead of MB2 + MB3.

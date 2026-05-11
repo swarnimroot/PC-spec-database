@@ -6,7 +6,7 @@ A persistent, queryable database of competitor gaming-laptop specs from Dell, HP
 
 ## Status
 
-**Phase: Data layer + view layer + operational CLI — Stages 1–5 complete; Stage 6 (validation pass) closed in Session 12 (2026-05-08); Stage 7 (polish) in progress, T7.0b shipped Session 13.** Foundation, schema, provenance helpers, all four Stage 3 vendor bridges, the Stage 4 view layer + `inspect-product` CLI, the Stage 5 operational helpers (`find-conflicts`, `find-empty`, `manual-edit`, `resolve`), and the Stage 6 `audit-normalize` helper are implemented and tested. 192/192 tests pass. The live DB carries 6 products across all 4 vendors (Dell ×2, HP ×1, Lenovo ×1, ASUS ×2). T6.1 closed partial at 6/8 — the HP first URL (OMEN Transcend 14 fb0023nr) is upstream-blocked in `scrapers-lib`, and the Lenovo second product is deferred pending a multi-URL merge-ingest design. T6.2 done. T6.7 captured 16 findings; T7.0b (Session 13) closed the actionable bridge + CLI fixes (#2, #4, #5, #8, #11, #12) and resolved three policy items (#6 → T7.1 doc, #7 → T7.0c, #9 → T7.0d). Findings #1 (HP upstream) and #3 (Lenovo URL) remain deferred; #3 folds into T7.0a. Full list and design sketches live in `SESSION_LOG.md` Sessions 12 and 13.
+**Phase: Data layer + view layer + operational CLI — Stages 1–5 complete; Stage 6 (validation pass) closed in Session 12 (2026-05-08); Stage 7 (polish) in progress — T7.0a, T7.0c, T7.0e shipped (T7.0d, T7.1, T7.2, T7.3 still open).** Foundation, schema, provenance helpers, all four Stage 3 vendor bridges, the Stage 4 view layer + `inspect-product` CLI, the Stage 5 operational helpers (`find-conflicts`, `find-empty`, `manual-edit`, `resolve`), the Stage 6 `audit-normalize` helper, and the Stage 7 `backfill-lenovo-families` helper are implemented and tested. 242/242 tests pass. The live DB carries 6 products across all 4 vendors (Dell ×2, HP ×1, Lenovo ×1, ASUS ×2). T6.1 closed partial at 6/8 — the HP first URL (OMEN Transcend 14 fb0023nr) is upstream-blocked in `scrapers-lib`, and the Lenovo second product is now unblocked by T7.0a merge ingest (re-ingest pending). T6.2 done. T6.7 captured 16 findings; T7.0b (Session 13) closed the actionable bridge + CLI fixes (#2, #4, #5, #8, #11, #12) and resolved three policy items (#6 → T7.1 doc, #7 → T7.0c, #9 → T7.0d); T7.0a (Session 15) shipped Lenovo merge ingest and subsumed Finding #3. Finding #1 (HP upstream) remains deferred. Full list and design sketches live in `SESSION_LOG.md` Sessions 12, 13, and 15.
 
 - All 16 field categories from the source 80-column Excel (`Competitor Columns.xlsx`) are mapped to a data shape.
 - Schema connective tissue (catalog references, unknown-chip handling, provenance record format, naming, enum policy) is locked.
@@ -19,10 +19,8 @@ A persistent, queryable database of competitor gaming-laptop specs from Dell, HP
 - Stage 5 (Session 10): four CLI helpers shipped (`find-conflicts`, `find-empty`, `manual-edit`, `resolve`). Each views module gained a `field_paths(product)` registry, exposed via `views/orchestrator.all_field_paths()`; `find-empty` reuses the section structure for grouped output. Path syntax for writes is dotted — `<column>` for scalars, `<offerings_column>.<idx>.<leaf_key>` for offering leaves; catalog cells are not editable via `manual-edit` (plain text, no provenance scaffolding). 18 new CLI happy-path tests landed under `tests/cli/`. See `SESSION_LOG.md` Session 10.
 
 **Immediate next phase:**
-1. Stage 7 T7.0a — Lenovo multi-URL merge ingest (slug parser + family-code detection + append-vs-new ingest path; subsumes Finding #3). Full design in `SESSION_LOG.md` Session 12.
-2. Stage 7 T7.0c — boards.label per-product ordinal renumbering at the view layer (bridge tier semantics preserved for cross-tile merge). Spawned by Session 13 Finding #7 decision.
-3. Stage 7 T7.0d — keyboard structured offerings: extract `backlight` / `copilot_key` / `layout` / `travel_mm` as discrete bundle leaves across all four bridges. Schema additions. Spawned by Session 13 Finding #9 decision.
-4. Then T7.1 (README setup + CLI reference + `resolution_label` enum-pair doc), T7.2 (end-to-end smoke test across all four vendors), and T7.3 (rolling SESSION_LOG milestones).
+1. Stage 7 T7.0d — keyboard structured offerings: extract `backlight` / `copilot_key` / `layout` / `travel_mm` as discrete bundle leaves across all four bridges. Schema additions. Spawned by Session 13 Finding #9 decision.
+2. Then T7.1 (README setup + CLI reference + `resolution_label` enum-pair doc), T7.2 (end-to-end smoke test across all four vendors), and T7.3 (rolling SESSION_LOG milestones).
 
 ---
 
@@ -172,6 +170,7 @@ All subcommands run via `python -m competitive_database <command>`.
 - **`manual-edit`** — write a manual cell at a dotted field path (`<column>` for scalars, `<offerings_column>.<idx>.<leaf_key>` for offering leaves). Status / `entered_by` / `entered_at` are filled in automatically.
 - **`resolve`** — close one `review_queue` row in a single transaction. Four actions: `accept_candidate`, `kept_existing`, `manual_override`, `dropped`.
 - **`audit-normalize`** — walk every product and surface paths where the same conceptual field carries 2+ distinct value strings (e.g., `Wi-Fi 7` vs `WiFi 7`). `--all` prints every filled path; `--strings-only` excludes numeric / boolean values.
+- **`backfill-lenovo-families`** — one-time cleanup for legacy Lenovo rows ingested before T7.0a. Reads Lenovo rows with NULL `family_code`, re-derives family + arch from existing bundles, applies in-place updates for singletons or merges multi-row families (boards + offerings unioned; source machine codes preserved in `source_model_codes`). Idempotent.
 
 ---
 

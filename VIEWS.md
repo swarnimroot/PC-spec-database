@@ -81,12 +81,16 @@ it with the other offering columns.
 
 ### Boards: per-board GPU options nested under each board
 
-A board offering has scalar leaves (`label`, `tgp_max`, `tpp_max`) plus
-a `gpus` array of model-name bundles. The view lists each GPU model
-with its own `[marker]`, then drops one indent and runs catalog
-enrichment under it. Board configurations that ship with multiple GPU
-SKUs (e.g. Zephyrus G16 MB1 → either RTX 5070 Ti or RTX 5080) all show
+A board offering has scalar leaves (`label`, `tgp_max`, `tpp_max`,
+plus the Lenovo-only `arch_marker` added in T7.0a) plus a `gpus`
+array of model-name bundles. The view lists each GPU model with its
+own `[marker]`, then drops one indent and runs catalog enrichment
+under it. Board configurations that ship with multiple GPU SKUs
+(e.g. Zephyrus G16 MB1 → either RTX 5070 Ti or RTX 5080) all show
 under the same board.
+
+`arch_marker` renders inline as `arch: <value>` per board (no marker
+suffix — it's a plain-shape leaf, not a bundle).
 
 ---
 
@@ -141,6 +145,17 @@ fillable bundle the section currently exposes on the loaded product:
 - The Boards section excludes the per-board `gpus` array. Its 4-level
   path shape (`boards.N.gpus.M`) isn't supported by `manual-edit` /
   `resolve` yet.
+- The Boards section also excludes `boards.{idx}.label` (T7.0e,
+  Session 15). After T7.0c the display value is always the synthesized
+  per-product ordinal `MB{ordinal}`, so manual edits to the stored
+  label were silently masked at render. Dropping the leaf from
+  `field_paths` keeps `manual-edit` honest. The label is still stored
+  in the bundle (load-bearing for cross-tile merge); just not user-editable.
+- Plain-shape offering leaves (registry: `cli/_paths.py::_PLAIN_OFFERING_LEAVES`,
+  today `{("boards", "arch_marker")}`) are included in `field_paths`
+  but go through `write_plain_at_path` rather than `write_bundle_at_path`
+  in `manual-edit`. The view renders them inline with no `[marker]`
+  suffix — same shape as the catalog spec lines.
 
 `views/orchestrator.all_field_paths(product)` aggregates across the 16
 sections (plus identity) in render order, returning
