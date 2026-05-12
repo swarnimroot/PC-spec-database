@@ -6,6 +6,55 @@ Newest sessions at the top.
 
 ---
 
+## Session 22 — 2026-05-12 (Review queue cleanup: 15/26 rows resolved; catalog-vouching gap raised)
+
+**Goal:** Walk through the open review_queue rows now that Session 21 unblocked column-level offering paths. Triage and resolve where possible; surface architectural gaps for blocked rows.
+
+**Outcome:** **15 rows resolved (26 → 11 unresolved).** 9 year_inferred + 6 value_disagreement cleared. **11 new_chip_unverified rows remain blocked** by a separate Stage 5 gap (catalog-vouching workflow) — added to TASKS.md Deferred. Row #18 successfully resolved via the new column-level offering path landed in Session 21 — first real exercise of that fix in production. No code changes this session — only `resolve` CLI invocations against `competitive.db` + one TASKS.md Deferred line + this SESSION_LOG entry.
+
+### Triage approach
+
+Three categories surfaced from the 26 open rows (actual count; Session 20 carryforward said "23" — stale):
+- **year_inferred (9 rows)** — all `vendor_full_name` first-add events with the year URL-inferred. Every row's candidate captured_at year matched product_year=2026. Bulk-resolvable: accept the lowest-id row per product (writes `vendor_full_name`), drop the rest as duplicate re-fires from later re-scrapes.
+- **value_disagreement (6 rows)** — one-by-one judgment calls; outcomes detailed below.
+- **new_chip_unverified (11 rows)** — blocked by a catalog-vouching gap in the resolve CLI. Distinct from the column-level offering gap fixed in Session 21: this one's about flipping `cpu_catalog` / `gpu_catalog` rows from `needs-review` to `vouched`. Current `resolve` action set has no `vouch_catalog` mode; even the parseable 3-level `cpu_offerings.N.model` paths would no-op write the same chip name back without touching catalog status.
+
+### year_inferred sweep — 9 resolved
+
+5 accept_candidate (writes vendor_full_name + resolves): aa18250 (id 7), 16AFR10H (id 10), 16t-ah100 (id 11), ac16251 (id 15), legion-pro-7-16-gen-10 (id 16). 4 dropped (duplicate re-fires): ids 19, 22, 23, 24.
+
+Side observation: `legion-pro-7-16-gen-10` and `16AFR10H` now both carry `vendor_full_name = "Legion Pro 7 16AFR10H"` — likely a Lenovo Stage 7 T7.0a family-code / source-model-code merge artifact (two rows, family-code level + machine-code level, share identity strings). Not investigated this session.
+
+### value_disagreement walk — 6 resolved
+
+- **id 17** `lighting` on legion-pro-7-16-gen-10 — accept_candidate. Existing `"Legion" logo with RGB lighting on top cover RGB lighting on rear thermal vent` (literal quotes around `Legion`) vs candidate `Legion logo with RGB lighting on top cover RGB lighting on rear thermal vent` (no quotes). Cosmetic quote-strip only; chose the unquoted form as cleaner. *(One mid-investigation false alarm: an agent reported a fabricated "expected" string and I flagged it as a content mismatch; full-payload re-pull confirmed the diff was quote-strip only.)*
+- **id 18** `camera_offerings` on legion-pro-7-16-gen-10 — accept_candidate. Existing `5.0MP`, candidate `1440p`. Aligns with Session 20 p-form policy now enforced in bridge code. **First production use of the column-level offering resolve path landed in Session 21** (commit c7b62d3); writes the full candidate offerings list via the new `products_offering_list` kind.
+- **ids 20 + 25** `storage_slots` on aa18250 — kept_existing on id 20, dropped on id 25. Existing has 2 slots (Gen4 + Gen5) matching Alienware 18 Area-51's published spec; candidate dropped the Gen5 slot — scraper under-scrape, not a real product change. id 25 is the duplicate re-detection.
+- **ids 21 + 26** `keyboard_offerings` on aa18250 — kept_existing on id 21, dropped on id 26. Existing has 2 offerings (base AlienFX + CherryMX mechanical SKU); candidate dropped the CherryMX offering — same scraper under-scrape pattern as storage. Confirmed via full-payload diff that this is a real content drop, not timestamp-only churn (which would've been a runner-side bug in `_offerings_value_equal`). id 26 is the duplicate.
+
+### new_chip_unverified — deferred
+
+All 11 rows queue `needs-review` chips that need catalog vouching: Core Ultra 9 386H / 290HX Plus / 275HX / 7 255HX (CPU), Ryzen 9 9955HX / 9955HX3D (CPU), RTX 5070 Ti / 5080 / 5090 / 5060 / 5070 (GPU). 5 sit on 4-level `boards.N.gpus.M` paths the resolver doesn't parse at all; 6 sit on 3-level `cpu_offerings.N.model` paths that parse, but `accept_candidate` would no-op write the same chip name back without changing the catalog row's `needs-review` → `vouched` status.
+
+Added one line to TASKS.md Deferred capturing the gap.
+
+### Decisions made this session
+
+1. **Bulk-resolve year_inferred, one-by-one value_disagreement.** Approved triage path; preserves "user sees each substantive decision" without 9 clicks through obvious vendor_full_name first-adds.
+2. **All 2-row value_disagreement pairs (storage, keyboard) → preserve existing, drop the dup.** Scraper under-scrapes don't justify overwriting verified spec data; the candidates were content drops, not vendor changes. Worth a separate look at why aa18250 scrapes are intermittently under-scraping.
+3. **Catalog-vouching gap deferred, not patched today.** Distinct from the column-level offering gap (Session 21) — separate design pass needed (new `--action vouch_catalog` or equivalent on `cpu_catalog` / `gpu_catalog`). Out of scope for cleanup.
+
+### Where we left off (pickup pointers)
+
+- **263/263 tests green** (no code touched this session).
+- review_queue: **11 unresolved** (was 26 at session open). All 11 are `new_chip_unverified`, all blocked by the catalog-vouching gap.
+- DB state: 5 `vendor_full_name` cells filled in; `lighting` and `camera_offerings` updated on legion-pro-7-16-gen-10; storage and keyboard configs on aa18250 preserved verbatim.
+- Working tree at session close: TASKS.md (one new Deferred line) + SESSION_LOG.md (this entry) modified; commits TBD per user.
+- **Next session candidates:** (a) catalog-vouching workflow (unblocks the 11 remaining queue rows + future catalog auto-adds), (b) T7.0d keyboard structured offerings split, (c) Stage 8 / Phase 2 UI scoping, (d) re-scrape investigation for the Alienware 18 Area-51 storage + keyboard under-scrapes flagged today.
+- **Open observation (non-blocking):** the shared `vendor_full_name` between `legion-pro-7-16-gen-10` and `16AFR10H` (Lenovo family-code/source-model-code merge artifact) is worth verifying as intentional in a future session.
+
+---
+
 ## Session 21 — 2026-05-12 (Stage 5 CLI gap closed: column-level offering paths now resolvable)
 
 **Goal:** Close the Session 20 carryforward — extend the `resolve` CLI to accept column-level offering paths (e.g. `camera_offerings`) so runner-emitted list-level conflicts are resolvable end-to-end. Unblocks row #18 architecturally.

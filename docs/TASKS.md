@@ -18,6 +18,7 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 - History layer — Phase 2
 - Hosted Postgres migration — if/when team access becomes real
 - Manual T6.1 cell-by-cell cross-check across 6 products — low payoff post-T7.0a/b
+- Stage 5 catalog-vouching workflow — resolve CLI has no path to vouch needs-review catalog rows; 11 review_queue rows blocked (5 are 4-level `boards.N.gpus.M` paths unparseable today, 6 are 3-level `cpu_offerings.N.model` paths that parse but no-op-write without vouching the catalog) — Session 22 follow-up
 
 ## Closed stages
 - Stage 1 — Foundation — 2026-05-07 (5)
