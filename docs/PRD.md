@@ -120,7 +120,7 @@ Multi-field aggregation (e.g., *"rank products by total Thunderbolt + USB-C port
 
 ## Phase 2 — UI (Stage 8)
 
-The data layer is at a zero-issue baseline (273/273 tests, `review_queue` unresolved = 0, both catalog tables `needs-review` = 0). Phase 2 turns the DB into a tool the owner and team can drive without CLI fluency.
+The data layer is at a zero-issue baseline (314/314 tests, `review_queue` unresolved = 0, both catalog tables `needs-review` = 0). Phase 2 turns the DB into a tool the owner and team can drive without CLI fluency.
 
 ### Why a UI now
 
