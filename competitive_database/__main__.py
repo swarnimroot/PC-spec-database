@@ -14,6 +14,7 @@ from .cli import (
     manual_edit,
     refresh,
     resolve,
+    ui_launch,
 )
 
 
@@ -33,6 +34,7 @@ def _build_parser() -> argparse.ArgumentParser:
     resolve.add_subparser(sub)
     audit_normalize.add_subparser(sub)
     backfill_lenovo_families.add_subparser(sub)
+    ui_launch.add_subparser(sub)
 
     return parser
 
