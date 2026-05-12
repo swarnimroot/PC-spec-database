@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 import streamlit as st
 
@@ -43,6 +44,46 @@ from competitive_database.cli.refresh import (
 
 
 _VENDORS = sorted(_VENDOR_TEMPLATES)
+
+
+# Accepted hostname suffixes per brand. Loose enough to allow regional
+# subdomains (rog.asus.com, psref.lenovo.com, www.dell.com) and tight
+# enough to catch a Dell URL submitted under brand=hp, which would
+# otherwise dispatch to the HP bridge and fail downstream with a
+# confusing parser error.
+_BRAND_HOST_SUFFIXES: dict[str, tuple[str, ...]] = {
+    "dell": ("dell.com",),
+    "hp": ("hp.com",),
+    "lenovo": ("lenovo.com",),
+    "asus": ("asus.com",),
+}
+
+
+def _validate_url_brand(brand: str, url: str) -> Optional[str]:
+    """Pre-flight check for the Custom URL mode.
+
+    Returns an error string if ``url``'s hostname doesn't suffix-match a
+    known host for ``brand``; ``None`` if OK or if ``brand`` isn't in the
+    suffix map (in which case the existing downstream check rejects it).
+    """
+    suffixes = _BRAND_HOST_SUFFIXES.get((brand or "").lower())
+    if not suffixes:
+        return None
+    try:
+        host = urlparse(url).hostname
+    except (TypeError, ValueError):
+        host = None
+    if not host:
+        return f"Could not parse a hostname from `{url}`."
+    host = host.lower()
+    if not any(host == s or host.endswith("." + s) for s in suffixes):
+        expected = ", ".join(suffixes)
+        return (
+            f"URL host `{host}` doesn't match brand `{brand}` "
+            f"(expected host ending in: {expected}). "
+            f"Pick the right brand or fix the URL."
+        )
+    return None
 
 
 def _parse_brand_value(brand_json: Optional[str]) -> Optional[str]:
@@ -296,6 +337,10 @@ def _render_one_mode(conn: sqlite3.Connection) -> None:
         if st.button("Refresh now", type="primary", key="refresh-url-go"):
             if not (url or "").strip():
                 st.error("Enter a vendor URL.")
+                return
+            host_err = _validate_url_brand(brand, url.strip())
+            if host_err:
+                st.error(host_err)
                 return
             _run_one(
                 conn,
