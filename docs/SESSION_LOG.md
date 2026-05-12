@@ -6,6 +6,36 @@ Newest sessions at the top.
 
 ---
 
+## Session 29 — 2026-05-12 (T8.3 — Compare side-by-side: filter bar + multiselect + section-grouped HTML grid)
+
+**Goal:** Ship T8.3 — replace the `ui/compare.py` stub with the side-by-side grid surface: vendor / segment / status filter bar narrowing a `(model_code, year)` multiselect, then an HTML grid (products as columns, fields as rows) over the union of `views.orchestrator.all_field_paths` across selected products. Section-grouped layout chosen at the start of the session via the standing visible-output mockup framing.
+
+**Outcome:** **273/273 tests still green.** `ui/compare.py` rewritten — 3-column `st.selectbox` filter bar (Vendor / Segment / Status, each prefixed with `(All)`), `st.multiselect` over the filtered pool formatted as `model_code · year`, then `_union_field_paths` builds the row registry (section order from the orchestrator registry fixed by the first product; within-section first-appearance preserved across the rest). The HTML grid renders section-group header rows (e.g., `CPU`, `Boards`, `Memory`) with `colspan` spanning all columns, then one row per field path. Cell rendering reuses `views.formatting.marker_for_bundle` + `display_value` and the same six-marker color palette from `ui/browse.py` (duplicated inline — convergence into a shared `ui/_markers.py` deferred to whenever T8.4 / T8.5 surfaces a third caller). `_resolve_path` handles both bundle-shape leaves (`isinstance(leaf_val, dict)`) and the lone plain-string offering leaf shipped today (`boards.N.arch_marker` — `isinstance(leaf_val, str)`); the type check covers it without importing `cli/_paths::_PLAIN_OFFERING_LEAVES`. Smoke: `python -m competitive_database ui --port 8513` → HTTP 200 on `/`; helper smoke (`_list_products_with_facets` + `_union_field_paths` on 2 products) returns 109 union paths across 15 sections in the expected orchestrator order.
+
+### Decisions made this session
+
+1. **Section-grouped grid layout over flat table.** Confirmed via standing visible-output mockup question — user picked the variant with section header rows over the variant with one flat list of paths. Carries the inspect-product 16-section spine into compare; one category change is easy to scan across products. Implementation: a `_SECTION_HEADER_CSS`-styled `<td colspan="N">` row emitted whenever the section name changes during the row loop.
+2. **Show-all-rows over hide-empty-row default.** Same question batch. Empty cells render as `[empty]` so gap-spotting works across products; mirrors the inspect-product "empty sections show their heading" rule. A future polish-pass toggle (T8.8) is the cheapest place to add hide-empty-rows opt-in if it surfaces as a real need.
+3. **Vendor filter reads `brand`, not `vendor_full_name`.** First-pass smoke revealed `vendor_full_name` carries the per-product marketing title (e.g., `"Alienware 18 Area-51 Gaming Laptop"`, `"ROG Strix G16 (2026)"`) — every product matches itself only, defeating the filter. The PRD §Phase 2 line 136 phrasing "vendor / segment / status" maps to the OEM in the user mental model, which is the `brand` column (Dell / ASUS / Lenovo / HP). Inline comment on `_list_products_with_facets` flags the choice so future T8.4 (Find products where…) doesn't repeat the trap.
+4. **Row registry: union of `all_field_paths`, section order preserved.** Single-product `all_field_paths` only emits paths whose offerings exist on that product (e.g., a product with 2 CPU offerings emits `cpu_offerings.0.model` + `cpu_offerings.1.model`, not `.2.model`). The compare grid needs to show every fillable cell across the selected set, so `_union_field_paths` iterates per-product, bucketing paths by section and preserving first-appearance order within. Sections appear in orchestrator registry order (CPU, Boards, Memory, …); products with deeper offerings extend within-section rows without breaking the spine.
+5. **Marker color duplication accepted (rule of three).** `ui/browse.py` already carries `_MARKER_COLORS` + the substitution helper; `ui/compare.py` re-declares the dict inline. Two callers is below the convergence threshold per "don't abstract prematurely"; T8.4 (find-products-where) and T8.5 (queue triage) will both render markers, so extraction lands once one of them needs it. Inline note at the top of `ui/compare.py` flags the convergence point.
+6. **No new write paths, no UI tests yet.** T8.3 is read-only; the 273-test suite covers the read paths it depends on (`views.load.load_product`, `views.orchestrator.all_field_paths`, `views.formatting` markers). Streamlit `AppTest` harness still deferred to T8.8 polish per ARCHITECTURE §UI layer. Pattern matches T8.0 / T8.1 / T8.2.
+7. **Default multiselect = empty (gated render).** When zero products are picked, the page renders `st.info("Pick at least one product…")` and skips the grid build. Pre-selecting 2 products on first paint would force the user to deselect before exploring; gating on first selection is the safer UX. Single-product selection is allowed (the grid degrades to a one-column view — useful and not a misuse).
+
+### Files added / changed
+
+- **Code changed:** `competitive_database/ui/compare.py` (stub replaced — `_list_products_with_facets`, `_facet_values`, `_apply_filters`, `_union_field_paths`, `_resolve_path`, `_render_cell`, `_render_grid_html`, `render`; ~230 lines).
+- **Docs changed:** `docs/TASKS.md` (T8.3 marked done; Stage 8 Active header bumped). `docs/ARCHITECTURE.md` §UI layer (T8.3 shipping note appended to the T8.0/T8.1/T8.2 paragraph; remaining-screens line bumped T8.2–T8.7 → T8.4–T8.7). `README.md` §Status (T8.3 sentence inserted after T8.2; Sessions 25–28 → Sessions 25–29).
+
+### Where we left off (pickup pointers)
+
+- **273/273 tests green.** `competitive.db` baseline unchanged (7 products / 4 vendors / queue 0).
+- `python -m competitive_database ui` → hub → **Compare side-by-side** lands on the filter bar + multiselect; picking 2+ products renders the section-grouped grid; "← Hub" returns. Live vendor options against the current DB: ASUS / Dell / HP / Lenovo. Segment + status filters render `(All)`-only (no product in the DB has those identity bundles populated yet — fine, the selectboxes still function).
+- **Next session: T8.4 — Find products where…** Single-field filter playground covering PRD §Use cases queries. Likely the right place to converge the marker-color duplication into `ui/_markers.py` (third caller would justify extraction per the rule-of-three threshold). `_resolve_path` from `compare.py` is reusable for find-style "filter by value" queries — promote to a shared helper module if T8.4 needs path-based reads. PRD §Use cases is the authoritative spec for query shape.
+- Working tree at session close: 1 edited code file (`ui/compare.py`) + 4 edited docs (`TASKS.md`, `ARCHITECTURE.md`, `README.md`, this `SESSION_LOG.md` entry). Commits TBD per user.
+
+---
+
 ## Session 28 — 2026-05-12 (T8.2 — Dashboard hub: four-destination grid + days-since-refresh + stub routes)
 
 **Goal:** Ship T8.2 — replace the single "Browse one product" button on the hub with the full four-destination grid (browse / compare / find / queue), add the fourth health stat (days-since-last-refresh) per PRD §Phase 2, and stub the three not-yet-implemented destination modules so navigation lands somewhere coherent.

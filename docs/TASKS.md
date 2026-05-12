@@ -5,11 +5,11 @@ For project scope and policy, see [`README.md`](../README.md). For system design
 Phasing principle: foundation first, then the smallest end-to-end slice (one vendor working end-to-end), then expand to the other vendors, then the view layer, then operational helpers, then a structured validation pass, then polish. Each stage gates the next.
 
 ## Active
-- Stage 8 / Phase 2 UI — scope locked Session 25, T8.0 shipped Session 26, T8.1 shipped Session 27, T8.2 shipped Session 28; see [`PRD.md` §Phase 2](PRD.md#phase-2--ui-stage-8) + [`ARCHITECTURE.md` §UI layer](ARCHITECTURE.md#ui-layer-phase-2)
+- Stage 8 / Phase 2 UI — scope locked Session 25, T8.0 shipped Session 26, T8.1 shipped Session 27, T8.2 shipped Session 28, T8.3 shipped Session 29; see [`PRD.md` §Phase 2](PRD.md#phase-2--ui-stage-8) + [`ARCHITECTURE.md` §UI layer](ARCHITECTURE.md#ui-layer-phase-2)
   - T8.0 — Skeleton + launch — framework + entry-point lock; localhost page proves server → DB read — **done Session 26**
   - T8.1 — Browse one product — picker over `(model_code, year)` + `inspect-product` rendered as colored HTML (markers wrapped in spans); hub → browse wired via `st.session_state["view"]` — **done Session 27**
   - T8.2 — Dashboard hub — 4 destination buttons + 4th health stat (days-since-refresh) + stub routes wired — **done Session 28**
-  - T8.3 — Compare side-by-side — multiselect → grid + vendor / segment / status filter bar
+  - T8.3 — Compare side-by-side — multiselect over `(model_code, year)` + vendor / segment / status filter bar; HTML grid (products as columns, fields as rows) over the union of `views.orchestrator.all_field_paths` across selected products, section-grouped — **done Session 29**
   - T8.4 — Find products where… — single-field filter playground covering PRD §Use cases
   - T8.5 — Review queue triage — existing-vs-candidate diff + `resolve` action buttons; **first write path**
   - T8.6 — Manual-edit a cell — product → field → value → status → note; replaces `manual-edit` CLI
