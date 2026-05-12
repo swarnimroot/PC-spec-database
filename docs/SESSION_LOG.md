@@ -6,6 +6,44 @@ Newest sessions at the top.
 
 ---
 
+## Session 24 — 2026-05-12 (Session 23 follow-up (a) closed: 290HX Plus orphan stub vouched as-is; truly clean baseline)
+
+**Goal:** Close Session 23's deferred follow-up (a) — investigate the aa18250 (Dell) `Core Ultra 9 290HX Plus` orphan catalog stub and resolve it.
+
+**Outcome:** **273/273 tests green; `cpu_catalog` `needs-review` = 0; `gpu_catalog` `needs-review` = 0; `review_queue` unresolved = 0.** Verified that Dell's own techspecs API literally publishes `Intel® Core Ultra 9 processor 290HX Plus (24-Core, 36MB Cache, 2.7Ghz to 5.5GHz)` on the Alienware 18 Area-51 page — scraper is faithful; the oddity originates upstream at Dell. Vouched the orphan stub as-is, honoring the project's scrape-eligible / no-manual-override principle. DB now at the cleanest baseline since active ingestion began.
+
+### Investigation findings
+
+- Dell techspecs API payload (captured in test fixture `tests/...snapshot_useaa18250wmlkcto01.json`) carries the literal `Core Ultra 9 processor 290HX Plus (...)` CPU string.
+- `bridge/dell.py`'s CPU regex explicitly allows the `(?:\s+Plus)?` suffix — extraction is intentional, not a bug.
+- `aa18250`'s product row still carries both `Core Ultra 9 290HX Plus` and `Core Ultra 9 275HX` as `verified` offerings; only the queue ticket was dropped Session 23.
+- Intel's real Core Ultra HX lineup tops at `285HX`. `290HX` + `Plus` is not a public Intel SKU — most likely a Dell marketing tier label or a typo on Dell's page.
+
+### Decision
+
+Vouch the stub as-is rather than rename or delete. Reasoning:
+- Standing policy: capture what vendors publish; `catalog_status` is the lever for handling anything weird.
+- Renaming to `285HX` would violate the no-manual-override-of-scraped-values principle and create a product/catalog mismatch on aa18250.
+- Deleting the stub would orphan a real Dell offering and re-trigger the same stub-add on the next refresh.
+- If Intel later publishes a real `290HX` or Dell quietly fixes the page, the catalog row is already in place.
+
+### Implementation wrinkle
+
+The `resolve` CLI is hard-bound to an *unresolved* `review_queue.id` (resolve.py rejects already-resolved rows). Queue row 4 was `dropped` Session 23, so the CLI path was closed. Used `competitive_database.ingest.catalog_resolve.vouch_catalog_row` directly via Python inside a `transaction()` block — same `UPDATE cpu_catalog SET catalog_status='vouched' WHERE model=?` the CLI would have executed, just bypassing the dispatcher. Session 23's `dropped` queue row stays intact as audit history; the rationale lives in this entry.
+
+### Architecture observation (no code change)
+
+No CLI path exists for vouching an orphan catalog row whose queue ticket is already resolved. One instance today; not worth building now (YAGNI). If this recurs, surface as a `vouch-catalog --table --model --note` subcommand so the note lands in the DB rather than only in SESSION_LOG.
+
+### Where we left off (pickup pointers)
+
+- **273/273 tests green.**
+- `review_queue` unresolved: **0**. `cpu_catalog` `needs-review`: **0**. `gpu_catalog` `needs-review`: **0**. True zero-issue baseline.
+- Working tree at session close: `competitive.db` (1 catalog row vouched), `docs/SESSION_LOG.md`, `docs/TASKS.md`. No code changes. Commit TBD per user.
+- **Session 23 next-session candidates (a)–(e):** (a) closed this session. Still open: (b) T7.0d keyboard structured offerings split, (c) Stage 8 / Phase 2 UI scoping, (d) Alienware 18 Area-51 storage + keyboard under-scrape investigation, (e) Lenovo `legion-pro-7-16-gen-10` ↔ `16AFR10H` shared `vendor_full_name` verification.
+
+---
+
 ## Session 23 — 2026-05-12 (Stage 5 catalog-vouching workflow shipped; queue 11 → 0)
 
 **Goal:** Build the catalog-vouching workflow flagged in Session 22 — extend the `resolve` CLI to vouch needs-review catalog rows (`cpu_catalog` / `gpu_catalog`) so the 11 blocked `new_chip_unverified` queue rows can clear.

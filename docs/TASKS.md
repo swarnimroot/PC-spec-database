@@ -18,7 +18,6 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 - History layer — Phase 2
 - Hosted Postgres migration — if/when team access becomes real
 - Manual T6.1 cell-by-cell cross-check across 6 products — low payoff post-T7.0a/b
-- Investigate aa18250 (Dell) `Core Ultra 9 290HX Plus` — verify against vendor page; either rename catalog stub + re-enqueue, or fix scraper. Stub left at `needs-review` (id 4 dropped Session 23)
 
 ## Closed stages
 - Stage 1 — Foundation — 2026-05-07 (5)
