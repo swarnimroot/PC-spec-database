@@ -5,11 +5,8 @@ For project scope and policy, see [`README.md`](../README.md). For system design
 Phasing principle: foundation first, then the smallest end-to-end slice (one vendor working end-to-end), then expand to the other vendors, then the view layer, then operational helpers, then a structured validation pass, then polish. Each stage gates the next.
 
 ## Active
-- (none — Stage 7 closed 2026-05-11)
-
-## Next
-- Stage 8 / Phase 2 UI — scope locked Session 25; see [`PRD.md` §Phase 2](PRD.md#phase-2--ui-stage-8) + [`ARCHITECTURE.md` §UI layer](ARCHITECTURE.md#ui-layer-phase-2)
-  - T8.0 — Skeleton + launch — framework + entry-point lock; localhost page proves server → DB read
+- Stage 8 / Phase 2 UI — scope locked Session 25, T8.0 shipped Session 26; see [`PRD.md` §Phase 2](PRD.md#phase-2--ui-stage-8) + [`ARCHITECTURE.md` §UI layer](ARCHITECTURE.md#ui-layer-phase-2)
+  - T8.0 — Skeleton + launch — framework + entry-point lock; localhost page proves server → DB read — **done Session 26**
   - T8.1 — Browse one product — picker + `inspect-product` rendered as HTML, markers preserved
   - T8.2 — Dashboard hub — landing + 4 destination buttons + top-line health stats inline
   - T8.3 — Compare side-by-side — multiselect → grid + vendor / segment / status filter bar
@@ -18,6 +15,9 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
   - T8.6 — Manual-edit a cell — product → field → value → status → note; replaces `manual-edit` CLI
   - T8.7 — Refresh trigger — one product / all + progress streamed back to the page
   - T8.8 — Polish — README / launch instructions, smoke tests, anything that surfaces during use
+
+## Next
+- (none — Stage 8 in flight)
 
 ## Deferred
 - T7.0d Keyboard structured offerings split — Session 19

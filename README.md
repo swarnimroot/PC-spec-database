@@ -18,7 +18,7 @@ A persistent, queryable database of competitor gaming-laptop specs from Dell, HP
 - Three Session 9 format decisions locked at the Stage 4 mid-stage checkpoint: empty sections render as `Heading: [empty]` (not hidden); single-offering categories drop the redundant `Offering 1:` prefix; the identity title block always shows all six identity fields including `[empty]` for unset. View layer marker scheme and section conventions captured in `VIEWS.md`. See `SESSION_LOG.md` Session 9.
 - Stage 5 (Session 10): four CLI helpers shipped (`find-conflicts`, `find-empty`, `manual-edit`, `resolve`). Each views module gained a `field_paths(product)` registry, exposed via `views/orchestrator.all_field_paths()`; `find-empty` reuses the section structure for grouped output. Path syntax for writes is dotted — `<column>` for scalars, `<offerings_column>.<idx>.<leaf_key>` for offering leaves; catalog cells are not editable via `manual-edit` (plain text, no provenance scaffolding). 18 new CLI happy-path tests landed under `tests/cli/`. See `SESSION_LOG.md` Session 10.
 
-**Immediate next phase:** Phase 2 (UI) is the next horizon and is currently unscoped. Stage 8 is not yet planned. T7.0d (keyboard structured offerings — Session 13 Finding #9) was deferred at Stage 7 close-out; re-openable if filterable keyboard data becomes a real need. See `TASKS.md` Stage 7 row T7.0d and `SESSION_LOG.md` Session 19.
+**Current phase:** Phase 2 (UI). **Stage 8 active** — scoped Session 25 (T8.0–T8.8 substages: browse / compare / find / queue-triage screens, refresh trigger, polish); T8.0 (skeleton + `python -m competitive_database ui` launch + live-counts landing) shipped Session 26. T7.0d (keyboard structured offerings — Session 13 Finding #9) remains deferred from Stage 7; re-openable if filterable keyboard data becomes a real need. See `TASKS.md` Stage 8 row and `SESSION_LOG.md` Sessions 25 + 26.
 
 ---
 
@@ -52,6 +52,7 @@ source .venv/bin/activate
 
 pip install -e .
 pip install -e ../scrapers-lib   # editable sibling install
+pip install -e ".[ui]"           # optional: local browser UI (Streamlit) — see `ui` subcommand below
 ```
 
 ### Bootstrap the database
@@ -376,6 +377,23 @@ backfill-lenovo-families [--db DB]
 ```bash
 python -m competitive_database backfill-lenovo-families
 ```
+
+### `ui`
+
+Launch the local browser UI (Streamlit). Binds to `127.0.0.1`; the user's default browser opens automatically. Requires the optional `ui` extra (`pip install -e ".[ui]"`).
+
+```
+ui [--db DB] [--port PORT]
+```
+
+- `--db` — DB file location. Default: `competitive.db`.
+- `--port` — Streamlit server port. Default: `8501`.
+
+```bash
+python -m competitive_database ui
+```
+
+Stage 8 / Phase 2 work in progress: T8.0 ships a three-metric landing (products / vendors / review queue). Browse, compare, find, and queue-triage screens land in T8.1–T8.7.
 
 ---
 

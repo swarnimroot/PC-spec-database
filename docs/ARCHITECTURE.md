@@ -374,43 +374,47 @@ Single source of truth for human-readable product presentation. The `inspect-pro
 
 ## UI layer (Phase 2)
 
-Scoped Session 25 (2026-05-12). Phase 2 promotes the `inspect-product` view + the CLI write paths to a clickable surface. Same plumbing, browser front end. Scope and workflow shape live in [`PRD.md` §Phase 2 — UI](PRD.md#phase-2--ui-stage-8); this section covers how it's built.
+Scoped Session 25 (2026-05-12); skeleton + launch shipped Session 26 (T8.0). Phase 2 promotes the `inspect-product` view + the CLI write paths to a clickable surface. Same plumbing, browser front end. Scope and workflow shape live in [`PRD.md` §Phase 2 — UI](PRD.md#phase-2--ui-stage-8); this section covers how it's built.
 
 ### Runtime
 
-Browser tab on localhost. A single launch command starts a local server bound to the loopback interface only; the user's default browser opens automatically. Nothing hosted, nothing leaves the machine. Bookmarkable but not exposed beyond `localhost`.
+Browser tab on localhost, served by **Streamlit**. `python -m competitive_database ui` (subcommand wired in `cli/ui_launch.py`) shells out to `python -m streamlit run` against `competitive_database/ui/app.py`, binds the server to `127.0.0.1`, and Streamlit's default behaviour auto-opens the user's browser. The DB path is forwarded to the Streamlit child via the `COMPETITIVE_DB_PATH` env var (sidesteps Streamlit's `-- --flag` arg-forwarding ceremony). Nothing hosted, nothing leaves the machine. Bookmarkable but not exposed beyond `localhost`.
 
 Standing preference: local-first. Supabase / hosted Postgres explicitly rejected.
 
-### File layout (planned)
+Streamlit is an **optional extra** (`pip install -e ".[ui]"`); `pyproject.toml` keeps `dependencies = []` so the package still imports cleanly without it — the same invariant that keeps `scrapers-lib` out of the runtime deps.
+
+### File layout
 
 ```
 competitive_database/
+├── cli/
+│   └── ui_launch.py           # `ui` subcommand: shells to Streamlit
 └── ui/
     ├── __init__.py
-    ├── __main__.py            # launch entry point
-    ├── hub.py                 # dashboard landing
-    ├── browse.py              # product profile view
-    ├── compare.py             # side-by-side grid
-    ├── find.py                # filter playground
-    └── queue.py               # review-queue triage
+    ├── app.py                 # Streamlit entry script (run by `streamlit run`)
+    ├── hub.py                 # dashboard landing — T8.0 (counts) / T8.2 (4 destinations)
+    ├── browse.py              # product profile view — T8.1
+    ├── compare.py             # side-by-side grid — T8.3
+    ├── find.py                # filter playground — T8.4
+    └── queue.py               # review-queue triage — T8.5
 ```
 
-One module per screen, mirroring the per-vendor module pattern in `bridge/`. No duplicate marker logic — shared rendering primitives live next to the existing `views/` helpers.
+One module per screen, mirroring the per-vendor module pattern in `bridge/`. No duplicate marker logic — shared rendering primitives live next to the existing `views/` helpers. The launch command lives under `cli/` (not `ui/`) so it's reachable via the same `python -m competitive_database <subcmd>` dispatch as every other CLI; Streamlit itself is what executes `ui/app.py`.
+
+T8.0 (Session 26) shipped `ui/__init__.py`, `ui/app.py`, `ui/hub.py`, and `cli/ui_launch.py`. The remaining screen modules above are the planned layout — added by T8.1–T8.7.
 
 ### What the UI reuses (no new write paths)
 
-- **Read path:** `views/orchestrator.render_product`, `views/orchestrator.all_field_paths`, `views/load.py`. Markers, section order, and empty-section rules from `VIEWS.md` carry over unchanged.
+- **Read path:** `views/orchestrator.render_product`, `views/orchestrator.all_field_paths`, `views/load.py`. Markers, section order, and empty-section rules from `VIEWS.md` carry over unchanged. For lightweight aggregates (counts, summary stats), the UI hits SQL directly via `db/connection.connect`, matching the pattern in `cli/find_empty.py`.
 - **Write path:** `ingest/runner.py` (refresh), `cli/resolve.py`'s underlying handlers (queue resolution dispatch, including the catalog-vouching dispatch off `candidate_value` shipped Session 23), `ingest/catalog_resolve.py` (catalog stub helpers), `cli/_paths.py` (dotted-path parsing for `manual-edit`).
 
 The architectural invariant from §Forward compatibility holds: all writes route through helper functions. The UI calls those same functions. No DB-level coupling to a UI framework; swapping frameworks later is a rendering change, not a data change.
 
-### Open implementation decisions (first Stage 8 coding session)
+### Open implementation decisions (remaining substages)
 
-- **Web framework.** Local-first Python options: Streamlit (least code, opinionated layout), FastHTML / Flask + HTMX (more control, more code), Dash (data-app strong). Decide once the queue-triage screen is sketched against each.
-- **Launch entry point.** Either follow today's CLI pattern (`python -m competitive_database.ui`) or wire `[project.scripts]` (`competitive-ui`, with a one-time `pip install -e .` re-run). Pick one and stay consistent.
-- **Refresh progress streaming.** Server-sent events vs polling vs page-reload-after-done. Framework-dependent.
-- **Testing strategy.** Action handlers reuse existing `ingest/*` modules, so the 273-test suite already covers writes; UI tests focus on rendering + form validation.
+- **Refresh progress streaming.** SSE vs polling vs page-reload-after-done. Locks at T8.7; Streamlit's `st.status` + `st.empty().write` pattern is the likely fit for in-page updates without a separate SSE channel.
+- **Testing strategy.** Action handlers reuse existing `ingest/*` modules, so the 273-test suite already covers writes; UI tests focus on rendering + form validation. Streamlit's `AppTest` harness is the candidate.
 
 ---
 

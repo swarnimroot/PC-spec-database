@@ -6,6 +6,35 @@ Newest sessions at the top.
 
 ---
 
+## Session 26 — 2026-05-12 (T8.0 — Stage 8 UI skeleton shipped: Streamlit + `ui` launch command + live landing)
+
+**Goal:** Start Stage 8 / Phase 2. Pick a web framework, scaffold `competitive_database/ui/`, wire a launch command, render a live dashboard landing reading from `competitive.db`.
+
+**Outcome:** **273/273 tests still green.** Framework decision locked: **Streamlit**, added as the `ui` optional extra in `pyproject.toml` (`streamlit>=1.40`). Launch command shipped as `python -m competitive_database ui` — dispatches via new `cli/ui_launch.py` subcommand, shells out to `python -m streamlit run` against `ui/app.py`, binds to `127.0.0.1`, accepts `--db` and `--port`. DB path forwarded to the Streamlit child via `COMPETITIVE_DB_PATH`. Landing page renders three live `st.metric` widgets (Products / Vendors / Review queue) reading straight from the open connection — rendered `7 / 4 / 0` against the current DB. Smoke-tested: server returns HTTP 200 on a non-default port; `hub._counts()` produces the expected numbers. Stage 8 moved from TASKS Next → Active.
+
+### Decisions made this session
+
+1. **Framework: Streamlit.** Chosen over FastHTML+HTMX and Dash on shortest path from "zero" to "DB read → web page". Multipage routing maps cleanly to the planned hub + 4 destinations; `st.metric` and `st.dataframe` cover landing stats out of the box; HTML markers from `views/formatting` render via `unsafe_allow_html=True` when needed in T8.1+. Trade-off accepted: opinionated layout, escape hatches required for bespoke styling.
+2. **Launch entry point: `python -m competitive_database ui`.** Matches the existing CLI dispatch pattern (`__main__.py` + per-module `add_subparser`). Rejected the `[project.scripts]` console-script route — it requires a re-`pip install -e .` and adds a second invocation pattern to remember. The `ui` subcommand shells out to Streamlit's CLI rather than calling private Streamlit Python APIs.
+3. **DB path passed via env var, not CLI args.** Streamlit's `streamlit run app.py` reserves the positional arg for the script path; passing custom args means appending `-- --db PATH` and parsing inside the script. `COMPETITIVE_DB_PATH` set on the child process is cleaner and matches Streamlit conventions for runtime config.
+4. **Streamlit as optional extra (`ui`), not a runtime dep.** Preserves the standing invariant in `pyproject.toml` — `dependencies = []` so the package imports cleanly without external libs. Install with `pip install -e ".[ui]"`.
+5. **Landing-page reads via raw SQL, not `views/load.py`.** The three numbers needed (product count, distinct vendor count, unresolved queue count) don't benefit from the per-product orchestrator load. `hub._counts()` runs three small queries; brand bundles are JSON-parsed inline to extract `.value`. Matches the SQL-direct pattern used in `cli/find_empty.py` for similar lightweight reads.
+
+### Files added / changed
+
+- **Code added:** `competitive_database/ui/__init__.py`, `competitive_database/ui/app.py` (Streamlit entry script), `competitive_database/ui/hub.py` (landing render + `_counts` helper), `competitive_database/cli/ui_launch.py` (`ui` subcommand wiring + Streamlit subprocess launch).
+- **Code changed:** `competitive_database/__main__.py` (import + wire `ui_launch.add_subparser`), `pyproject.toml` (new optional dep `ui = ["streamlit>=1.40"]`).
+- **Docs changed:** `docs/TASKS.md` (T8.0 annotated done; Stage 8 moved Next → Active; Next emptied). `docs/ARCHITECTURE.md` §UI layer (deferred framework + entry-point decisions resolved to Streamlit + `python -m competitive_database ui`; file layout updated to match shipped layout — no `__main__.py` in `ui/`, app entry is `ui/app.py` invoked by Streamlit; launch wiring noted as living under `cli/ui_launch.py`). `README.md` (`ui` subcommand added to CLI reference; optional `pip install -e ".[ui]"` line added to install section).
+
+### Where we left off (pickup pointers)
+
+- 273/273 tests green. `competitive.db` baseline unchanged (7 products / 4 vendors / queue 0).
+- `python -m competitive_database ui` launches a browser tab on `http://127.0.0.1:8501` showing the three-metric landing. Server bound to loopback; nothing exposed.
+- **Next session: T8.1 — Browse one product.** Picker (likely `st.selectbox` over `products.model_code`) → render `views/orchestrator.render_product` output as HTML in the page. Markers from `views/formatting` need to survive the round-trip; `unsafe_allow_html=True` is safe here since the orchestrator's output is all internal-controlled text.
+- Working tree at session close: 4 new files + 2 edited code files + 4 edited docs. Streamlit pulled in ~21 transitive deps (altair / pandas / pyarrow / pillow / etc.) on first install. Commits TBD per user.
+
+---
+
 ## Session 25 — 2026-05-12 (Stage 8 / Phase 2 UI scoped; no code)
 
 **Goal:** Brainstorm Stage 8 scope — what the UI shows, where it runs, the user workflow — and land a written deliverable.
