@@ -6,6 +6,55 @@ Newest sessions at the top.
 
 ---
 
+## Session 21 — 2026-05-12 (Stage 5 CLI gap closed: column-level offering paths now resolvable)
+
+**Goal:** Close the Session 20 carryforward — extend the `resolve` CLI to accept column-level offering paths (e.g. `camera_offerings`) so runner-emitted list-level conflicts are resolvable end-to-end. Unblocks row #18 architecturally.
+
+**Outcome:** New `ParsedPath` kind `products_offering_list` added; `resolve` CLI now handles column-level paths for `accept_candidate` / `kept_existing` / `dropped` (writes / leaves the whole offerings list); `manual_override` rejected at this shape with a redirect to leaf-level `manual-edit`. Runner left unchanged — the "offerings list is a unit of disagreement" semantic in `ingest/runner.py::_diff_offerings` (line 730–732 comment: collapse-to-list-level diff is intentional for Stage 2) is preserved. **Tests 255 → 263** (8 new — 4 in `test_paths.py`, 4 in `test_resolve.py`).
+
+### Approach decision
+
+Three options laid out for closing the gap: (A) extend resolver to accept column-only paths, runner unchanged; (B) change runner to emit `<column>.<idx>.<leaf>` representative paths; (C) introduce a new `conflict_type` like `offerings_list_disagreement`. **User approved A.** Rationale: B fights the deliberate list-level diff semantic and is lossy when multiple leaves differ; C is cleaner semantically but touches schema + runner + resolver + every test — disproportionate blast radius for a one-row unblock.
+
+### Code changes
+
+- `cli/_paths.py` — module docstring lists four path forms instead of three; `ParsedPath.kind` comment extended; `parse_path` accepts a 1-part offering column path and returns `kind="products_offering_list"`; `read_at_path` adds a branch that returns the whole offerings list. Error message for 2-part / 4-part offering paths now reads `'<column>' or '<column>.<idx>.<leaf>'`.
+- `cli/resolve.py` — new `write_offerings` import. `_apply_action`:
+  - `accept_candidate` on `products_offering_list`: decode `candidate_value` (the full offerings list with embedded per-leaf provenance bundles — `candidate_provenance` is NULL for this shape, see `runner._enqueue` list-level branch where `existing_bundle` / `candidate_bundle` are None) and call `write_offerings`.
+  - `manual_override` on `products_offering_list`: reject with a `SystemExit` that redirects to `manual-edit` on a leaf path.
+  - `kept_existing` and `dropped` unchanged (no write to target).
+
+### Test changes
+
+- `tests/cli/test_paths.py` — `parse_path` was previously untested (the file only covered `format_product_pk` / `parse_product_arg`). Added 4 tests: column-only returns the new kind; offering leaf still returns leaf kind; 2-part and 4-part paths rejected with the contract message.
+- `tests/cli/test_resolve.py` — added 4 column-level offering tests (one per action). Each seeds a row mirroring `runner._enqueue`'s list-level shape (`existing_value` / `candidate_value` carry the full offerings list; both `*_provenance` columns NULL).
+
+### Doc changes
+
+- `ARCHITECTURE.md` L50 — `field_path` examples row extended with the column-only form.
+- `DATA_MODEL.md` not touched — L25's `cpu_catalog.<model>.<column>` is catalog-scope, not products offerings; column-only offering paths don't belong there.
+
+### What this does NOT change
+
+- The runner's list-level diff strategy is preserved. Per-leaf offering diffs remain finicky and out of scope (Stage 2 design intent).
+- Row #18 (`legion-pro-7-16-gen-10` `camera_offerings`) is now CLI-resolvable but is **not** resolved in this session — that belongs in the next review-queue cleanup pass.
+
+### Decisions made this session
+
+1. **Option A taken.** Resolver widened; runner untouched.
+2. **`manual_override` for column-level rejected, not supported.** Constructing a full list-of-offerings JSON via CLI is not a sensible contract; redirect users to leaf-level `manual-edit`.
+3. **`DATA_MODEL.md` L25 unchanged.** Catalog-conflict scope; offering paths don't belong there. ARCHITECTURE.md L50 (canonical `field_path` examples) is the right place to surface the new form.
+
+### Where we left off (pickup pointers)
+
+- **263/263 tests green** (255 pre-session + 8 new).
+- Stage 5 CLI gap from Session 20 closed; Deferred item removed from `TASKS.md`.
+- Working tree at session close: **clean** after two commits — code+tests+contract doc, then session-docs.
+- **Carryforward:** 23 unresolved review_queue rows still open. Row #18 is now CLI-resolvable; pick it up in the next review-queue cleanup pass.
+- **Phase 2 (UI) is unscoped.** Stage 8 not yet planned.
+
+---
+
 ## Session 20 — 2026-05-11 (Carryforward sweep: fb0023nr retired, camera resolution Option A executed, Stage 5 CLI gap surfaced)
 
 **Goal:** Sweep parked carryforward items in simplicity order, smallest first. Item 1: re-examine "HP Transcend 14 fb0023nr upstream-blocked" (Session 19 L46 / Session 12 Finding #1). Item 2: settle the long-deferred `camera_offerings.0.resolution` unit-mismatch shape question (Session 17 L184, L195; parked since Stage 6).
