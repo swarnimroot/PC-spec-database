@@ -6,6 +6,64 @@ Newest sessions at the top.
 
 ---
 
+## Session 28 — 2026-05-12 (T8.2 — Dashboard hub: four-destination grid + days-since-refresh + stub routes)
+
+**Goal:** Ship T8.2 — replace the single "Browse one product" button on the hub with the full four-destination grid (browse / compare / find / queue), add the fourth health stat (days-since-last-refresh) per PRD §Phase 2, and stub the three not-yet-implemented destination modules so navigation lands somewhere coherent.
+
+**Outcome:** **273/273 tests still green.** `ui/hub.py` now renders four `st.metric` widgets (Products / Vendors / Review queue / Days since refresh) in a 4-column row, then a divider, then a 4-column button row dispatching off `st.session_state["view"]`. Live values against `competitive.db`: 7 / 4 / 0 / 0 — days-since-refresh = 0 because the DB carries today's smoke refreshes from Sessions 26–27. Three new placeholder modules (`ui/compare.py`, `ui/find.py`, `ui/triage.py`) each implement a minimal `render(conn, *, db_path)` with a title, a "← Hub" back button, and an `st.info` placeholder. `app.py` `_VIEWS` extended to map all four route keys; unknown keys still fall back to `hub.render`. Smoke: `python -m competitive_database ui --port 8512` returned HTTP 200 on both `/` and `/healthz`. Helper smoke: `_counts(conn) == (7, 4, 0)`, `_days_since_last_refresh(conn) == 0`.
+
+### Decisions made this session
+
+1. **Days-since-refresh = max `captured_at` across every scraped bundle.** PRD line 140 phrases the stat as "days-since-last-refresh"; the most defensible interpretation against the schema is the most recent successful scrape touch anywhere in `products`. Implementation walks every non-PK column on every product row, JSON-decodes the cell, and recursively descends scalar bundles + offerings lists collecting every `captured_at` string. Cheap on 7 rows; revisit if the DB grows to thousands. Returns `None` when the DB has zero scraped cells (cold-start case). Matches the SQL-direct style in `_counts` — does not pull in `views.load`.
+2. **Module rename: `queue.py` → `triage.py` (route key stays `"queue"`).** Initial implementation named the file `ui/queue.py` per the planned ARCHITECTURE file-layout block. First Streamlit launch crashed at startup with `AttributeError: module 'queue' has no attribute 'SimpleQueue'` — Streamlit's `streamlit run` prepends the script directory (`competitive_database/ui/`) to `sys.path`, so `import queue` from `concurrent.futures.thread` (via Streamlit's path watcher) resolved to our local stub instead of the stdlib `queue` module. Renamed the file to `triage.py`; the dispatch route key in `st.session_state["view"]` stays `"queue"` (user-visible contract is unchanged). ARCHITECTURE §UI layer file-layout block updated to match and explain the rename inline.
+3. **Stubs use the same `render(conn, *, db_path)` shape as `browse.py`.** Keeps the dispatch contract uniform — `app.py` calls `render(conn, db_path=db_path)` for every view; T8.3–T8.5 fill the bodies without touching the signature. Each stub's `← Hub` button + `st.info(...)` placeholder mirrors `browse.py`'s back-nav idiom verbatim.
+4. **No new write paths, no UI tests yet.** T8.2 stays read-only; the 273-test suite still covers everything the new code depends on (raw SQL helpers on the hub, no new orchestrator paths). Streamlit `AppTest` harness remains deferred to T8.8 polish per ARCHITECTURE §UI layer. Matches T8.0 and T8.1.
+5. **Use `st.columns(4)` for both the metric row and the button row.** Symmetric 4-and-4 layout reads cleanly at a glance and gives every destination equal visual weight. `use_container_width=True` on each button matches the T8.1 single-button styling for visual continuity.
+
+### Files added / changed
+
+- **Code added:** `competitive_database/ui/compare.py`, `competitive_database/ui/find.py`, `competitive_database/ui/triage.py` (three placeholder modules — `render(conn, *, db_path)` with title + back button + `st.info`).
+- **Code changed:** `competitive_database/ui/hub.py` (4-button grid + 4th metric + `_days_since_last_refresh` helper + `_walk_captured_at` recursive bundle walker; caption bumped T8.1 → T8.2). `competitive_database/ui/app.py` (imports `compare`, `find`, `triage`; `_VIEWS` extended with `compare` / `find` / `queue` route keys).
+- **Docs changed:** `docs/TASKS.md` (T8.2 line marked done; Stage 8 Active header bumped). `docs/ARCHITECTURE.md` §UI layer (T8.2 shipping note added; file-layout block updated for the `queue.py` → `triage.py` rename with inline rationale). `README.md` §Status (T8.2 sentence inserted after T8.1; Sessions 25–27 → Sessions 25–28).
+
+### Where we left off (pickup pointers)
+
+- **273/273 tests green.** `competitive.db` baseline unchanged (7 products / 4 vendors / queue 0).
+- `python -m competitive_database ui` lands on the hub showing 4 metrics + 4 destination buttons; "Browse one product" still navigates to the working T8.1 picker; "Compare side-by-side", "Find products where…", and "Review queue triage" all jump to their respective placeholder screens with a "← Hub" return path.
+- **Next session: T8.3 — Compare side-by-side.** Multiselect over products → grid (products as columns, fields as rows) with a vendor / segment / status filter bar at the top. Reuses the same `views/orchestrator` + `views/load` read path the browse screen leans on; the new module body replaces the `compare.py` stub.
+- Working tree at session close: 3 new code files (`ui/compare.py`, `ui/find.py`, `ui/triage.py`) + 2 edited code files (`ui/app.py`, `ui/hub.py`) + 4 edited docs (`TASKS.md`, `ARCHITECTURE.md`, `README.md`, this `SESSION_LOG.md` entry). Commits TBD per user.
+
+---
+
+## Session 27 — 2026-05-12 (T8.1 — Browse one product: picker + colored-marker HTML render shipped)
+
+**Goal:** Ship T8.1 — picker over `products` + the existing `inspect-product` view rendered as HTML in the UI with view-layer markers preserved.
+
+**Outcome:** **273/273 tests still green.** New `ui/browse.py` exposes `_list_products(conn)`, `_render_html(text)`, and `render(conn, *, db_path)`. Picker: `st.selectbox` over every `(model_code, year)` pair (currently 7) formatted as `model_code · year`. Selected product is rendered by reusing `views.orchestrator.render_product` verbatim → `html.escape` → all six provenance markers wrapped in colored `<span>`s (verified=green, [?]=amber, [—]=gray, [m]=blue, [empty]=dim, [partial]=amber) → wrapped in a `<pre>` for monospace + whitespace preservation → emitted via `st.markdown(..., unsafe_allow_html=True)`. Hub gets a "Browse one product" button that sets `st.session_state["view"]="browse"` and reruns; `app.py` carries a `_VIEWS` dict dispatch off the same key. Drift fix in passing: README §Status "6 products" → "7 products"; vendor tally updated to "Lenovo ×2" (the +1 is the un-merged AMD-cousin `16AFR10H`, Session 22 open observation). Smoke: HTTP 200 on `/` and `/healthz` (port 8511); helper smoke against `rog-zephyrus-g16-2026` produced 56 verified / 3 [?] / 3 [empty] / 20 [—] markers all wrapped in their colored spans.
+
+### Decisions made this session
+
+1. **Colored markers over plain monospace.** Asked the user with side-by-side mockups (standing pref: frame as visible output); they picked colored. Implementation: a `_MARKER_COLORS` dict keyed off the six `views.formatting` constants drives a single regex sub over the escaped orchestrator text. Orchestrator output is untouched — coloring is a pure UI-layer transform.
+2. **Navigation via `st.session_state["view"]`, not Streamlit multipage.** Streamlit ≥1.36 ships `st.Page` / `st.navigation`, but a single string key in `session_state` is the smallest contract that scales to T8.2's four-button grid and T8.3–T8.5's per-screen entries. `app.py` becomes a dict dispatch (`_VIEWS = {"hub": …, "browse": …}`) — adding a screen is one line + one entry.
+3. **No new write paths, no UI tests yet.** T8.1 is read-only; reuses `views.orchestrator.render_product` verbatim, so the 273-test suite covers the read path it depends on. Streamlit `AppTest` harness explicitly deferred to T8.8 polish per ARCHITECTURE §UI layer. Matches T8.0's pattern (hub had no tests either).
+4. **Picker shows `model_code · year`, not the `format_product_pk` display form.** The display helper in `cli/_paths.py` exists for CLI paste-back ergonomics; in the UI the dropdown is the selector, so the column-separated form is more scannable. Cheaper than wiring through `format_product_pk`, easy to revisit if UX warrants.
+5. **README "Lenovo ×1 → ×2" call.** The +1 row in the DB is `16AFR10H` (brand=None, un-merged AMD-cousin of `legion-pro-7-16-gen-10`); counting it under Lenovo with a one-clause note keeps the §Status line accurate without dragging the open Session 22 observation into the README. Less drift than leaving "6"; cleaner than a multi-line footnote.
+
+### Files added / changed
+
+- **Code added:** `competitive_database/ui/browse.py` (picker + `_list_products` + `_render_html` + colored-span marker map + `render`).
+- **Code changed:** `competitive_database/ui/app.py` (imports `browse`, adds `_VIEWS` dispatch keyed on `st.session_state["view"]`), `competitive_database/ui/hub.py` ("Browse one product" button → `view="browse"` + `st.rerun`; caption bumped T8.0 → T8.1).
+- **Docs changed:** `docs/TASKS.md` (T8.1 marked done; Stage 8 Active line bumped). `docs/ARCHITECTURE.md` §UI layer (T8.1 shipping note added; `st.session_state["view"]` called out as the dispatch contract for follow-on screens). `README.md` §Status (product-count drift fix: 6 → 7, vendor tally updated; Current phase line bumped T8.0 → T8.1).
+
+### Where we left off (pickup pointers)
+
+- **273/273 tests green.** `competitive.db` baseline unchanged (7 products / 4 vendors / queue 0).
+- `python -m competitive_database ui` lands on the hub; "Browse one product" jumps to the picker; selecting any product renders the full colored `inspect-product` view inline; "← Hub" returns.
+- **Next session: T8.2 — Dashboard hub.** Replace the single "Browse one product" button with the four-destination grid (browse / compare / find / queue) + any additional health stats (days-since-refresh per PRD §Phase 2). Existing `st.session_state["view"]` dispatch is the wiring lane — `_VIEWS` in `ui/app.py` is the registry to extend.
+- Working tree at session close: 1 new code file (`ui/browse.py`) + 2 edited code files (`ui/app.py`, `ui/hub.py`) + 3 edited docs (`TASKS.md`, `ARCHITECTURE.md`, `README.md`) + this SESSION_LOG entry. Commits TBD per user.
+
+---
+
 ## Session 26 — 2026-05-12 (T8.0 — Stage 8 UI skeleton shipped: Streamlit + `ui` launch command + live landing)
 
 **Goal:** Start Stage 8 / Phase 2. Pick a web framework, scaffold `competitive_database/ui/`, wire a launch command, render a live dashboard landing reading from `competitive.db`.

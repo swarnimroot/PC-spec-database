@@ -397,12 +397,12 @@ competitive_database/
     ├── browse.py              # product profile view — T8.1
     ├── compare.py             # side-by-side grid — T8.3
     ├── find.py                # filter playground — T8.4
-    └── queue.py               # review-queue triage — T8.5
+    └── triage.py              # review-queue triage — T8.5 (route key "queue"; renamed from queue.py to avoid stdlib shadowing)
 ```
 
 One module per screen, mirroring the per-vendor module pattern in `bridge/`. No duplicate marker logic — shared rendering primitives live next to the existing `views/` helpers. The launch command lives under `cli/` (not `ui/`) so it's reachable via the same `python -m competitive_database <subcmd>` dispatch as every other CLI; Streamlit itself is what executes `ui/app.py`.
 
-T8.0 (Session 26) shipped `ui/__init__.py`, `ui/app.py`, `ui/hub.py`, and `cli/ui_launch.py`. The remaining screen modules above are the planned layout — added by T8.1–T8.7.
+T8.0 (Session 26) shipped `ui/__init__.py`, `ui/app.py`, `ui/hub.py`, and `cli/ui_launch.py`. T8.1 (Session 27) added `ui/browse.py` and wired hub → browse navigation through `st.session_state["view"]` (a single string key dispatched by `app.py`); the same key is the planned hand-off point for T8.2's four-destination grid and T8.3–T8.5's per-screen entries. T8.2 (Session 28) replaced the single hub button with a four-destination grid and added the days-since-refresh metric; `ui/compare.py`, `ui/find.py`, `ui/triage.py` shipped as placeholder stubs ahead of T8.3–T8.5 (the queue-triage module is filenamed `triage.py` to avoid shadowing the stdlib `queue` module that Streamlit's path watcher imports; the dispatch route key in `st.session_state["view"]` stays `"queue"`). The remaining screen modules above are the planned layout — added by T8.2–T8.7.
 
 ### What the UI reuses (no new write paths)
 
