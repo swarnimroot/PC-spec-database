@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from competitive_database.bridge.types import CandidateProduct
 from competitive_database.db.connection import apply_schema, connect, transaction
-from competitive_database.ingest.catalog_resolve import resolve_catalog
+from competitive_database.ingest.catalog_resolve import (
+    resolve_catalog,
+    vouch_catalog_row,
+)
 
 
 CAPTURED_AT = "2026-05-07T16:00:00+00:00"
@@ -282,5 +287,66 @@ def test_chip_specs_keep_and_queue_when_vouched_cell_disagrees(tmp_path):
         assert len(rows) == 1
         assert rows[0]["conflict_type"] == "value_disagreement"
         assert rows[0]["field_path"] == "cpu_catalog.Core Ultra 9 285HX.cores"
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# vouch_catalog_row — promotes a needs-review stub to 'vouched'.
+# ---------------------------------------------------------------------------
+
+
+def test_vouch_catalog_row_flips_cpu_status(tmp_path):
+    conn = _conn(tmp_path)
+    try:
+        with transaction(conn):
+            conn.execute(
+                "INSERT INTO cpu_catalog (model, catalog_status) VALUES (?, ?)",
+                ("Core Ultra 9 386H", "needs-review"),
+            )
+            vouch_catalog_row(conn, "cpu_catalog", "Core Ultra 9 386H")
+        status = conn.execute(
+            "SELECT catalog_status FROM cpu_catalog WHERE model = ?",
+            ("Core Ultra 9 386H",),
+        ).fetchone()["catalog_status"]
+        assert status == "vouched"
+    finally:
+        conn.close()
+
+
+def test_vouch_catalog_row_idempotent_on_already_vouched(tmp_path):
+    conn = _conn(tmp_path)
+    try:
+        with transaction(conn):
+            conn.execute(
+                "INSERT INTO gpu_catalog (model, catalog_status) VALUES (?, ?)",
+                ("RTX 5080", "vouched"),
+            )
+            vouch_catalog_row(conn, "gpu_catalog", "RTX 5080")
+        status = conn.execute(
+            "SELECT catalog_status FROM gpu_catalog WHERE model = ?",
+            ("RTX 5080",),
+        ).fetchone()["catalog_status"]
+        assert status == "vouched"
+    finally:
+        conn.close()
+
+
+def test_vouch_catalog_row_rejects_unknown_table(tmp_path):
+    conn = _conn(tmp_path)
+    try:
+        with pytest.raises(ValueError) as exc:
+            vouch_catalog_row(conn, "products", "anything")
+        assert "unknown catalog table" in str(exc.value)
+    finally:
+        conn.close()
+
+
+def test_vouch_catalog_row_rejects_missing_row(tmp_path):
+    conn = _conn(tmp_path)
+    try:
+        with pytest.raises(ValueError) as exc:
+            vouch_catalog_row(conn, "cpu_catalog", "Nonexistent CPU")
+        assert "no cpu_catalog row" in str(exc.value)
     finally:
         conn.close()

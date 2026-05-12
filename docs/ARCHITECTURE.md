@@ -204,6 +204,8 @@ python -m competitive_database resolve --id 17 --action dropped
 
 Updates the products table (when applicable), marks the queue row resolved with timestamp + resolution, writes the resolver note.
 
+For `new_chip_unverified` rows the dispatch routes off `candidate_value` (which carries `{"table", "model", "value"}` pointing at the catalog stub created at ingest time) rather than `field_path` — `accept_candidate` flips that row's `catalog_status` from `needs-review` to `vouched`; `dropped` resolves the queue row without touching the catalog. `kept_existing` and `manual_override` are rejected (`existing_value` is always NULL for these rows). This sidesteps the path parser entirely, handling both depth-3 `cpu_offerings.N.model` and depth-4 `boards.N.gpus.M` shapes uniformly.
+
 ### `manual-edit`
 Writes a manual cell with provenance scaffolding handled automatically.
 

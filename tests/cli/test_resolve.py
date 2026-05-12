@@ -444,3 +444,256 @@ def test_resolve_manual_override_column_offering_rejected(tmp_path):
         resolve.main(args)
     assert "manual_override not supported" in str(exc.value)
     assert "camera_offerings" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# new_chip_unverified — catalog-vouching workflow
+#
+# The queue row's candidate_value JSON ({"table","model","value"}) points
+# at the catalog stub inserted at ingest time. The resolver routes off
+# that payload rather than field_path, so depth-3
+# (cpu_offerings.N.model) and depth-4 (boards.N.gpus.M) share one
+# dispatch. accept_candidate flips catalog_status to 'vouched'; dropped
+# resolves the queue row without touching the catalog. kept_existing and
+# manual_override are rejected (existing_value is always NULL here).
+# ---------------------------------------------------------------------------
+
+
+def _seed_new_chip(
+    conn, *, table: str, model: str, field_path: str
+) -> int:
+    conn.execute(
+        f"INSERT INTO {table} (model, catalog_status) VALUES (?, ?)",
+        (model, "needs-review"),
+    )
+    cur = conn.execute(
+        """
+        INSERT INTO review_queue (
+            product_model_code, product_year, field_path, conflict_type,
+            existing_value, existing_provenance,
+            candidate_value, candidate_provenance, detected_at
+        )
+        VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?)
+        """,
+        (
+            _PK["model_code"],
+            _PK["year"],
+            field_path,
+            "new_chip_unverified",
+            json.dumps({"table": table, "model": model, "value": model}),
+            json.dumps(_scraped(model)),
+            "2026-05-08T00:00:00+00:00",
+        ),
+    )
+    return cur.lastrowid
+
+
+def _catalog_status(conn, table: str, model: str):
+    row = conn.execute(
+        f"SELECT catalog_status FROM {table} WHERE model = ?", (model,)
+    ).fetchone()
+    return None if row is None else row["catalog_status"]
+
+
+def test_resolve_accept_new_chip_cpu_vouches_catalog(tmp_path):
+    conn = _fresh_db(tmp_path)
+    try:
+        with transaction(conn):
+            qid = _seed_new_chip(
+                conn,
+                table="cpu_catalog",
+                model="Core Ultra 9 386H",
+                field_path="cpu_offerings.0.model",
+            )
+    finally:
+        conn.close()
+
+    args = argparse.Namespace(
+        id=qid,
+        action="accept_candidate",
+        value=None,
+        value_json=None,
+        note="seen in vendor spec sheet",
+        entered_by=None,
+        db=str(tmp_path / "rs.db"),
+    )
+    resolve.main(args)
+
+    conn = connect(tmp_path / "rs.db")
+    try:
+        status = _catalog_status(conn, "cpu_catalog", "Core Ultra 9 386H")
+        row = _resolved_row(conn, qid)
+    finally:
+        conn.close()
+
+    assert status == "vouched"
+    assert row["resolution"] == "accepted_candidate"
+    payload = json.loads(row["resolution_value"])
+    assert payload == {
+        "table": "cpu_catalog",
+        "model": "Core Ultra 9 386H",
+        "value": "Core Ultra 9 386H",
+    }
+    assert row["resolver_note"] == "seen in vendor spec sheet"
+
+
+def test_resolve_accept_new_chip_gpu_depth4_vouches_catalog(tmp_path):
+    # Depth-4 path (boards.N.gpus.M) — would have been rejected by the
+    # path parser pre-vouching; routing off candidate_value sidesteps it.
+    conn = _fresh_db(tmp_path)
+    try:
+        with transaction(conn):
+            qid = _seed_new_chip(
+                conn,
+                table="gpu_catalog",
+                model="RTX 5070 Ti",
+                field_path="boards.0.gpus.0",
+            )
+    finally:
+        conn.close()
+
+    args = argparse.Namespace(
+        id=qid,
+        action="accept_candidate",
+        value=None,
+        value_json=None,
+        note=None,
+        entered_by=None,
+        db=str(tmp_path / "rs.db"),
+    )
+    resolve.main(args)
+
+    conn = connect(tmp_path / "rs.db")
+    try:
+        status = _catalog_status(conn, "gpu_catalog", "RTX 5070 Ti")
+        row = _resolved_row(conn, qid)
+    finally:
+        conn.close()
+
+    assert status == "vouched"
+    assert row["resolution"] == "accepted_candidate"
+
+
+def test_resolve_dropped_new_chip_leaves_catalog_at_needs_review(tmp_path):
+    conn = _fresh_db(tmp_path)
+    try:
+        with transaction(conn):
+            qid = _seed_new_chip(
+                conn,
+                table="cpu_catalog",
+                model="Core Ultra 9 290HX Plus",
+                field_path="cpu_offerings.0.model",
+            )
+    finally:
+        conn.close()
+
+    args = argparse.Namespace(
+        id=qid,
+        action="dropped",
+        value=None,
+        value_json=None,
+        note="scraper misread",
+        entered_by=None,
+        db=str(tmp_path / "rs.db"),
+    )
+    resolve.main(args)
+
+    conn = connect(tmp_path / "rs.db")
+    try:
+        status = _catalog_status(conn, "cpu_catalog", "Core Ultra 9 290HX Plus")
+        row = _resolved_row(conn, qid)
+    finally:
+        conn.close()
+
+    assert status == "needs-review"
+    assert row["resolution"] == "dropped"
+    assert row["resolution_value"] is None
+    assert row["resolver_note"] == "scraper misread"
+
+
+def test_resolve_kept_existing_new_chip_rejected(tmp_path):
+    conn = _fresh_db(tmp_path)
+    try:
+        with transaction(conn):
+            qid = _seed_new_chip(
+                conn,
+                table="cpu_catalog",
+                model="Core Ultra 9 386H",
+                field_path="cpu_offerings.0.model",
+            )
+    finally:
+        conn.close()
+
+    args = argparse.Namespace(
+        id=qid,
+        action="kept_existing",
+        value=None,
+        value_json=None,
+        note=None,
+        entered_by=None,
+        db=str(tmp_path / "rs.db"),
+    )
+    with pytest.raises(SystemExit) as exc:
+        resolve.main(args)
+    assert "new_chip_unverified" in str(exc.value)
+    assert "kept_existing" in str(exc.value)
+
+
+def test_resolve_manual_override_new_chip_rejected(tmp_path):
+    conn = _fresh_db(tmp_path)
+    try:
+        with transaction(conn):
+            qid = _seed_new_chip(
+                conn,
+                table="gpu_catalog",
+                model="RTX 5080",
+                field_path="boards.0.gpus.1",
+            )
+    finally:
+        conn.close()
+
+    args = argparse.Namespace(
+        id=qid,
+        action="manual_override",
+        value="RTX 5080 Mobile",
+        value_json=None,
+        note=None,
+        entered_by=None,
+        db=str(tmp_path / "rs.db"),
+    )
+    with pytest.raises(SystemExit) as exc:
+        resolve.main(args)
+    assert "new_chip_unverified" in str(exc.value)
+    assert "manual_override" in str(exc.value)
+
+
+def test_resolve_accept_new_chip_missing_catalog_row_errors(tmp_path):
+    # Defensive: queue row references a catalog stub that no longer exists.
+    conn = _fresh_db(tmp_path)
+    try:
+        with transaction(conn):
+            qid = _seed_new_chip(
+                conn,
+                table="cpu_catalog",
+                model="Core Ultra 9 386H",
+                field_path="cpu_offerings.0.model",
+            )
+            conn.execute(
+                "DELETE FROM cpu_catalog WHERE model = ?",
+                ("Core Ultra 9 386H",),
+            )
+    finally:
+        conn.close()
+
+    args = argparse.Namespace(
+        id=qid,
+        action="accept_candidate",
+        value=None,
+        value_json=None,
+        note=None,
+        entered_by=None,
+        db=str(tmp_path / "rs.db"),
+    )
+    with pytest.raises(SystemExit) as exc:
+        resolve.main(args)
+    assert "no cpu_catalog row" in str(exc.value)

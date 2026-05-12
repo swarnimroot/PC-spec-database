@@ -12,6 +12,14 @@ Four actions:
     row resolved with the new value.
   - ``dropped``: leave the target cell alone, mark queue row resolved
     with no value (the conflict is intentionally discarded).
+
+For ``new_chip_unverified`` rows the dispatch routes off
+``candidate_value`` (which encodes the catalog target) rather than
+``field_path``, so depth-3 ``cpu_offerings.N.model`` and depth-4
+``boards.N.gpus.M`` are handled uniformly. ``accept_candidate`` flips
+the catalog row's ``catalog_status`` from ``needs-review`` to
+``vouched``; ``dropped`` resolves the queue row without touching the
+catalog. ``kept_existing`` / ``manual_override`` are rejected.
 """
 
 from __future__ import annotations
@@ -25,6 +33,7 @@ from typing import Any
 
 from ..db.connection import connect, transaction
 from ..db.helpers import make_manual_bundle, write_offerings
+from ..ingest.catalog_resolve import vouch_catalog_row
 from ._paths import (
     format_product_pk,
     parse_path,
@@ -127,25 +136,36 @@ def main(args: argparse.Namespace) -> None:
                 f"(resolved_at={row['resolved_at']})"
             )
 
-        try:
-            parsed = parse_path(row["field_path"])
-        except ValueError as exc:
-            raise SystemExit(
-                f"resolve: queue row id={args.id} has a field_path "
-                f"shape not supported by Stage 5 ({exc}). "
-                f"new_chip_unverified rows over 4-level paths "
-                f"(e.g. boards.N.gpus.M) need the catalog-vouching "
-                f"workflow (deferred to a later stage)."
-            ) from exc
+        # new_chip_unverified rows route off candidate_value, not
+        # field_path: the queue payload pinpoints the catalog target
+        # directly, which sidesteps the path parser entirely and lets
+        # depth-3 (cpu_offerings.N.model) and depth-4 (boards.N.gpus.M)
+        # rows share one dispatch.
+        is_new_chip = row["conflict_type"] == "new_chip_unverified"
+        if is_new_chip:
+            parsed = None
+        else:
+            try:
+                parsed = parse_path(row["field_path"])
+            except ValueError as exc:
+                raise SystemExit(
+                    f"resolve: queue row id={args.id} has a field_path "
+                    f"shape not supported ({exc})."
+                ) from exc
         pk = {
             "model_code": row["product_model_code"],
             "year": row["product_year"],
         }
 
         with transaction(conn):
-            resolution_value_raw, resolver_note = _apply_action(
-                conn, args, row, parsed, pk
-            )
+            if is_new_chip:
+                resolution_value_raw, resolver_note = _apply_action_new_chip(
+                    conn, args, row
+                )
+            else:
+                resolution_value_raw, resolver_note = _apply_action(
+                    conn, args, row, parsed, pk
+                )
             conn.execute(
                 """
                 UPDATE review_queue
@@ -247,6 +267,61 @@ def _apply_action(
         return None, note
 
     raise SystemExit(f"resolve: unknown action {action!r}")
+
+
+def _apply_action_new_chip(
+    conn,
+    args: argparse.Namespace,
+    row,
+) -> tuple[str | None, str | None]:
+    """Resolve a ``new_chip_unverified`` queue row by vouching the catalog row.
+
+    The queue row's ``candidate_value`` carries a JSON object
+    ``{"table", "model", "value"}`` pointing at the catalog stub.
+    ``accept_candidate`` flips that row's ``catalog_status`` to
+    ``vouched``; ``dropped`` resolves the queue row without touching
+    the catalog. ``kept_existing`` and ``manual_override`` have no
+    well-defined meaning here (``existing_value`` is always NULL for
+    these rows) and are rejected.
+    """
+    action = args.action
+    note = args.note
+
+    if action == "accept_candidate":
+        if row["candidate_value"] is None:
+            raise SystemExit(
+                "resolve: cannot accept_candidate — new_chip_unverified row "
+                "has no candidate_value"
+            )
+        try:
+            payload = json.loads(row["candidate_value"])
+        except json.JSONDecodeError as exc:
+            raise SystemExit(
+                f"resolve: new_chip_unverified candidate_value is not valid "
+                f"JSON ({exc})"
+            ) from exc
+        table = payload.get("table") if isinstance(payload, dict) else None
+        model = payload.get("model") if isinstance(payload, dict) else None
+        if not table or not model:
+            raise SystemExit(
+                f"resolve: new_chip_unverified candidate_value missing "
+                f"'table' or 'model' (got {payload!r})"
+            )
+        try:
+            vouch_catalog_row(conn, table, model)
+        except ValueError as exc:
+            raise SystemExit(f"resolve: {exc}") from exc
+        return row["candidate_value"], note
+
+    if action == "dropped":
+        return None, note
+
+    raise SystemExit(
+        f"resolve: --action {action} is not supported for "
+        f"new_chip_unverified rows (existing_value is always NULL). "
+        f"Use accept_candidate to vouch the catalog row, or dropped "
+        f"to discard without vouching."
+    )
 
 
 def _decode_value(args: argparse.Namespace) -> Any:

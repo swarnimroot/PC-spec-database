@@ -91,6 +91,32 @@ def _insert_stub(
     )
 
 
+def vouch_catalog_row(
+    conn: sqlite3.Connection, table: str, model: str
+) -> None:
+    """Promote a needs-review catalog row to ``catalog_status='vouched'``.
+
+    Idempotent — re-vouching an already-vouched row is a no-op (the
+    UPDATE still hits one row). Raises ``ValueError`` for an unknown
+    table name or when the target row doesn't exist (defensive: the
+    stub-insert pass should always create the row before a queue row
+    gets resolved against it).
+    """
+    if table not in ("cpu_catalog", "gpu_catalog"):
+        raise ValueError(
+            f"unknown catalog table {table!r} "
+            "(expected 'cpu_catalog' or 'gpu_catalog')"
+        )
+    cur = conn.execute(
+        f"UPDATE {table} SET catalog_status = 'vouched' WHERE model = ?",
+        (model,),
+    )
+    if cur.rowcount == 0:
+        raise ValueError(
+            f"vouch_catalog_row: no {table} row with model={model!r}"
+        )
+
+
 def _enqueue_new_chip(
     conn: sqlite3.Connection,
     *,
