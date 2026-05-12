@@ -7,7 +7,8 @@ single button with the four-destination grid (browse / compare / find /
 queue) and added the fourth health stat: days since the most recent
 ``captured_at`` across every scraped bundle in ``products``. T8.6 added
 a fifth destination ("Manual-edit a cell") split as a second "Curate"
-row beneath the three read-only destinations.
+row beneath the three read-only destinations. T8.7 fills the third
+Curate slot with "Refresh products".
 """
 
 from __future__ import annotations
@@ -26,10 +27,12 @@ _READ_DESTINATIONS: tuple[tuple[str, str], ...] = (
     ("Find products where…", "find"),
 )
 
-# Curation screens: the 2 write paths (T8.5 review queue + T8.6 manual edit).
+# Curation screens: the 3 write paths
+# (T8.5 review queue + T8.6 manual edit + T8.7 refresh trigger).
 _WRITE_DESTINATIONS: tuple[tuple[str, str], ...] = (
     ("Review queue triage", "queue"),
     ("Manual-edit a cell", "edit"),
+    ("Refresh products", "refresh"),
 )
 
 
@@ -114,12 +117,11 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
             st.rerun()
 
     st.markdown("**Curate**")
-    # 3-column grid so write buttons stay the same width as the read row;
-    # the third slot is intentionally empty (room for T8.7 refresh trigger).
+    # 3-column grid so write buttons stay the same width as the read row.
     write_cols = st.columns(3)
     for col, (label, route) in zip(write_cols, _WRITE_DESTINATIONS):
         if col.button(label, key=f"hub_{route}", use_container_width=True):
             st.session_state["view"] = route
             st.rerun()
 
-    st.caption(f"Reading from `{db_path}` — Stage 8 / Phase 2 UI · T8.6")
+    st.caption(f"Reading from `{db_path}` — Stage 8 / Phase 2 UI · T8.7")
