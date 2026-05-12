@@ -6,6 +6,51 @@ Newest sessions at the top.
 
 ---
 
+## Session 23 — 2026-05-12 (Stage 5 catalog-vouching workflow shipped; queue 11 → 0)
+
+**Goal:** Build the catalog-vouching workflow flagged in Session 22 — extend the `resolve` CLI to vouch needs-review catalog rows (`cpu_catalog` / `gpu_catalog`) so the 11 blocked `new_chip_unverified` queue rows can clear.
+
+**Outcome:** **+10 tests (263 → 273), `review_queue` unresolved 11 → 0.** New `vouch_catalog_row` helper in `ingest/catalog_resolve.py`; `resolve` CLI now routes `new_chip_unverified` rows off `candidate_value` instead of `field_path`, handling depth-3 (`cpu_offerings.N.model`) and depth-4 (`boards.N.gpus.M`) paths in one dispatch. Walked all 11 live rows: 10 vouched + 1 dropped (id 4 — suspicious "Core Ultra 9 290HX Plus" Dell extraction; left catalog stub at `needs-review` for follow-up).
+
+### What changed
+
+- **`ingest/catalog_resolve.py`** — added `vouch_catalog_row(conn, table, model)` next to `_insert_stub` (its lifecycle inverse). Idempotent; raises `ValueError` for unknown table or missing row.
+- **`cli/resolve.py`** — added an `is_new_chip` branch upstream of `parse_path`. When set, dispatch routes to `_apply_action_new_chip`, which reads `candidate_value`'s `{table, model, value}` payload and calls `vouch_catalog_row`. Path parser is never invoked for these rows, sidestepping the depth-4 limitation entirely. `accept_candidate` flips `catalog_status` to `vouched`; `dropped` resolves the queue row without touching the catalog. `kept_existing` and `manual_override` are rejected (no existing value to keep; rename workflow out of scope).
+- **Tests:** +6 in `tests/cli/test_resolve.py` (depth-3 vouch, depth-4 vouch, dropped, kept_existing rejection, manual_override rejection, missing-stub defensive error) and +4 in `tests/ingest/test_catalog_resolve.py` (helper happy path, idempotent re-vouch, unknown table guard, missing row guard).
+
+### The 11-row walk
+
+10 vouched via `--action accept_candidate`:
+- CPUs: Core Ultra 9 386H (rog-zephyrus-g16-2026), Core Ultra 9 275HX (aa18250), Ryzen 9 9955HX + 9955HX3D (16AFR10H), Core Ultra 7 255HX (ac16251).
+- GPUs: RTX 5070 Ti + 5080 (rog-zephyrus-g16-2026), RTX 5090 (aa18250), RTX 5060 + 5070 (ac16251).
+
+1 dropped via `--action dropped` (id 4): Core Ultra 9 290HX Plus on aa18250 (Dell). The "Plus" suffix is uncharacteristic for Intel mobile SKUs — flagged as suspected page mis-scrape. Catalog stub left at `needs-review`; resolver note records the reason. Added a TASKS Deferred line to investigate the Dell source page.
+
+Post-walk catalog state: 5 CPUs + 5 GPUs at `catalog_status = 'vouched'`; 1 CPU (290HX Plus) still `needs-review`.
+
+### Design notes
+
+- **Dispatch off `candidate_value`, not extend the path parser.** The queue payload already self-declares its catalog target as JSON `{"table", "model", "value"}` (set by `_enqueue_new_chip` at ingest time). Reading it directly meant we didn't need to teach `parse_path` a 4-level shape — one dispatch handles depth-3 and depth-4 uniformly. Smaller surface change.
+- **No new `--action vouch_catalog` verb.** Session 22 sketched one; reused `accept_candidate` instead — its semantics already match ("accept what the queue row proposes"). Less CLI to learn.
+- **`accept_candidate` no longer re-writes the offering bundle for `new_chip_unverified` rows.** Pre-change, depth-3 rows would have re-serialized the same offering JSON (no DB change, but action intent muddled). Post-change the effect is clean: catalog status flips, offering untouched.
+
+### Decisions made this session
+
+1. **Route off `candidate_value`, not extend `parse_path`.** Cleaner; one dispatch for both depths.
+2. **Reuse `accept_candidate` + `dropped`; reject `kept_existing` + `manual_override`.** Existing actions already cover the two valid intents; the other two have no defined meaning for new-chip rows (`existing_value` is always NULL).
+3. **id 4 dropped rather than vouched.** Conservative: leave stub at `needs-review` and investigate the source page rather than freeze a likely typo into the catalog. Reversal cost is low if Intel actually ships "290HX Plus".
+
+### Where we left off (pickup pointers)
+
+- **273/273 tests green.**
+- `review_queue` unresolved: **0**. First time at zero since active ingestion began.
+- `cpu_catalog` carries 1 row at `needs-review`: `Core Ultra 9 290HX Plus`. TASKS Deferred line raised to investigate.
+- Working tree at session close: `competitive_database/cli/resolve.py`, `competitive_database/ingest/catalog_resolve.py`, `tests/cli/test_resolve.py`, `tests/ingest/test_catalog_resolve.py`, `docs/SESSION_LOG.md`, `docs/TASKS.md`, `docs/ARCHITECTURE.md`, `README.md`. Live `competitive.db` modified (10 catalog rows vouched + 11 queue rows resolved). Commits TBD per user.
+- **Next session candidates:** (a) investigate the aa18250 (Dell) "Core Ultra 9 290HX Plus" string — verify on vendor page; either rename catalog stub + re-enqueue, or fix scraper, (b) T7.0d keyboard structured offerings split, (c) Stage 8 / Phase 2 UI scoping, (d) re-scrape investigation for the Alienware 18 Area-51 storage + keyboard under-scrapes flagged in Session 22, (e) verify the `legion-pro-7-16-gen-10` ↔ `16AFR10H` shared `vendor_full_name` observation (Lenovo family-code/source-model-code merge artifact).
+- **Open observation:** empty queue is the cleanest baseline this DB has had — any new `new_chip_unverified` or `value_disagreement` row after this point is a fresh signal, not legacy noise.
+
+---
+
 ## Session 22 — 2026-05-12 (Review queue cleanup: 15/26 rows resolved; catalog-vouching gap raised)
 
 **Goal:** Walk through the open review_queue rows now that Session 21 unblocked column-level offering paths. Triage and resolve where possible; surface architectural gaps for blocked rows.
