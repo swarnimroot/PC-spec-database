@@ -1,10 +1,14 @@
 """Shared dotted-path helpers for ``manual-edit`` and ``resolve``.
 
 A ``field_path`` references one fillable cell in the DB. Stage 5 supports
-three forms:
+four forms:
 
   - Products scalar bundle:    ``vendor_full_name``, ``audio_jack``, ...
   - Products offering leaf:    ``display_offerings.0.nits_peak``
+  - Products offering list:    ``camera_offerings`` (column only — whole-
+                               list replacement; emitted by the ingest
+                               runner for offering value_disagreement
+                               conflicts, which are list-level by design)
   - Catalog scalar (text):     ``cpu_catalog.<model>.architecture``
                                ``gpu_catalog.<model>.architecture``
 
@@ -64,7 +68,7 @@ _PLAIN_OFFERING_LEAVES: frozenset[tuple[str, str]] = frozenset(
 
 @dataclass(frozen=True)
 class ParsedPath:
-    kind: str  # "products_scalar" | "products_offering_leaf" | "catalog_text"
+    kind: str  # "products_scalar" | "products_offering_leaf" | "products_offering_list" | "catalog_text"
     table: str
     column: str
     offering_idx: Optional[int] = None
@@ -92,9 +96,18 @@ def parse_path(field_path: str) -> ParsedPath:
     if head in _PRODUCT_PK_COLUMNS:
         raise ValueError(f"cannot edit PK column {head!r} via field_path")
     if head in _OFFERINGS_COLUMNS:
+        if len(parts) == 1:
+            # Column-only path = whole-list replacement. The ingest runner
+            # emits this shape for offering value_disagreement conflicts
+            # (see ingest/runner.py::_diff_offerings — list-level by design).
+            return ParsedPath(
+                kind="products_offering_list",
+                table="products",
+                column=head,
+            )
         if len(parts) != 3:
             raise ValueError(
-                f"offering path must be '<column>.<idx>.<leaf>', got {field_path!r}"
+                f"offering path must be '<column>' or '<column>.<idx>.<leaf>', got {field_path!r}"
             )
         try:
             idx = int(parts[1])
@@ -135,6 +148,8 @@ def read_at_path(
         if parsed.offering_idx >= len(offerings):
             return None
         return offerings[parsed.offering_idx].get(parsed.leaf_key)
+    if parsed.kind == "products_offering_list":
+        return read_offerings(conn, "products", pk, parsed.column)
     if parsed.kind == "catalog_text":
         row = conn.execute(
             f"SELECT {parsed.column} FROM {parsed.table} WHERE model = ?",

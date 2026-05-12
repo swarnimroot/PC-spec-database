@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..db.connection import connect, transaction
-from ..db.helpers import make_manual_bundle
+from ..db.helpers import make_manual_bundle, write_offerings
 from ._paths import (
     format_product_pk,
     parse_path,
@@ -193,6 +193,17 @@ def _apply_action(
                 else None
             )
             write_catalog_text_at_path(conn, parsed, decoded)
+        elif parsed.kind == "products_offering_list":
+            # Column-level offering diffs: candidate_value holds the full
+            # offerings list (leaves already carry their own provenance
+            # bundles); candidate_provenance is NULL for this shape
+            # (see ingest/runner.py::_enqueue, list-level branch).
+            if row["candidate_value"] is None:
+                raise SystemExit(
+                    "resolve: cannot accept_candidate — queue row has no candidate_value"
+                )
+            offerings = json.loads(row["candidate_value"])
+            write_offerings(conn, "products", pk, parsed.column, offerings)
         else:
             if row["candidate_provenance"] is None:
                 raise SystemExit(
@@ -207,6 +218,17 @@ def _apply_action(
         return row["existing_value"], note
 
     if action == "manual_override":
+        if parsed.kind == "products_offering_list":
+            # Column-level manual_override would require constructing a
+            # full list of offering dicts with embedded provenance bundles —
+            # not a sensible CLI contract. Drive single-leaf edits through
+            # `manual-edit` on a leaf path (<column>.<idx>.<leaf>) instead.
+            raise SystemExit(
+                f"resolve: manual_override not supported for column-level "
+                f"offering paths ({parsed.column!r}). Use manual-edit on an "
+                f"offering leaf (<column>.<idx>.<leaf>) or pick "
+                f"accept_candidate / kept_existing / dropped."
+            )
         value = _decode_value(args)
         if parsed.kind == "catalog_text":
             text = value if value is None or isinstance(value, str) else str(value)

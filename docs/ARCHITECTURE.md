@@ -47,7 +47,7 @@ Operational table for unresolved items.
 | `id` | INTEGER PK | |
 | `product_model_code` | TEXT | |
 | `product_year` | INTEGER | |
-| `field_path` | TEXT | Dot/index path: `memory_max_gb`, `boards.0.gpus`, `display_offerings.1.nits_peak` |
+| `field_path` | TEXT | Dot/index path: `memory_max_gb`, `boards.0.gpus`, `display_offerings.1.nits_peak`, or bare offering column (`camera_offerings`) for list-level value_disagreement |
 | `conflict_type` | TEXT | `value_disagreement` / `low_confidence_extraction` / `new_chip_unverified` / `year_inferred` |
 | `existing_value` | JSON | Nullable |
 | `existing_provenance` | JSON | Nullable |

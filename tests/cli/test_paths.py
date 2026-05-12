@@ -1,6 +1,12 @@
 """Tests for display + parsing helpers in ``cli._paths``."""
 
-from competitive_database.cli._paths import format_product_pk, parse_product_arg
+import pytest
+
+from competitive_database.cli._paths import (
+    format_product_pk,
+    parse_path,
+    parse_product_arg,
+)
 from competitive_database.db.connection import apply_schema, connect, transaction
 
 
@@ -110,3 +116,42 @@ def test_parse_product_arg_display_form_falls_back_when_no_match(tmp_path):
         )
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# parse_path — column-level offering paths (Stage 5 CLI gap fix)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_path_offering_column_only_returns_list_kind():
+    """Bare offering column (e.g. ``camera_offerings``) parses as a
+    whole-list replacement target. The ingest runner emits this shape
+    for offering value_disagreement conflicts (list-level by design).
+    """
+    parsed = parse_path("camera_offerings")
+    assert parsed.kind == "products_offering_list"
+    assert parsed.table == "products"
+    assert parsed.column == "camera_offerings"
+    assert parsed.offering_idx is None
+    assert parsed.leaf_key is None
+
+
+def test_parse_path_offering_leaf_still_returns_leaf_kind():
+    parsed = parse_path("camera_offerings.0.resolution")
+    assert parsed.kind == "products_offering_leaf"
+    assert parsed.column == "camera_offerings"
+    assert parsed.offering_idx == 0
+    assert parsed.leaf_key == "resolution"
+
+
+def test_parse_path_offering_two_parts_rejected():
+    """Two-part offering path (column + index, no leaf) is not a valid
+    target shape — fall through to the contract error.
+    """
+    with pytest.raises(ValueError, match="must be"):
+        parse_path("camera_offerings.0")
+
+
+def test_parse_path_offering_four_parts_rejected():
+    with pytest.raises(ValueError, match="must be"):
+        parse_path("camera_offerings.0.resolution.extra")
