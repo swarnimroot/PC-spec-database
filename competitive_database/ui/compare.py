@@ -7,8 +7,8 @@ first-appearance preserved). Vendor / segment / status selectboxes
 narrow the multiselect pool. Read-only; reuses ``views.load.load_product``
 and the six provenance markers from ``views.formatting``.
 
-Marker color map is duplicated from ``ui/browse.py``; converge into a
-shared helper once a third screen needs it (T8.4 / T8.5).
+Marker palette + path-resolver extracted to ``ui/_markers.py`` in T8.4
+(rule-of-three: ``find.py`` is the third caller).
 """
 
 from __future__ import annotations
@@ -16,35 +16,17 @@ from __future__ import annotations
 import html
 import json
 import sqlite3
-from typing import Any, Optional
+from typing import Any
 
 import streamlit as st
 
+from competitive_database.ui._markers import render_cell, resolve_path
 from competitive_database.views import load, orchestrator
-from competitive_database.views.formatting import (
-    MARKER_EMPTY,
-    MARKER_MANUAL,
-    MARKER_NEEDS_REVIEW,
-    MARKER_PARTIAL,
-    MARKER_VENDOR_NO_PUB,
-    MARKER_VERIFIED,
-    display_value,
-    marker_for_bundle,
-)
-
-_MARKER_COLORS: dict[str, str] = {
-    MARKER_VERIFIED: "#3fb950",
-    MARKER_NEEDS_REVIEW: "#d29922",
-    MARKER_VENDOR_NO_PUB: "#8b949e",
-    MARKER_MANUAL: "#58a6ff",
-    MARKER_EMPTY: "#6e7681",
-    MARKER_PARTIAL: "#d29922",
-}
 
 _ALL = "(All)"
 
 
-def _bundle_value(raw: Any) -> Optional[str]:
+def _bundle_value(raw: Any) -> str | None:
     if raw is None:
         return None
     try:
@@ -133,54 +115,6 @@ def _union_field_paths(
     return out
 
 
-def _resolve_path(
-    product: dict[str, Any],
-    path: str,
-) -> tuple[Optional[dict], Optional[str]]:
-    """Return ``(bundle, plain)`` for one path on a loaded product.
-
-    Exactly one of the two is non-None when the cell is present, else
-    ``(None, None)``. Plain-string leaves (e.g. ``boards.N.arch_marker``)
-    take the second slot; everything else is bundle-shaped.
-    """
-    parts = path.split(".")
-    if len(parts) == 1:
-        val = product.get(parts[0])
-        if isinstance(val, dict):
-            return val, None
-        return None, None
-    if len(parts) == 3:
-        col, idx_s, leaf = parts
-        offerings = product.get(col)
-        if not isinstance(offerings, list):
-            return None, None
-        try:
-            idx = int(idx_s)
-        except ValueError:
-            return None, None
-        if idx >= len(offerings):
-            return None, None
-        leaf_val = offerings[idx].get(leaf)
-        if isinstance(leaf_val, dict):
-            return leaf_val, None
-        if isinstance(leaf_val, str) and leaf_val:
-            return None, leaf_val
-        return None, None
-    return None, None
-
-
-def _render_cell(bundle: Optional[dict], plain: Optional[str]) -> str:
-    if plain is not None:
-        return html.escape(plain)
-    marker = marker_for_bundle(bundle)
-    color = _MARKER_COLORS[marker]
-    marker_html = f'<span style="color:{color}">{html.escape(marker)}</span>'
-    value = display_value(bundle)
-    if not value:
-        return marker_html
-    return f"{html.escape(value)} {marker_html}"
-
-
 _TABLE_CSS = (
     "border-collapse:collapse;"
     "font-family:ui-monospace,Consolas,Menlo,monospace;"
@@ -213,7 +147,7 @@ def _render_grid_html(
 
     ncols = 1 + len(columns)
     body_rows: list[str] = []
-    last_section: Optional[str] = None
+    last_section: str | None = None
     for section, path, label in rows:
         if section != last_section:
             body_rows.append(
@@ -223,9 +157,9 @@ def _render_grid_html(
             last_section = section
         cells = [f'<td style="{_FIELD_CELL_CSS}">{html.escape(label)}</td>']
         for prod in products:
-            bundle, plain = _resolve_path(prod, path)
+            bundle, plain = resolve_path(prod, path)
             cells.append(
-                f'<td style="{_BASE_CELL_CSS}">{_render_cell(bundle, plain)}</td>'
+                f'<td style="{_BASE_CELL_CSS}">{render_cell(bundle, plain)}</td>'
             )
         body_rows.append("<tr>" + "".join(cells) + "</tr>")
 

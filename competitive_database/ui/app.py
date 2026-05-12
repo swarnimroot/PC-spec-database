@@ -14,7 +14,7 @@ import os
 import streamlit as st
 
 from competitive_database.db.connection import connect
-from competitive_database.ui import browse, compare, find, hub, triage
+from competitive_database.ui import browse, compare, edit, find, hub, triage
 
 
 def _db_path() -> str:
@@ -27,6 +27,7 @@ _VIEWS = {
     "compare": compare.render,
     "find": find.render,
     "queue": triage.render,
+    "edit": edit.render,
 }
 
 

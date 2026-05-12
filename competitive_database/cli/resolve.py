@@ -20,6 +20,13 @@ For ``new_chip_unverified`` rows the dispatch routes off
 the catalog row's ``catalog_status`` from ``needs-review`` to
 ``vouched``; ``dropped`` resolves the queue row without touching the
 catalog. ``kept_existing`` / ``manual_override`` are rejected.
+
+The CLI surface is ``main(args)``. The Phase 2 UI (``ui/triage.py``)
+calls :func:`resolve_row` directly with an open connection — same
+write paths, same transaction discipline, no CLI shell. ``main`` is a
+thin wrapper around :func:`resolve_row` that adds the argparse plumbing,
+stdout reconfig, and the ``resolve: …`` SystemExit prefix the tests
+already pin against.
 """
 
 from __future__ import annotations
@@ -27,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import sys
 from datetime import datetime, timezone
 from typing import Any
@@ -51,6 +59,11 @@ _ACTION_TO_RESOLUTION = {
     "manual_override": "manual_override",
     "dropped": "dropped",
 }
+
+# Sentinel: ``None`` is a valid manual_override value (e.g. clearing a cell
+# with manual provenance), so a distinct missing-marker is needed for the
+# library API to tell "no value passed" from "value=None".
+_MISSING: Any = object()
 
 
 def add_subparser(subparsers: argparse._SubParsersAction) -> None:
@@ -102,6 +115,107 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     p.set_defaults(func=main)
 
 
+def resolve_row(
+    conn: sqlite3.Connection,
+    *,
+    row_id: int,
+    action: str,
+    value: Any = _MISSING,
+    note: str | None = None,
+    entered_by: str | None = None,
+) -> dict[str, Any]:
+    """Resolve one ``review_queue`` row inside a single transaction.
+
+    Pure-library entry point used by both :func:`main` (CLI) and
+    ``ui/triage.py`` (Phase 2 UI). Caller owns the connection — this
+    function does not open or close it.
+
+    Returns a summary dict ``{id, action, field_path, product_model_code,
+    product_year, conflict_type}``. Raises ``ValueError`` on queue-row
+    state issues (no such row, already resolved, action not supported
+    for the row type, missing candidate payload, etc.). The CLI wrapper
+    maps ``ValueError`` → ``SystemExit("resolve: …")``.
+
+    ``value`` is required when ``action == "manual_override"`` (and the
+    target isn't ``new_chip_unverified``). Pass the already-decoded
+    Python value — no JSON / string coercion happens here.
+    """
+    if action not in _ACTIONS:
+        raise ValueError(f"unknown action {action!r}")
+
+    row = conn.execute(
+        """
+        SELECT id, product_model_code, product_year, field_path,
+               conflict_type, existing_value, existing_provenance,
+               candidate_value, candidate_provenance, resolved_at
+        FROM review_queue
+        WHERE id = ?
+        """,
+        (row_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"no review_queue row with id={row_id}")
+    if row["resolved_at"] is not None:
+        raise ValueError(
+            f"review_queue id={row_id} is already resolved "
+            f"(resolved_at={row['resolved_at']})"
+        )
+
+    is_new_chip = row["conflict_type"] == "new_chip_unverified"
+    if is_new_chip:
+        parsed = None
+    else:
+        try:
+            parsed = parse_path(row["field_path"])
+        except ValueError as exc:
+            raise ValueError(
+                f"queue row id={row_id} has a field_path "
+                f"shape not supported ({exc})."
+            ) from exc
+
+    pk = {
+        "model_code": row["product_model_code"],
+        "year": row["product_year"],
+    }
+
+    with transaction(conn):
+        if is_new_chip:
+            resolution_value_raw, resolver_note = _apply_action_new_chip(
+                conn, row, action=action, note=note,
+            )
+        else:
+            resolution_value_raw, resolver_note = _apply_action(
+                conn, row, parsed, pk,
+                action=action, note=note, value=value, entered_by=entered_by,
+            )
+        conn.execute(
+            """
+            UPDATE review_queue
+            SET resolved_at = ?,
+                resolution = ?,
+                resolution_value = ?,
+                resolver_note = ?
+            WHERE id = ?
+            """,
+            (
+                datetime.now(timezone.utc).isoformat(),
+                _ACTION_TO_RESOLUTION[action],
+                resolution_value_raw,
+                resolver_note,
+                row_id,
+            ),
+        )
+
+    return {
+        "id": row_id,
+        "action": action,
+        "field_path": row["field_path"],
+        "product_model_code": row["product_model_code"],
+        "product_year": row["product_year"],
+        "conflict_type": row["conflict_type"],
+    }
+
+
 def main(args: argparse.Namespace) -> None:
     try:
         sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
@@ -116,94 +230,52 @@ def main(args: argparse.Namespace) -> None:
             f"(got --action {args.action})"
         )
 
+    if args.action == "manual_override":
+        if args.value_json is not None:
+            try:
+                value: Any = json.loads(args.value_json)
+            except json.JSONDecodeError as exc:
+                raise SystemExit(f"resolve: --value-json is not valid JSON: {exc}") from exc
+        else:
+            value = coerce_value_string(args.value)
+    else:
+        value = _MISSING
+
     conn = connect(args.db)
     try:
-        row = conn.execute(
-            """
-            SELECT id, product_model_code, product_year, field_path,
-                   conflict_type, existing_value, existing_provenance,
-                   candidate_value, candidate_provenance, resolved_at
-            FROM review_queue
-            WHERE id = ?
-            """,
-            (args.id,),
-        ).fetchone()
-        if row is None:
-            raise SystemExit(f"resolve: no review_queue row with id={args.id}")
-        if row["resolved_at"] is not None:
-            raise SystemExit(
-                f"resolve: review_queue id={args.id} is already resolved "
-                f"(resolved_at={row['resolved_at']})"
+        try:
+            summary = resolve_row(
+                conn,
+                row_id=args.id,
+                action=args.action,
+                value=value,
+                note=args.note,
+                entered_by=args.entered_by,
             )
-
-        # new_chip_unverified rows route off candidate_value, not
-        # field_path: the queue payload pinpoints the catalog target
-        # directly, which sidesteps the path parser entirely and lets
-        # depth-3 (cpu_offerings.N.model) and depth-4 (boards.N.gpus.M)
-        # rows share one dispatch.
-        is_new_chip = row["conflict_type"] == "new_chip_unverified"
-        if is_new_chip:
-            parsed = None
-        else:
-            try:
-                parsed = parse_path(row["field_path"])
-            except ValueError as exc:
-                raise SystemExit(
-                    f"resolve: queue row id={args.id} has a field_path "
-                    f"shape not supported ({exc})."
-                ) from exc
-        pk = {
-            "model_code": row["product_model_code"],
-            "year": row["product_year"],
-        }
-
-        with transaction(conn):
-            if is_new_chip:
-                resolution_value_raw, resolver_note = _apply_action_new_chip(
-                    conn, args, row
-                )
-            else:
-                resolution_value_raw, resolver_note = _apply_action(
-                    conn, args, row, parsed, pk
-                )
-            conn.execute(
-                """
-                UPDATE review_queue
-                SET resolved_at = ?,
-                    resolution = ?,
-                    resolution_value = ?,
-                    resolver_note = ?
-                WHERE id = ?
-                """,
-                (
-                    datetime.now(timezone.utc).isoformat(),
-                    _ACTION_TO_RESOLUTION[args.action],
-                    resolution_value_raw,
-                    resolver_note,
-                    args.id,
-                ),
-            )
+        except ValueError as exc:
+            raise SystemExit(f"resolve: {exc}") from exc
     finally:
         conn.close()
 
     print(
-        f"resolve OK: id={args.id} action={args.action} "
-        f"field={row['field_path']} "
-        f"target={format_product_pk(row['product_model_code'], row['product_year'])}"
+        f"resolve OK: id={summary['id']} action={summary['action']} "
+        f"field={summary['field_path']} "
+        f"target={format_product_pk(summary['product_model_code'], summary['product_year'])}"
     )
 
 
 def _apply_action(
     conn,
-    args: argparse.Namespace,
     row,
     parsed,
     pk: dict,
+    *,
+    action: str,
+    note: str | None,
+    value: Any,
+    entered_by: str | None,
 ) -> tuple[str | None, str | None]:
     """Mutate target cell per action; return (resolution_value_raw, resolver_note)."""
-    action = args.action
-    note = args.note
-
     if action == "accept_candidate":
         if parsed.kind == "catalog_text":
             # candidate_value column stores JSON-encoded plain text for catalog
@@ -219,15 +291,15 @@ def _apply_action(
             # bundles); candidate_provenance is NULL for this shape
             # (see ingest/runner.py::_enqueue, list-level branch).
             if row["candidate_value"] is None:
-                raise SystemExit(
-                    "resolve: cannot accept_candidate — queue row has no candidate_value"
+                raise ValueError(
+                    "cannot accept_candidate — queue row has no candidate_value"
                 )
             offerings = json.loads(row["candidate_value"])
             write_offerings(conn, "products", pk, parsed.column, offerings)
         else:
             if row["candidate_provenance"] is None:
-                raise SystemExit(
-                    "resolve: cannot accept_candidate — queue row has no candidate_provenance"
+                raise ValueError(
+                    "cannot accept_candidate — queue row has no candidate_provenance"
                 )
             bundle = json.loads(row["candidate_provenance"])
             write_bundle_at_path(conn, pk, parsed, bundle)
@@ -243,20 +315,21 @@ def _apply_action(
             # full list of offering dicts with embedded provenance bundles —
             # not a sensible CLI contract. Drive single-leaf edits through
             # `manual-edit` on a leaf path (<column>.<idx>.<leaf>) instead.
-            raise SystemExit(
-                f"resolve: manual_override not supported for column-level "
+            raise ValueError(
+                f"manual_override not supported for column-level "
                 f"offering paths ({parsed.column!r}). Use manual-edit on an "
                 f"offering leaf (<column>.<idx>.<leaf>) or pick "
                 f"accept_candidate / kept_existing / dropped."
             )
-        value = _decode_value(args)
+        if value is _MISSING:
+            raise ValueError("manual_override requires a value")
         if parsed.kind == "catalog_text":
             text = value if value is None or isinstance(value, str) else str(value)
             write_catalog_text_at_path(conn, parsed, text)
             return json.dumps(value), note
         bundle = make_manual_bundle(
             value=value,
-            entered_by=args.entered_by or _default_entered_by(),
+            entered_by=entered_by or _default_entered_by(),
             source_note=note,
             status="vouched",
         )
@@ -266,13 +339,15 @@ def _apply_action(
     if action == "dropped":
         return None, note
 
-    raise SystemExit(f"resolve: unknown action {action!r}")
+    raise ValueError(f"unknown action {action!r}")
 
 
 def _apply_action_new_chip(
     conn,
-    args: argparse.Namespace,
     row,
+    *,
+    action: str,
+    note: str | None,
 ) -> tuple[str | None, str | None]:
     """Resolve a ``new_chip_unverified`` queue row by vouching the catalog row.
 
@@ -284,53 +359,44 @@ def _apply_action_new_chip(
     well-defined meaning here (``existing_value`` is always NULL for
     these rows) and are rejected.
     """
-    action = args.action
-    note = args.note
-
     if action == "accept_candidate":
         if row["candidate_value"] is None:
-            raise SystemExit(
-                "resolve: cannot accept_candidate — new_chip_unverified row "
+            raise ValueError(
+                "cannot accept_candidate — new_chip_unverified row "
                 "has no candidate_value"
             )
         try:
             payload = json.loads(row["candidate_value"])
         except json.JSONDecodeError as exc:
-            raise SystemExit(
-                f"resolve: new_chip_unverified candidate_value is not valid "
+            raise ValueError(
+                f"new_chip_unverified candidate_value is not valid "
                 f"JSON ({exc})"
             ) from exc
         table = payload.get("table") if isinstance(payload, dict) else None
         model = payload.get("model") if isinstance(payload, dict) else None
         if not table or not model:
-            raise SystemExit(
-                f"resolve: new_chip_unverified candidate_value missing "
+            raise ValueError(
+                f"new_chip_unverified candidate_value missing "
                 f"'table' or 'model' (got {payload!r})"
             )
-        try:
-            vouch_catalog_row(conn, table, model)
-        except ValueError as exc:
-            raise SystemExit(f"resolve: {exc}") from exc
+        # vouch_catalog_row already raises ValueError on bad table / missing
+        # row, which propagates with the existing message.
+        vouch_catalog_row(conn, table, model)
         return row["candidate_value"], note
 
     if action == "dropped":
         return None, note
 
-    raise SystemExit(
-        f"resolve: --action {action} is not supported for "
+    raise ValueError(
+        f"--action {action} is not supported for "
         f"new_chip_unverified rows (existing_value is always NULL). "
         f"Use accept_candidate to vouch the catalog row, or dropped "
         f"to discard without vouching."
     )
 
 
-def _decode_value(args: argparse.Namespace) -> Any:
-    if args.value_json is not None:
-        try:
-            return json.loads(args.value_json)
-        except json.JSONDecodeError as exc:
-            raise SystemExit(f"--value-json is not valid JSON: {exc}") from exc
-    raw: str = args.value
+def coerce_value_string(raw: str) -> Any:
+    """Coerce a CLI-style string value to int → float → string."""
     try:
         return int(raw)
     except ValueError:

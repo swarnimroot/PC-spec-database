@@ -5,7 +5,9 @@ added a single "Browse one product" entry-point that navigates to
 ``ui/browse.py`` via ``st.session_state["view"]``. T8.2 replaced the
 single button with the four-destination grid (browse / compare / find /
 queue) and added the fourth health stat: days since the most recent
-``captured_at`` across every scraped bundle in ``products``.
+``captured_at`` across every scraped bundle in ``products``. T8.6 added
+a fifth destination ("Manual-edit a cell") split as a second "Curate"
+row beneath the three read-only destinations.
 """
 
 from __future__ import annotations
@@ -17,11 +19,17 @@ from datetime import datetime, timezone
 import streamlit as st
 
 
-_DESTINATIONS: tuple[tuple[str, str], ...] = (
+# Read-only screens: the 3 discovery surfaces.
+_READ_DESTINATIONS: tuple[tuple[str, str], ...] = (
     ("Browse one product", "browse"),
     ("Compare side-by-side", "compare"),
     ("Find products where…", "find"),
+)
+
+# Curation screens: the 2 write paths (T8.5 review queue + T8.6 manual edit).
+_WRITE_DESTINATIONS: tuple[tuple[str, str], ...] = (
     ("Review queue triage", "queue"),
+    ("Manual-edit a cell", "edit"),
 )
 
 
@@ -97,9 +105,21 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
     col3.metric("Review queue", queue)
     col4.metric("Days since refresh", "—" if days is None else days)
     st.divider()
-    cols = st.columns(4)
-    for col, (label, route) in zip(cols, _DESTINATIONS):
+
+    st.markdown("**Explore**")
+    read_cols = st.columns(3)
+    for col, (label, route) in zip(read_cols, _READ_DESTINATIONS):
         if col.button(label, key=f"hub_{route}", use_container_width=True):
             st.session_state["view"] = route
             st.rerun()
-    st.caption(f"Reading from `{db_path}` — Stage 8 / Phase 2 UI · T8.2")
+
+    st.markdown("**Curate**")
+    # 3-column grid so write buttons stay the same width as the read row;
+    # the third slot is intentionally empty (room for T8.7 refresh trigger).
+    write_cols = st.columns(3)
+    for col, (label, route) in zip(write_cols, _WRITE_DESTINATIONS):
+        if col.button(label, key=f"hub_{route}", use_container_width=True):
+            st.session_state["view"] = route
+            st.rerun()
+
+    st.caption(f"Reading from `{db_path}` — Stage 8 / Phase 2 UI · T8.6")
