@@ -11,7 +11,7 @@ Four parts:
 1. **SQLite database** — three core tables (`cpu_catalog`, `gpu_catalog`, `products`) plus one operational table (`review_queue`). Per-cell provenance is bundled with each value as JSON.
 2. **Bridge layer** — Python modules that take `scrapers-lib`'s text output, decode each vendor's idioms, and emit candidate product records. One module per vendor.
 3. **Ingestion runner** — orchestrates fetch → parse → catalog-resolve → diff → write-or-queue.
-4. **CLI helpers** — the operational surface for refresh, conflict resolution, and manual entry. A future UI sits on top of these helpers; the helpers are the only writers to the DB.
+4. **CLI helpers** — the operational surface for refresh, conflict resolution, and manual entry. The Phase 2 UI (see [§UI layer](#ui-layer-phase-2)) sits on top of these helpers; the helpers are the only writers to the DB.
 
 ---
 
@@ -369,6 +369,48 @@ Single source of truth for human-readable product presentation. The `inspect-pro
 - `status == "needs-review"` (or any unknown status) → `[?]`.
 
 `aggregate_markers` collapses a list of leaf markers to one category-level marker — all-same → that marker, mixed → `[partial]`. Used sparingly; per-leaf markers are usually preferred over aggregating, since they preserve full information.
+
+---
+
+## UI layer (Phase 2)
+
+Scoped Session 25 (2026-05-12). Phase 2 promotes the `inspect-product` view + the CLI write paths to a clickable surface. Same plumbing, browser front end. Scope and workflow shape live in [`PRD.md` §Phase 2 — UI](PRD.md#phase-2--ui-stage-8); this section covers how it's built.
+
+### Runtime
+
+Browser tab on localhost. A single launch command starts a local server bound to the loopback interface only; the user's default browser opens automatically. Nothing hosted, nothing leaves the machine. Bookmarkable but not exposed beyond `localhost`.
+
+Standing preference: local-first. Supabase / hosted Postgres explicitly rejected.
+
+### File layout (planned)
+
+```
+competitive_database/
+└── ui/
+    ├── __init__.py
+    ├── __main__.py            # launch entry point
+    ├── hub.py                 # dashboard landing
+    ├── browse.py              # product profile view
+    ├── compare.py             # side-by-side grid
+    ├── find.py                # filter playground
+    └── queue.py               # review-queue triage
+```
+
+One module per screen, mirroring the per-vendor module pattern in `bridge/`. No duplicate marker logic — shared rendering primitives live next to the existing `views/` helpers.
+
+### What the UI reuses (no new write paths)
+
+- **Read path:** `views/orchestrator.render_product`, `views/orchestrator.all_field_paths`, `views/load.py`. Markers, section order, and empty-section rules from `VIEWS.md` carry over unchanged.
+- **Write path:** `ingest/runner.py` (refresh), `cli/resolve.py`'s underlying handlers (queue resolution dispatch, including the catalog-vouching dispatch off `candidate_value` shipped Session 23), `ingest/catalog_resolve.py` (catalog stub helpers), `cli/_paths.py` (dotted-path parsing for `manual-edit`).
+
+The architectural invariant from §Forward compatibility holds: all writes route through helper functions. The UI calls those same functions. No DB-level coupling to a UI framework; swapping frameworks later is a rendering change, not a data change.
+
+### Open implementation decisions (first Stage 8 coding session)
+
+- **Web framework.** Local-first Python options: Streamlit (least code, opinionated layout), FastHTML / Flask + HTMX (more control, more code), Dash (data-app strong). Decide once the queue-triage screen is sketched against each.
+- **Launch entry point.** Either follow today's CLI pattern (`python -m competitive_database.ui`) or wire `[project.scripts]` (`competitive-ui`, with a one-time `pip install -e .` re-run). Pick one and stay consistent.
+- **Refresh progress streaming.** Server-sent events vs polling vs page-reload-after-done. Framework-dependent.
+- **Testing strategy.** Action handlers reuse existing `ingest/*` modules, so the 273-test suite already covers writes; UI tests focus on rendering + form validation.
 
 ---
 

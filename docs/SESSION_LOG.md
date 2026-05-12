@@ -6,6 +6,44 @@ Newest sessions at the top.
 
 ---
 
+## Session 25 — 2026-05-12 (Stage 8 / Phase 2 UI scoped; no code)
+
+**Goal:** Brainstorm Stage 8 scope — what the UI shows, where it runs, the user workflow — and land a written deliverable.
+
+**Outcome:** Three pillars locked: (A) **dashboard hub** as landing → 4 destinations (browse one / compare grid / find products where… / queue triage); (B) **browser tab on localhost** (one-command launch, loopback only); (C) **full control** — UI replaces `resolve` + `manual-edit` + `refresh` as the primary daily surface, CLIs stay as scripting backstop. Substage slice T8.0–T8.8 added to TASKS Next. PRD + ARCHITECTURE updated. TASKS Deferred drift cleaned. No code; data layer untouched (273/273 still green; DB not opened).
+
+### Decisions made this session
+
+1. **Dashboard hub as landing.** Health stats (product count, vendor count, queue depth, days-since-refresh) inline on the hub.
+2. **Browser tab on localhost**, not standalone window or terminal UI. Bookmarkable; loopback-only.
+3. **Full-control workflow.** UI mirrors all three CLI write surfaces; no new write actions or queue states beyond what the CLIs already support.
+4. **Substage slicing into 9 (T8.0–T8.8).** Build order driven by "minimum usable UI after T8.0+T8.1+T8.2" — read-only browse usable even if Stage 8 stalls. Write paths land in daily-payoff order: T8.5 triage first, T8.6 manual-edit second, T8.7 refresh last.
+5. **No new scope doc.** Initial mis-step: created `docs/STAGE_8_SCOPE.md` mid-session — user pushed back ("don't create a new doc for everything"). Reverted; folded scope into PRD §Phase 2 (what / why / out-of-scope), implementation shape into ARCHITECTURE §UI layer (runtime, file layout, reuse), build order into TASKS.md. Three homes, three concerns, no duplication.
+6. **T-numbers visible in TASKS during active stage.** Deviates from past pattern (TASKS preamble: "Per-stage task detail: SESSION_LOG.md" — T-numbers historically appeared only in SESSION_LOG). Justified for Stage 8's multi-session size; sets a new norm for stages of comparable scope.
+
+### Implementation decisions deferred to T8.0
+
+- **Web framework** — Streamlit vs FastHTML+HTMX vs Dash. Decide by sketching the queue-triage screen against each.
+- **Launch entry point** — `python -m competitive_database.ui` (matches today's CLI pattern) vs `[project.scripts]` console-script (`competitive-ui`, requires `pip install -e .` re-run).
+- **Refresh progress streaming** — SSE vs polling vs page-reload-after-done. Locks at T8.7; framework-dependent.
+- **Testing strategy** — action handlers reuse `ingest/*` modules so the 273-test suite already covers writes; UI tests focus on rendering + form validation.
+
+### Doc changes
+
+- **`docs/PRD.md`** — phase table row 2 updated to "Scope locked 2026-05-12"; new `## Phase 2 — UI (Stage 8)` section: why a UI now / what it covers (4 screens) / workflow shape / out of scope.
+- **`docs/ARCHITECTURE.md`** — §Overview #4 cross-refs the new §UI layer; new `## UI layer (Phase 2)` section between §View layer and §Forward compatibility: runtime, planned `competitive_database/ui/` file layout, reuse list (no new write paths), open implementation decisions.
+- **`docs/TASKS.md`** — Stage 8 row expanded with T8.0–T8.8 sub-bullets. Deferred drift cleaned: removed `Admin UI — Phase 2` (redundant with Stage 8 Active), fixed `History layer — Phase 2` → `Phase 4` (per PRD phase table), re-tagged `Catalog chip-spec auto-fetch` from `Phase 2` → `future enrichment job` (was misleading now that Phase 2 = UI).
+- **`docs/STAGE_8_SCOPE.md`** — created mid-session, deleted after user pushback. Not in tree.
+
+### Where we left off (pickup pointers)
+
+- Data layer untouched. **273/273 tests still green.** `competitive.db` not opened.
+- Stage 8 scope locked across PRD §Phase 2 + ARCHITECTURE §UI layer + TASKS Next (T8.0–T8.8).
+- **Next session: start T8.0** — pick framework, scaffold `competitive_database/ui/` package, wire a launch entry point, render a "6 products · 4 vendors · queue 0" page from a localhost server. Smallest deliverable: one command opens a browser tab proving server → DB read works.
+- Working tree at session close: `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/TASKS.md`, `docs/SESSION_LOG.md` modified. Memory files `project_overview.md` + `MEMORY.md` index updated. No code changes. Commits TBD per user.
+
+---
+
 ## Session 24 — 2026-05-12 (Session 23 follow-up (a) closed: 290HX Plus orphan stub vouched as-is; truly clean baseline)
 
 **Goal:** Close Session 23's deferred follow-up (a) — investigate the aa18250 (Dell) `Core Ultra 9 290HX Plus` orphan catalog stub and resolve it.

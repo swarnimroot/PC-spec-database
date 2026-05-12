@@ -8,14 +8,22 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 - (none — Stage 7 closed 2026-05-11)
 
 ## Next
-- Stage 8 / Phase 2 UI — not yet scoped
+- Stage 8 / Phase 2 UI — scope locked Session 25; see [`PRD.md` §Phase 2](PRD.md#phase-2--ui-stage-8) + [`ARCHITECTURE.md` §UI layer](ARCHITECTURE.md#ui-layer-phase-2)
+  - T8.0 — Skeleton + launch — framework + entry-point lock; localhost page proves server → DB read
+  - T8.1 — Browse one product — picker + `inspect-product` rendered as HTML, markers preserved
+  - T8.2 — Dashboard hub — landing + 4 destination buttons + top-line health stats inline
+  - T8.3 — Compare side-by-side — multiselect → grid + vendor / segment / status filter bar
+  - T8.4 — Find products where… — single-field filter playground covering PRD §Use cases
+  - T8.5 — Review queue triage — existing-vs-candidate diff + `resolve` action buttons; **first write path**
+  - T8.6 — Manual-edit a cell — product → field → value → status → note; replaces `manual-edit` CLI
+  - T8.7 — Refresh trigger — one product / all + progress streamed back to the page
+  - T8.8 — Polish — README / launch instructions, smoke tests, anything that surfaces during use
 
 ## Deferred
 - T7.0d Keyboard structured offerings split — Session 19
 - Acer / MSI parsers — waiting on `scrapers-lib` Tier 2 upstream
-- Catalog chip-spec auto-fetch (Intel ARK / NVIDIA / AMD) — Phase 2
-- Admin UI — Phase 2
-- History layer — Phase 2
+- Catalog chip-spec auto-fetch (Intel ARK / NVIDIA / AMD) — future enrichment job
+- History layer — Phase 4
 - Hosted Postgres migration — if/when team access becomes real
 - Manual T6.1 cell-by-cell cross-check across 6 products — low payoff post-T7.0a/b
 

@@ -112,6 +112,49 @@ Multi-field aggregation (e.g., *"rank products by total Thunderbolt + USB-C port
 | Phase | Status |
 |---|---|
 | 1 — Data layer (this PRD) | In progress, schema-ready |
-| 2 — UI / dashboard | Deferred |
+| 2 — UI / dashboard | Scope locked 2026-05-12 — see [Phase 2 — UI](#phase-2--ui-stage-8) below |
 | 3 — Chatbot | Deferred |
 | 4 — History / audit layer | Deferred |
+
+---
+
+## Phase 2 — UI (Stage 8)
+
+The data layer is at a zero-issue baseline (273/273 tests, `review_queue` unresolved = 0, both catalog tables `needs-review` = 0). Phase 2 turns the DB into a tool the owner and team can drive without CLI fluency.
+
+### Why a UI now
+
+- Today every workflow (browse, query, refresh, resolve, manual-edit) is a `python -m competitive_database.cli.X` call. The owner is fluent; team members are not.
+- The single-field filter queries enumerated in §Use cases require typing SQL or knowing dotted `--field` paths. The UI is the surface that makes those queries clickable.
+- Provenance markers (`[verified] [?] [—] [m] [empty]`) are already a one-line scan in the `inspect-product` view. A real webpage renders them just as well — no display invention needed; the conventions in [`VIEWS.md`](VIEWS.md) carry over verbatim.
+
+### What it covers
+
+A dashboard hub as the landing screen, with four destinations:
+
+1. **Browse one product** — the `inspect-product` output rendered as a webpage; same marker scheme and section order as `VIEWS.md`.
+2. **Compare side-by-side** — grid: products as columns, fields as rows; filter bar (vendor / segment / status) at the top.
+3. **Find products where…** — single-field filter playground covering the queries enumerated in §Use cases.
+4. **Review queue triage** — existing-vs-candidate diff per row, action buttons matching the `resolve` CLI's verbs (`accept_candidate` / `kept_existing` / `dropped` / `manual_override`).
+
+Hub also surfaces top-line health: product count, vendor count, queue depth, days-since-last-refresh.
+
+### Workflow shape
+
+Full control. The UI handles the entire daily curation loop:
+
+- **Resolve queue rows** — replaces `resolve` CLI as the primary path.
+- **Manual-edit a cell** — replaces `manual-edit` CLI.
+- **Refresh products** — replaces `refresh` CLI (one product or all), with progress streamed back so the user sees rows landing and queue rows enqueueing.
+
+CLIs remain available as a scripting / power-user backstop; the UI is the new primary surface, not the only surface.
+
+### Out of scope (Phase 2)
+
+- Chatbot — Phase 3.
+- History / audit trail browser — Phase 4.
+- Hosted Postgres migration — out of scope indefinitely (local-first preference; previously rejected).
+- Multi-user concurrency, auth, RBAC — single-user local tool.
+- Mobile / responsive layouts — desktop browser only.
+- Acer / MSI products — blocked on `scrapers-lib` Tier 2 upstream.
+- New write actions or queue states beyond what the CLIs already support — the UI mirrors the CLIs, it does not extend them.
