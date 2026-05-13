@@ -134,7 +134,7 @@ A dashboard hub as the landing screen, with four destinations:
 
 1. **Browse one product** — the `inspect-product` output rendered as a webpage; same marker scheme and section order as `VIEWS.md`.
 2. **Compare side-by-side** — grid: products as columns, fields as rows; filter bar (vendor / segment / status) at the top.
-3. **Find products where…** — single-field filter playground covering the queries enumerated in §Use cases.
+3. **Find products where…** — single-field filter playground covering the queries enumerated in §Use cases. Value input is a dropdown of distinct DB values for the chosen (section, field) since T9.1 (Session 36) — picking a filter guarantees a match against what's actually stored, no need to know the exact stored form.
 4. **Review queue triage** — existing-vs-candidate diff per row, action buttons matching the `resolve` CLI's verbs (`accept_candidate` / `kept_existing` / `dropped` / `manual_override`).
 
 Hub also surfaces top-line health: product count, vendor count, queue depth, days-since-last-refresh.
