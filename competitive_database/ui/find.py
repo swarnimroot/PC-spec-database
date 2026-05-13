@@ -3,9 +3,15 @@
 T8.4 scope: pick one path from the union of
 ``views.orchestrator.all_field_paths`` (offering indices collapsed to a
 wildcard so the filter sweeps every instantiated offering), pick a
-comparator, type a value when the op needs one. Every product is
+comparator, pick a value when the op needs one. Every product is
 scanned; matches are grouped per-product with each matching cell
 rendered as ``value [marker]`` inline.
+
+T9.1 (Session 36): value input is a dropdown of distinct values present
+in the DB for the chosen (section, field), not free text. The dropdown
+is computed by ``_distinct_values_for_template`` over the same product
+loop ``_render_matches`` uses; values are sorted numerically when
+``_coerce_number`` succeeds, alphabetically (casefold) otherwise.
 
 Read-only; reuses ``ui/_markers.resolve_path`` + ``render_cell``.
 
@@ -165,6 +171,43 @@ def _cell_matches(
     return False
 
 
+def _distinct_values_for_template(
+    products: list[dict[str, Any]], template: str
+) -> list[str]:
+    """Sorted distinct rendered values across products for this template.
+
+    Mirrors the path-expansion loop in ``_render_matches`` but collects
+    ``display_value(bundle)`` (or the ``plain`` string for plain-string
+    leaves) instead of running an op against each cell. Skips empty
+    cells, ``vendor doesn't publish`` placeholders, and bundles whose
+    ``value`` is None so the dropdown only offers picks you could
+    actually filter on.
+
+    Sort order: numeric values first (by numeric value), then string
+    values (alphabetically, case-insensitive).
+    """
+    seen: set[str] = set()
+    for prod in products:
+        for concrete_path in _expand_template(prod, template):
+            bundle, plain = resolve_path(prod, concrete_path)
+            if plain is not None:
+                seen.add(plain)
+                continue
+            if bundle is None:
+                continue
+            if bundle.get("status") == "vendor-doesn't-publish":
+                continue
+            if bundle.get("value") is None:
+                continue
+            seen.add(display_value(bundle))
+
+    def _sort_key(s: str) -> tuple[int, float | str]:
+        n = _coerce_number(s)
+        return (0, n) if n is not None else (1, s.casefold())
+
+    return sorted(seen, key=_sort_key)
+
+
 def _vendor_label(prod: dict[str, Any]) -> str | None:
     brand = prod.get("brand")
     if isinstance(brand, dict) and brand.get("value"):
@@ -252,7 +295,15 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
     op = c3.selectbox("Op", _OPS_ALL)
 
     if op in _OPS_NEED_VALUE:
-        value = st.text_input("Value", value="", placeholder="e.g. 240, OLED, Wi-Fi 7")
+        values = _distinct_values_for_template(products, template)
+        if not values:
+            st.info(
+                "No values to filter on for this field — no product has a "
+                "filled, non-publish-skipped cell at this path."
+            )
+            st.caption(f"Reading from `{db_path}` — Stage 8 / Phase 2 UI · T8.4")
+            return
+        value = st.selectbox("Value", values, key="find-value-select")
     else:
         value = ""
 
@@ -261,14 +312,6 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
         "(non-empty, non-publish-skipped) — covers \"which vendors publish "
         "this field\" use-case queries."
     )
-
-    if op in _OPS_NEED_VALUE and not value.strip():
-        st.info(
-            "Enter a value to filter on, or pick an op that doesn't need one "
-            "(`is set`, `is empty`, `vendor doesn't publish`)."
-        )
-        st.caption(f"Reading from `{db_path}` — Stage 8 / Phase 2 UI · T8.4")
-        return
 
     body, n_products, n_cells = _render_matches(products, template, op, value)
     if n_products == 0:
