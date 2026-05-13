@@ -30,6 +30,42 @@ MARKER_PARTIAL = "[partial]"
 
 VENDOR_NO_PUB_TEXT = "vendor doesn't publish"
 
+# T9.2 — per-field display canonicalization. Keys are template-form paths
+# (offering index collapsed to ``*``); values map raw stored strings to
+# their canonical display form. Applied only when a caller passes
+# ``field_path`` to ``display_value`` / ``canonicalize_display``; section
+# views and inline renders pass nothing and see the raw stored value.
+_CANONICAL_BY_FIELD: dict[str, dict[str, str]] = {
+    "display_offerings.*.panel_type": {"IPS-level": "IPS"},
+}
+
+
+def _to_template(field_path: str) -> str:
+    """Collapse the offering index in a 3-part path to ``*``.
+
+    Mirrors ``ui.find._template_of`` so the canonical lookup table can be
+    keyed once per (section, leaf) regardless of which offering slot the
+    cell sits in.
+    """
+    parts = field_path.split(".")
+    if len(parts) == 3 and parts[1].isdigit():
+        return f"{parts[0]}.*.{parts[2]}"
+    return field_path
+
+
+def canonicalize_display(field_path: str, rendered: str) -> str:
+    """Map a rendered display string through per-field canonical rules.
+
+    Returns ``rendered`` unchanged when no rule applies. Used by
+    ``ui/find.py`` on both the dropdown side (`_distinct_values_for_template`)
+    and the cell-match side (`_cell_matches`) so canonical collapse stays
+    symmetric — both sides project to the same string before comparison.
+    """
+    rules = _CANONICAL_BY_FIELD.get(_to_template(field_path))
+    if rules is None:
+        return rendered
+    return rules.get(rendered, rendered)
+
 
 def marker_for_bundle(bundle: dict | None) -> str:
     """Map one provenance bundle (or absence) to its visible marker."""
@@ -60,11 +96,17 @@ def aggregate_markers(markers: Iterable[str]) -> str:
     return MARKER_PARTIAL
 
 
-def display_value(bundle: dict | None) -> str:
+def display_value(bundle: dict | None, *, field_path: str | None = None) -> str:
     """Stringify a bundle's value for display.
 
     None / missing → ''. ``vendor-doesn't-publish`` → the placeholder text.
     Booleans → 'yes' / 'no'. Otherwise ``str(value)``.
+
+    When ``field_path`` is set (T9.2), the rendered string is passed
+    through ``canonicalize_display`` so per-field rules (e.g. panel_type
+    "IPS-level" → "IPS") collapse duplicate-meaning variants. Callers
+    that want the raw stored string (section views, inline renders) omit
+    ``field_path``.
     """
     if bundle is None:
         return ""
@@ -75,7 +117,10 @@ def display_value(bundle: dict | None) -> str:
         return ""
     if isinstance(value, bool):
         return "yes" if value else "no"
-    return str(value)
+    rendered = str(value)
+    if field_path is not None:
+        return canonicalize_display(field_path, rendered)
+    return rendered
 
 
 def format_leaf(label: str, bundle: dict | None) -> str:

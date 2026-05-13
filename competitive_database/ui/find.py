@@ -13,6 +13,15 @@ is computed by ``_distinct_values_for_template`` over the same product
 loop ``_render_matches`` uses; values are sorted numerically when
 ``_coerce_number`` succeeds, alphabetically (casefold) otherwise.
 
+T9.2 (Session 37): both ``_distinct_values_for_template`` and
+``_cell_matches`` pass the field path through to
+``views.formatting.display_value`` / ``canonicalize_display`` so
+duplicate-meaning string variants collapse to a single canonical form
+(currently ``panel_type`` "IPS-level" → "IPS"). Symmetric: the dropdown
+shows the canonical form, and any stored variant matches a pick of the
+canonical form, so picking "IPS" matches products that store either
+"IPS" or "IPS-level".
+
 Read-only; reuses ``ui/_markers.resolve_path`` + ``render_cell``.
 
 Catalog spec columns (e.g. ``cpu_catalog.npu_tops``) are not in the
@@ -33,7 +42,7 @@ import streamlit as st
 
 from competitive_database.ui._markers import render_cell, resolve_path
 from competitive_database.views import load, orchestrator
-from competitive_database.views.formatting import display_value
+from competitive_database.views.formatting import canonicalize_display, display_value
 
 _OP_EQ = "="
 _OP_CONTAINS = "contains"
@@ -122,6 +131,7 @@ def _cell_matches(
     plain: str | None,
     op: str,
     value: str,
+    field_path: str,
 ) -> bool:
     if op == _OP_IS_EMPTY:
         if plain is not None:
@@ -145,13 +155,15 @@ def _cell_matches(
             return False
         return bundle.get("value") is not None
 
-    # Value-comparing ops: need a concrete rendered value.
+    # Value-comparing ops: need a concrete rendered value. Canonicalize so
+    # the comparison projects raw "IPS-level" cells onto canonical "IPS"
+    # picks from the dropdown.
     if plain is not None:
-        rendered = plain
+        rendered = canonicalize_display(field_path, plain)
     elif bundle is not None and bundle.get("status") != "vendor-doesn't-publish":
         if bundle.get("value") is None:
             return False
-        rendered = display_value(bundle)
+        rendered = display_value(bundle, field_path=field_path)
     else:
         return False
 
@@ -191,7 +203,7 @@ def _distinct_values_for_template(
         for concrete_path in _expand_template(prod, template):
             bundle, plain = resolve_path(prod, concrete_path)
             if plain is not None:
-                seen.add(plain)
+                seen.add(canonicalize_display(template, plain))
                 continue
             if bundle is None:
                 continue
@@ -199,7 +211,7 @@ def _distinct_values_for_template(
                 continue
             if bundle.get("value") is None:
                 continue
-            seen.add(display_value(bundle))
+            seen.add(display_value(bundle, field_path=template))
 
     def _sort_key(s: str) -> tuple[int, float | str]:
         n = _coerce_number(s)
@@ -235,7 +247,7 @@ def _render_matches(
         prod_matches: list[tuple[str, str]] = []
         for concrete_path in _expand_template(prod, template):
             bundle, plain = resolve_path(prod, concrete_path)
-            if _cell_matches(bundle, plain, op, value):
+            if _cell_matches(bundle, plain, op, value, concrete_path):
                 prod_matches.append((concrete_path, render_cell(bundle, plain)))
                 n_cells += 1
         if not prod_matches:
