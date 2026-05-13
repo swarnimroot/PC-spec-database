@@ -5,10 +5,10 @@ For project scope and policy, see [`README.md`](../README.md). For system design
 Phasing principle: foundation first, then the smallest end-to-end slice (one vendor working end-to-end), then expand to the other vendors, then the view layer, then operational helpers, then a structured validation pass, then polish. Each stage gates the next.
 
 ## Active
-- T9.1 Value dropdown in `ui/find.py` — replace free-text value input with selectbox populated from distinct DB values per (section, field) — Session 36
+- T9.2 Display canonicalizer in `views/formatting.py` — per-field rule lookup + opt-in via `field_path` kwarg on `display_value`; one rule today (`panel_type` "IPS-level"→"IPS"); wired into `ui/find.py` dropdown + cell-match — Session 37
 
 ## Next
-- T9.2 Display canonicalizer in `views/formatting.py` — per-field canonical naming for the variant gaps `audit-normalize` surfaces (e.g., `panel_type` "IPS" vs "IPS-level"); scope locked after T9.1 dropdown reveals real-world inconsistencies
+- (empty — Stage 9 candidates surface as daily use reveals more dropdown variants or filter friction)
 
 ## Deferred
 - T7.0d Keyboard structured offerings split — Session 19
