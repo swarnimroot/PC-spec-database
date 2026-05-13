@@ -47,6 +47,44 @@ Newest sessions at the top.
 - **Canonicalizer extension recipe:** to add a new rule, append one entry to `_CANONICAL_BY_FIELD` in `views/formatting.py`. Key is the template-form path (`<table>.*.<leaf>` for 3-part, `<column>` for top-level). Value is a `{raw: canonical}` dict. No other code change needed — `display_value` and `canonicalize_display` pick it up automatically; `ui/find.py` already passes the path. Add a unit test (one line in `tests/views/test_formatting.py`) and an AppTest if the new field is filter-screen reachable.
 - **Caption-trail policy:** `ui/find.py` retains the `Stage 8 / Phase 2 UI · T8.4` caption since T9.2 modified the screen rather than rebuilt it. Same standing rule as Session 36 Decision #5.
 
+### Late-session pivot — population workflow setup
+
+After T9.2 shipped, user pivoted to scoping the next phase: populating the DB with their full ~30-product target list. Three questions surfaced: (1) URL or product name? (2) what's the auto-vs-manual split per product? (3) is there a file to maintain the URL inventory? Answers led to creating `docs/POPULATION_QUEUE.md` — the workflow's single source of truth.
+
+**Empirical auto-fill split** (from the live Lenovo Legion Pro 7 row, measured via the agent's `find-empty` + `inspect-product` sweep): Tier 1 vendor scrape fills ~70% of ~87 leaf cells; ~25% are `vendor-doesn't-publish` (system-flagged, not user work); ~5% is true manual entry (3-5 cells per product). Dell shows a slightly lower fill rate (~62%) with higher `vendor-doesn't-publish` (~32%) — Dell techspecs publishes less board/thermal/weight detail than Lenovo PSREF. Acer / MSI = 100% manual until `scrapers-lib` Tier 2 lands them.
+
+**Population workflow:** user pastes per-product `(brand, model_code, year, URL)` blocks into `docs/POPULATION_QUEUE.md` §To populate. Each session, Claude reads the file and runs `refresh --brand <slug> --url <URL>` for every unchecked `- [ ]` bullet. Offering lists union across multiple URLs for the same product (CPU / GPU / display / etc — different SKUs add as new offering rows; exactly what "show all configs" needs per the Decision-3 cross-tile merge rule); scalar fields that disagree across URLs drop into the review queue for post-batch `resolve`.
+
+**`POPULATION_QUEUE.md` structure** (composed mid-session, no schema or code changes):
+- §Header explains format + how it gets consumed.
+- §How to find a product URL per vendor — 6 vendor recipes (Dell / HP / Lenovo / ASUS / Acer / MSI) with **Start at** home URL, **Navigate** drill-down steps, **Target URL shape**, **Common gotcha**. All entry URLs WebFetch-verified before landing in the doc.
+- §Existing in DB — 7 products pre-checked with their stored `source_url` (extracted via direct call to `_collect_source_urls_from_product` in `cli/refresh.py`).
+- §To populate — commented-out per-vendor template the user fills.
+
+### Late-session pivot decisions
+
+9. **Markdown checklist over TSV / YAML.** Two options previewed with output mockups; user picked Markdown. Friendliest to eyeball + edit, supports inline `<!-- comments -->` per URL (which config / which trim), tracks progress via `- [x]` checkboxes, groups multiple URLs per product under a single heading. TSV would repeat brand+model+year metadata per row; YAML would risk indentation pitfalls for a non-technical user.
+
+10. **Home URLs as single point of maintenance.** Called out explicitly in the doc: when a vendor reorganizes their site, update the `Start at` line and the navigation steps adapt. The bridges themselves use permissive slug extraction with title fallback (verified across all 4 Tier 1 bridge files — no URL pattern validation in any), so the "Target URL shape" lines describe good provenance, not parser requirements.
+
+11. **WebFetch-verified entry URLs only — no guessing.** All 6 vendor entry URLs verified via WebFetch before landing in the doc, per the global "never guess URLs" guardrail. Acer + MSI WebFetch reliability is poor (403 / 404 / timeouts against landing pages); durable entries are `acer.com/us-en/predator/new-products` and `msi.com/news/` for the latest lineup post (with `us-store.msi.com/<series>-Series` as a working alternative). Documented gotcha lines flag the unreliability so the user knows when to fall back to manual browsing.
+
+12. **No batch-from-file CLI built — Claude parses the file per session.** Discussed `refresh --from-file` as a possible T9.3, parked as YAGNI. Populating 30 products is a one-shot data-entry sprint; the file is input, not a recurring artifact. If batch population becomes a recurring chore (re-refresh sweeps, multi-machine workflows), revisit then. The existing `refresh --all` + `--from-db` covers the recurring-refresh case for already-ingested products.
+
+13. **TASKS.md unchanged for the population workflow.** TASKS tracks coding stages; population is OPS work captured in SESSION_LOG and reflected in `competitive.db` state. Adding a "populate 30 products" item to TASKS would conflate the two surfaces. Per-session populate activity goes in SESSION_LOG entries as the work happens.
+
+### Late-session pivot files added / changed
+
+- **Doc added:** `docs/POPULATION_QUEUE.md` (new) — header + vendor URL guide + existing-in-DB inventory (7 products pre-checked) + commented-out per-vendor template under §To populate.
+- **Docs changed:** `README.md` (Repo layout block — `POPULATION_QUEUE.md` added to the docs/ tree; §Vendor URL conventions — pointer line added at end referencing the deep guide in POPULATION_QUEUE.md). `docs/SESSION_LOG.md` (this late-session pivot subsection).
+
+### Late-session pivot — pickup pointers (superseding the Stage 9-idle pointers above)
+
+- **Session 37 commits landed (3-split):** `491d143` (T9.2 content — 4 files, 281 insertions), `f24f79c` (T9.2 docs aligned — 5 files), and the pending population commit (POPULATION_QUEUE + README + SESSION_LOG late-session pivot).
+- **Next session = populate sprint (when user is ready).** User to fill `docs/POPULATION_QUEUE.md` §To populate with ~30 products and ping Claude. Claude will batch by vendor (Tier 1 first — Dell / HP / Lenovo / ASUS — fastest payoff; Tier 2 Acer / MSI URLs parked as provenance pending `scrapers-lib` upstream), run `refresh --brand X --url Y` per URL, `resolve` any scalar disagreements that land in the review queue post-batch, and `find-empty` per product to report the 3-5 truly manual cells. Expect a mid-batch review-queue depth bump as cross-config scalars disagree; that's working as designed.
+- **`POPULATION_QUEUE.md` is the population workflow's single source of truth.** Home URLs in §How to find a product URL per vendor are the maintenance contract; when a vendor changes their site, update that one line. The 7 existing products in §Existing in DB are pre-checked with their stored `source_url`; the §To populate template is commented-out per vendor for the user to fill.
+- **Re-refresh path stays separate.** Once a product is in the DB, `refresh --brand <slug> --model <model_code> --from-db` is the maintenance path (reads stored `source_url`s) and `refresh --all` loops every supported-vendor product with a stored URL. POPULATION_QUEUE is for first-ingest URLs.
+
 ---
 
 ## Session 36 — 2026-05-12 (T9.1 — value dropdown on the "Find products where…" screen; Stage 9 opened)

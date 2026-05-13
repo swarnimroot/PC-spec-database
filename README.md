@@ -218,7 +218,8 @@ Workspace/
         ├── ARCHITECTURE.md       # detailed system design
         ├── SESSION_LOG.md        # decision log per session
         ├── TASKS.md              # work breakdown
-        └── VIEWS.md              # view-layer format choices and conventions
+        ├── VIEWS.md              # view-layer format choices and conventions
+        └── POPULATION_QUEUE.md   # URL inventory + vendor navigation guide for adding products
 ```
 
 ---
@@ -231,6 +232,8 @@ Each vendor's bridge expects a specific URL shape. Using the wrong shape produce
 - **ASUS** — must include the `/spec/` subpath, e.g. `https://rog.asus.com/laptops/.../<model>/spec/`. The bare landing page returns no spec sections.
 - **HP** — PDP URLs (`hp.com/us-en/shop/pdp/...`) work for most products. Some products (e.g. OMEN Transcend 14 fb0023nr) currently fail upstream in `scrapers-lib`; this is a known gap.
 - **Dell** — `--brand dell --model <slug>` derives the URL automatically; or pass `--url https://www.dell.com/.../spd/<slug>` explicitly.
+
+For step-by-step navigation from each vendor's home page to the target product URL (the "where do I start, where do I drill to" recipe per vendor), see [`POPULATION_QUEUE.md` § How to find a product URL per vendor](docs/POPULATION_QUEUE.md#how-to-find-a-product-url-per-vendor). The home URLs there are the single point of update if a vendor reorganizes their site.
 
 ---
 
