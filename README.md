@@ -408,11 +408,12 @@ python -m competitive_database backfill-lenovo-families
 Launch the local browser UI (Streamlit). Binds to `127.0.0.1`; the user's default browser opens automatically. Requires the optional `ui` extra (`pip install -e ".[ui]"`).
 
 ```
-ui [--db DB] [--port PORT]
+ui [--db DB] [--port PORT] [--base-path PATH]
 ```
 
 - `--db` — DB file location. Default: `competitive.db`.
 - `--port` — Streamlit server port. Default: `8501`.
+- `--base-path` — Subpath under a reverse proxy (e.g. `competitive-database` for `https://host/competitive-database`). When set, also applies the reverse-proxy companion flags (`--server.headless=true`, `--server.enableCORS=false`, `--server.enableXsrfProtection=false`) so Streamlit emits asset URLs prefixed for the proxied subpath. Leave unset for local-only use.
 
 ```bash
 python -m competitive_database ui

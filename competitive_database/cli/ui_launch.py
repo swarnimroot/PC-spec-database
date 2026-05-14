@@ -32,6 +32,16 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
         default=8501,
         help="Port for the Streamlit server (default 8501).",
     )
+    p.add_argument(
+        "--base-path",
+        default=None,
+        help=(
+            "Subpath under a reverse proxy (e.g. ``competitive-database`` "
+            "for ``https://host/competitive-database``). When set, also "
+            "applies the reverse-proxy companion flags (headless, CORS + "
+            "XSRF off). Leave unset for local-only use."
+        ),
+    )
     p.set_defaults(func=main)
 
 
@@ -48,6 +58,16 @@ def main(args: argparse.Namespace) -> None:
         "--server.address=127.0.0.1",
         f"--server.port={args.port}",
     ]
+    if args.base_path:
+        base = args.base_path.strip("/")
+        cmd.extend(
+            [
+                f"--server.baseUrlPath={base}",
+                "--server.headless=true",
+                "--server.enableCORS=false",
+                "--server.enableXsrfProtection=false",
+            ]
+        )
     try:
         subprocess.run(cmd, env=env, check=True)
     except FileNotFoundError as exc:
