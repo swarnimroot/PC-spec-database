@@ -6,6 +6,71 @@ Newest sessions at the top.
 
 ---
 
+## Session 40 — 2026-05-14 (Manual review checkpoint Dell+HP+ASUS: 84/313 conflicts cleared; 232 empty cells surfaced; 2 CD bugs filed; Lenovo deferred)
+
+**Goal:** Execute the manual review checkpoint per Session 39 pickup pointers — `resolve` interactive scalar-disagreement triage + `find-empty` per product, walking vendors smallest-first (Dell 8 → HP 35 → ASUS 41 → Lenovo 229).
+
+**Outcome:** **review_queue 313 → 229 unresolved** (84 cleared). 3 of 4 vendors complete: **Dell 8/8**, **HP 35/35**, **ASUS 41/41**. Lenovo deferred per user choice. `find-empty` walked 55 products (4 Dell + 23 HP + 28 ASUS) — **244 actionable empty cells** surfaced (the rest = vendor-doesn't-publish flags, not user work). **Two CD-codebase bugs filed for next session.** **No code or test touches** — tests still 339/339 green from Session 39 baseline.
+
+### Per-vendor coverage
+
+- **Dell: 8/8 cleared.** 4 `vendor_full_name year_inferred` batch-accept (S39-launched 2026 Alienware products, year=2026 inferred from `fetched_at`, value matches Dell page where existing present). 2 `kept_existing` on aa18250 list-shrinkage (May-08 baseline had 2 tile-rendered configs — CherryMX keyboard + Gen-5 SSD — that May-14 re-fetch dropped; preserved per cross-tile merge rule). 2 `dropped` on ac16250 `cpu_offerings.*.model new_chip_unverified` (bridge parse bug — see CD bug 1), followed by `manual-edit` to canonical catalog refs (`Core 7 240H`, `Core 9 270H`) and `DELETE` of 2 orphan truncated `cpu_catalog` rows.
+- **HP: 35/35 cleared.** 25 `vendor_full_name year_inferred` batch-accept (all 25 are NEW HP products from the refresh sprint, existing=None). 3 `accept_candidate` on clean new-chip vouches (`Core Ultra 7 255H`, `Core Ultra 9 285H`, `RTX 5050` for 14t-fb100). 2 `kept_existing` where "informative beats null" (15z-fb300 `ethernet`="none" vs null; `tuning_brand`="DTS" vs null). 1 `kept_existing` on 16z-ap000 display_offerings (existing 3-panel set was superset of candidate 2-panel — candidate dropped optional 165Hz panel). 4 cross-trim **union** writes: 15z-fb300 battery (1→2 entries: 70Wh/4-cell + 52Wh/3-cell) + camera (1→2: 1080p IR + 720p non-IR) + keyboard (kept_existing — existing 3-keyboard set already ⊇ candidate 2) + 16z-ak000 keyboard (2→3 entries: 4-zone shadow base + 4-zone ceramic optional + per-key shadow base). Union path: resolve `kept_existing` to mark queue resolved, then direct `UPDATE products SET <column> = json(<existing + candidate offerings>)` to preserve all bundled provenance.
+- **ASUS: 41/41 cleared.** Pattern mix unlike Dell/HP — 17 `boards low_confidence_extraction` + 16 `cpu_catalog.<chip>.cores value_disagreement` + 4 `new_chip_unverified` + 2 `cpu_offerings low_confidence_extraction` + 1 `camera_offerings low_confidence` + 1 `year_inferred`.
+  - **6 obvious:** 4 catalog vouches (`Ryzen 9 270`, `Ryzen AI 9 HX 370`, `Core i7 14650HX`, `Core i9 14900HX`) + 1 year_inferred (asus-v16-v3607 — vendor_full_name landed as lowercase "asus v16 v3607" from www.asus.com slug-extraction; cosmetic cleanup deferred to manual-edit) + 1 camera accept (Flow Z13 5MP IR).
+  - **16 catalog cores:** Resolved against Intel ARK truth. 11 `kept_existing` (rich-format "N (P-core + E-core)" wins where existing has topology breakdown OR existing is Intel-correct bare-int). 3 `manual_override`-as-`accept_candidate` workaround (CD bug 2 — see below; values: `Core 5 210H`=8, `Core i7-13700H`=14, `Core i9-13900H`=14). 2 `manual_override` to "10" for `Core i7-13620H` where both ASUS-published values (8, 14) disagreed with Intel ARK (correct: 10 cores per 6P+4E).
+  - **17 boards low_confidence:** accept_candidate × 17 to write boards into empty products, then Python post-clean of "noise rows" (`gpu.value` matching `/Boost|Turbo|MHz|Dynamic/` without `RTX|GTX|Radeon|GeForce` prefix — these are descriptive "ROG Boost: 1550MHz at 110W" strings the bridge captured as a "GPU" entry alongside the real RTX rows). 6 of 17 had noise rows dropped (all ROG models — Zephyrus G14/G16, Strix G16, Strix Scar 16/18). 11 had no noise (TUF / Flow / V16 / a18-2025).
+  - **2 cpu_offerings low_confidence:** Bridge captured full ASUS spec lines as model names (`"AMD Ryzen AI MAX 390 Processor 3.2GHz (76MB Cache, up to 5.0GHz, 12 cores, 24 Threads)"` etc — Strix Halo chips on Flow Z13 + TUF a14-2026). Queue rows resolved as `dropped`; manually inserted 3 canonical `cpu_catalog` rows (`Ryzen AI MAX 390` 12C, `Ryzen AI MAX+ 395` 16C, `Ryzen AI MAX+ 392` 12C — brand=AMD, status=needs-review); directly wrote `products.cpu_offerings` with manual-bundle entries pointing at the canonical names.
+
+### CD-codebase bugs filed (T9.5, T9.6 — see TASKS.md §Deferred)
+
+1. **`bridge/dell.py` CPU model truncation at `(`.** Dell PDP CPU strings like `"Intel® Core™ 7 Processor (Series 2) 240H"` are parsed to just `"Core 7 (Series"` — the parser cuts at the open paren. Surfaced on ac16250 (`cpu_offerings.0.model`, `cpu_offerings.1.model`); both `Core 7 (Series` and `Core 9 (Series` landed as orphan `cpu_catalog` rows used only by ac16250. Repaired in-place via `manual-edit` to existing canonical rows (`Core 7 240H`, `Core 9 270H`) + DELETE of orphans. Fix scope likely a single regex in `bridge/dell.py` CPU extraction.
+
+2. **`cli/resolve.py` `accept_candidate` on `catalog_text` paths fails when `candidate_value` is bundled dict.** Stack: `_apply_action` (line ~287) calls `write_catalog_text_at_path(conn, parsed, decoded)` where `decoded = json.loads(row["candidate_value"])`. For catalog-cores rows the bridge writes `candidate_value` as `{"value": "8"}` (dict), not `"8"` (string); `write_catalog_text_at_path` then raises `sqlite3.ProgrammingError: type 'dict' is not supported`. Workaround used this session: pass `--action manual_override --value <int>` instead (manual_override path handles the unwrap correctly). Fix scope: `_apply_action` should unwrap `{"value": X}` shapes for `catalog_text` kind before calling `write_catalog_text_at_path`.
+
+### Decisions made this session
+
+1. **`vendor_full_name year_inferred` is always a batch-accept candidate.** Across Dell + HP + ASUS, 30 of 30 year_inferred rows had either `existing=None` (new product) or `existing == candidate` value (refresh-in-place). Year inference fires regardless of value match, so the conflict_type alone doesn't imply data disagreement — it's a heads-up flag. Standing rule: batch accept_candidate when value check passes; per-row review only if the value disagrees.
+
+2. **Cross-tile / cross-trim offering-list unions handled outside `resolve`.** `resolve manual_override` is rejected for column-level `products_offering_list` paths (`cli/resolve.py:318` — message "Use manual-edit on an offering leaf (<column>.<idx>.<leaf>) or pick accept_candidate / kept_existing / dropped"). For Dell aa18250 (Pattern B) and HP 15z-fb300 + 16z-ak000 cross-trim, the chosen union path was: `resolve --action kept_existing` to mark queue resolved (keeps existing JSON in products), then a direct SQL `UPDATE products SET <column> = ?` with the union JSON (existing entries + candidate's entries appended, all bundled provenance preserved verbatim). End-state matches what `manual_override` would have done for a column-level write.
+
+3. **ASUS catalog cores: Intel ARK is authoritative truth, not the rich-format string.** Where existing was rich format like `"20 (8 P-core + 12 E-core)"`, it both wins AND is Intel-correct. For bare-int vs bare-int, the value matching Intel ARK wins. For `Core i7-13620H`, neither published value matched Intel (existing 14 / candidate 8; actual 10 per 6P+4E) — manual_override to "10" for both rows. Pattern: chip-catalog correctness comes from the chip vendor's datasheet, not from the laptop vendor's spec page (which can carry typos and topology confusion).
+
+4. **ASUS boards `low_confidence_extraction` is recoverable via accept-then-clean.** Bridge tags boards extraction as low-confidence when it captures both real GPU rows + a descriptive "ROG Boost / Turbo mode" string that the GPU section table renders alongside the real rows. The descriptive string lands as `gpu.value` of an otherwise-empty board entry. Accept the data (gets real GPU rows into products), then drop any board entry whose single gpu's value matches `/(?:Boost|Turbo|MHz|Dynamic)/i` AND doesn't start with `RTX|GTX|Radeon|GeForce`. Cleanup pass dropped 6 noise rows across 6 ROG products; 11 other ASUS products had clean boards.
+
+5. **ASUS cpu_offerings `low_confidence_extraction` requires drop-then-manual-write.** Bridge captured full spec lines (`"AMD Ryzen AI MAX 390 Processor 3.2GHz (76MB Cache, up to 5.0GHz, 12 cores, 24 Threads)"`) as `cpu_offerings.0.model.value`. Accept would pollute `cpu_catalog` with 200-char keys. Path: resolve as `dropped`, insert 3 canonical `cpu_catalog` rows (`Ryzen AI MAX 390`/`MAX+ 395`/`MAX+ 392`, brand=AMD, cores from spec, status=needs-review), then direct `UPDATE products.cpu_offerings` with manual-bundle entries pointing at the canonical names.
+
+6. **Two destructive operations executed with user approval.**
+   - `DELETE FROM cpu_catalog WHERE model IN ('Core 7 (Series', 'Core 9 (Series')` — 2 truncated orphan rows from Dell bridge bug, only ever referenced by ac16250 which was repaired pre-delete. Value-only LIKE check (excluding `source_note` text matches) confirmed no other product references.
+   - `UPDATE products SET boards = ?` on 6 ASUS products to drop "ROG Boost / Turbo mode" noise board entries from cpu_offerings's parallel boards list.
+
+7. **Lenovo deferred to next session.** 229 unresolved across 17 products is the largest single vendor bucket; user chose to commit Dell+HP+ASUS first and resume Lenovo fresh. Largest individual products: `legion-5-15-gen-11` n=57, `loq-15-gen-9` n=39, `legion-pro-5-16-gen-10` n=30, `legion-5-15-gen-10` n=29.
+
+### Files added / changed
+
+- **Code added / changed:** None. No code touched this session — resolve / cleanup is data-only.
+- **Tests added / changed:** None. Tests stay 339/339 green from Session 39 baseline.
+- **Docs changed:**
+  - `docs/TASKS.md` — Added **T9.5** (Dell bridge CPU truncation at `(`) and **T9.6** (resolve `accept_candidate` catalog_text dict-unwrap) to §Deferred per the compact one-line format.
+  - `docs/SESSION_LOG.md` — This entry.
+- **DB mutations** (`competitive.db` — untracked per repo convention):
+  - `review_queue`: 84 rows resolved (8 Dell + 35 HP + 41 ASUS).
+  - `cpu_catalog`: -2 rows (Dell truncated orphans deleted), +3 rows (AMD Strix Halo canonical), 7 chip `cores` cells updated.
+  - `products`: 8 column updates (Dell ac16250 cpu_offerings ×2 manual-edit; HP 15z-fb300 battery+camera union, HP 16z-ak000 keyboard union; ASUS rog-flow-z13-2025 + asus-tuf-gaming-a14-2026-fa401ea cpu_offerings rewritten; 6 ASUS boards lists cleaned).
+
+### Where we left off (pickup pointers)
+
+- **Lenovo resolve (229 unresolved) is the next pickup.** Smallest-first walk had Lenovo last by design. Expected pattern mix from preview: heavy on `vendor_full_name year_inferred` (Lenovo bridge `gen→year decoder` shipped Session 39 — most refresh-in-place rows will have agreeing values), `value_disagreement` on family_code merge fields (Intel/AMD ProductKey siblings within same (size, gen) bucket producing per-cell scalar conflicts via Stage 7 T7.0a/b merge), and `cpu_catalog.<chip>.cores` (Lenovo PSREF carries CPU spec tables similar to ASUS, so the same rich-format-vs-bare-int pattern likely repeats). Recommendation for next session: bucket Lenovo by `(pattern, conflict_type)` first (same approach used for HP + ASUS this session), then batch-resolve by pattern.
+- **244 empty cells across Dell+HP+ASUS still need manual fills** (Dell 12 + HP 104 + ASUS 128). Top patterns: `status` ×54, `segment` ×54, `cpu_tdp_max` ×54, `board[0].arch_marker` ×52, `series` ×15. These are mostly taxonomy enum choices (status/segment/series) + chip TDP lookup from Intel/AMD datasheets + GPU arch derivation. User-led when motivation surfaces; no auto-fill recipe shipping.
+- **T9.5 Dell CPU truncation bug** filed for next code-touching session. Fix scope likely a single regex in `bridge/dell.py` CPU extraction. After fix, re-refreshing ac16250 should produce clean `Core 7 240H` / `Core 9 270H` directly.
+- **T9.6 resolve catalog_text dict-unwrap bug** filed. Workaround via `manual_override` works; fix unblocks the more natural `accept_candidate` path on catalog cores conflicts (Lenovo will likely hit this same pattern).
+- **`browse.py` working-tree change preserved (not touched).** `competitive_database/ui/browse.py` carries an in-progress UI refactor (Session 40 docstring marker, 250 lines added) that this session did NOT modify. Stays in working tree across this commit; user's call when to land it.
+- **DB state at session close:** 76 products, 4 vendors, unresolved review_queue **229 (was 313)**. `cpu_catalog` 65 rows (was 64: -2 Dell orphans + 3 AMD Strix Halo = net +1). Tests 339/339 green untouched.
+- **Working tree at session close:** 1 unrelated changed code file (`ui/browse.py`, NOT this session), 2 changed docs (`docs/TASKS.md`, `docs/SESSION_LOG.md`).
+- **Commit:** Single doc commit this session — `Session 40: resolve+find-empty checkpoint Dell+HP+ASUS (84 conflicts cleared, 244 empty cells surfaced, T9.5+T9.6 CD bugs filed)`. No code commit possible (no code touched). `browse.py` and the DB stay out of this commit.
+
+---
+
 ## Session 39 — 2026-05-13 (Tier 1 refresh sprint: DB 7→76 products; 4 CD bug fixes shipped; scrapers-lib 1.1.0→1.6.0; 339/339 tests green)
 
 **Goal:** Execute the Tier 1 refresh sprint per Session 38 pickup pointers — 97 unchecked URLs across Dell + HP + Lenovo + ASUS in POPULATION_QUEUE.md. Agent-batched per vendor (user pacing choice). Between-vendor checkpoints (resolve + find-empty) deferred to user as a separate manual step.

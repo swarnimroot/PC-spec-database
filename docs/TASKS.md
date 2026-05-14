@@ -11,6 +11,8 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 - (empty — Stage 9 candidates surface as daily use reveals more dropdown variants or filter friction)
 
 ## Deferred
+- T9.6 `cli/resolve.py` `accept_candidate` on `catalog_text` paths fails when `candidate_value` is bundled dict (e.g. `{"value":"8"}`) — `_apply_action` passes the dict to `write_catalog_text_at_path` which raises `sqlite3.ProgrammingError`. Workaround: `manual_override --value <int>`. Filed Session 40 — hit on ASUS cpu_catalog cores resolves
+- T9.5 `bridge/dell.py` CPU model truncation at `(` — Dell PDP strings like `"Intel® Core™ 7 Processor (Series 2) 240H"` parsed to `"Core 7 (Series"`. Filed Session 40 — repaired ac16250 in-place; orphan catalog rows DELETEd
 - T9.4 Dell `snapshot.options` consumption — bridge to surface scrapers-lib v1.5.0 configurator options (CPU/GPU/RAM/Storage/Display/Keyboard/Battery/Adapter/OS) as additional offering rows; fetcher flag wired Session 39 but bridge doesn't read the field yet
 - T9.3 ASUS `family_code` support — mirror Lenovo T7.0a/b cross-SKU merge for ASUS (F/A CPU variants, internal SKU codes like `fa608`). Without it, each ASUS URL becomes its own DB row; populate-sprint groupings in POPULATION_QUEUE.md (e.g. TUF 16 2025 = 1 product from F16+A16 URLs) won't actually union at refresh. Discovered Session 38 during populate sprint
 - T7.0d Keyboard structured offerings split — Session 19
