@@ -11,6 +11,7 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 - (empty — Stage 9 candidates surface as daily use reveals more dropdown variants or filter friction)
 
 ## Deferred
+- T9.4 Dell `snapshot.options` consumption — bridge to surface scrapers-lib v1.5.0 configurator options (CPU/GPU/RAM/Storage/Display/Keyboard/Battery/Adapter/OS) as additional offering rows; fetcher flag wired Session 39 but bridge doesn't read the field yet
 - T9.3 ASUS `family_code` support — mirror Lenovo T7.0a/b cross-SKU merge for ASUS (F/A CPU variants, internal SKU codes like `fa608`). Without it, each ASUS URL becomes its own DB row; populate-sprint groupings in POPULATION_QUEUE.md (e.g. TUF 16 2025 = 1 product from F16+A16 URLs) won't actually union at refresh. Discovered Session 38 during populate sprint
 - T7.0d Keyboard structured offerings split — Session 19
 - T8.8 (c) Refresh-targets enumeration dedup (`ui/refresh.py:104-152` ↔ `cli/refresh.py:334-374` near-duplicate planning loops) — gated on a third caller surfacing per Session 33 Decision #8 (rule-of-three convention) — Session 35

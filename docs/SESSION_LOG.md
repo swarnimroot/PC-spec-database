@@ -6,6 +6,81 @@ Newest sessions at the top.
 
 ---
 
+## Session 39 — 2026-05-13 (Tier 1 refresh sprint: DB 7→76 products; 4 CD bug fixes shipped; scrapers-lib 1.1.0→1.6.0; 339/339 tests green)
+
+**Goal:** Execute the Tier 1 refresh sprint per Session 38 pickup pointers — 97 unchecked URLs across Dell + HP + Lenovo + ASUS in POPULATION_QUEUE.md. Agent-batched per vendor (user pacing choice). Between-vendor checkpoints (resolve + find-empty) deferred to user as a separate manual step.
+
+**Outcome:** **DB products 7 → 76 (+69)** across 4 vendors. **review_queue 27 → 336 (+309).** **Tests 331 → 339** (+8 new, 1 updated). **Four CD-codebase bug fixes shipped** during the sprint as they surfaced; **scrapers-lib upgraded twice** (1.1.0 → 1.5.0 → 1.6.0, user-patched externally). Effective URL coverage: 95/97 actionable + 1 cleanly delisted (HP dropped) + 1 parked (ASUS, user direction). Two DB cleanups (4 ASUS techspec orphans + 16 Lenovo wrong-year rows) executed mid-sprint with user approval.
+
+### Per-vendor coverage
+
+- **Dell: 4/4** ✓ after scrapers-lib v1.5.0 upgrade + URL-form revert. ac16250 inserted as new product; ac16251 + aa18250 refreshed-in-place over May-11 baselines; aa16250 succeeded in first batch (only bundle-less URL).
+- **HP: 25/26 + 1 delisted** ✓ after scrapers-lib v1.6.0 upgrade + delisted-slug catch. v1.6.0 `*nr` SKU snapshots are richer than customizer (47-48 fields vs ~30). Omen 17 (`a7jp9av-1`) confirmed HP-delisted, dropped from queue.
+- **Lenovo: 40/40** ✓✓ with **correct gen-derived years** after bridge year-decoder shipped (1×Gen 8 @ 2023, 7×Gen 9 @ 2024, 8×Gen 10 @ 2025, 4×Gen 11 @ 2026, + 1 legacy `16AFR10H` @ 2026 unchanged S22 artifact).
+- **ASUS: 26/27** ✓ after `_coerce_vendor_url` hostname-fix + `_derive_asus_model_code` techspec-fix + DB orphan cleanup. 12 ROG URLs + 14 TUF/V URLs (retry post-fix). 1 parked: `rog-strix-g16-2026` /us/ variant (different DOM, h2 blocks missing).
+
+### Decisions made this session
+
+1. **S38 Decision 8 reverted — Dell canonical URL form is bundle-less `/shop/dell-laptops/<line>/spd/<slug>`, not bundle-tagged.** Why: scrapers-lib v1.5.0 Dell fetcher still requires the shop-landing entry; bundle-tagged `/cty/pdp/spd/<slug>/<order-code>` and `/dell-laptops/<line>/spd/<slug>/<order-code>` forms render without configuration tiles → 0-tile RuntimeError. POPULATION_QUEUE.md: 3 Alienware URLs swapped from bundle-tagged to bundle-less canonical (ac16250, ac16251, aa18250) with `<!-- bundle-tagged /cty/pdp/ form unsupported by Dell fetcher -->` comments.
+
+2. **scrapers-lib upgrades 1.1.0 → 1.5.0 → 1.6.0 (user-side patches; re-installed editable here).** v1.5.0: new `include_options=True` flag on `fetch_dell_product` pulls configurator option menu (CPU/GPU/RAM/Storage/Display/Keyboard/Battery/Adapter/OS) in addition to tile snapshots (~5-8s extra/fetch). Wired into `cli/refresh.py:_fetch_snapshots` Dell branch. The `options` field lands on each `ProductSnapshot` but bridge doesn't consume it yet — opt-in future enhancement. v1.6.0: HP `*nr` SKU URLs now work cleanly (richer than customizer); typed `HPProductNotFoundError` for delisted slugs replaces opaque RuntimeError.
+
+3. **Four CD-codebase bug fixes shipped:**
+   - **`cli/refresh.py:_coerce_vendor_url` hostname-aware (ASUS).** Was unconditionally appending `/spec/` to any ASUS URL; mangled `www.asus.com/.../techspec/` into invalid `/techspec/spec/` that the `asus_www` bridge regex rejected. Now: only `rog.asus.com` URLs get `/spec/` coercion; `www.asus.com` URLs left as-is. +2 tests.
+   - **`bridge/asus.py:_derive_asus_model_code` techspec-aware.** Was taking the trailing path segment as slug; for `www.asus.com/.../<slug>/techspec/` URLs this produced `model_code="techspec"`, collapsing 14 unrelated TUF/V products into 4 conflict-merged DB rows (one per year). Now: also drops trailing `techspec` segment (parallels the existing `spec`-strip for ROG). +3 unit tests.
+   - **`bridge/lenovo.py:_year_from_lenovo_family_code` gen→year decoder.** PSREF titles + URLs don't carry year tokens; the gen suffix in the ProductKey encodes the year. The shared `derive_year` helper always fell through to `fetched_at.year` for Lenovo, mis-stamping Gen 8/9/10 products by 1-3 years. New helper maps `-gen-N` suffix on family_code → year (gen 8=2023, 9=2024, 10=2025, 11=2026 per S38 Decision 1); fires only when `year_inferred=True` AND `family_code` matches recognized gen. `parse()` reordered so family_code derivation precedes year derivation. 1 new test, 2 existing tests updated (live AFR10H fixture now correctly asserts year=2025 + vendor_full_name status `verified`).
+   - **`cli/refresh.py:_is_hp_product_not_found` predicate + delisted-slug catch.** `_run_single` now catches `HPProductNotFoundError` via a lazy-imported predicate (keeps tier2.hp's httpx/curl_cffi off the CLI startup path for non-HP commands). Exits 1 with clean `"hp product page not found (delisted slug): <url>"` message instead of a Python traceback. +2 tests.
+
+4. **Two mid-sprint DB cleanups (user-approved, same destructive-DELETE pattern):**
+   - **ASUS techspec collapse:** 4 collapsed `model_code="techspec"` rows + 230 spurious review_queue items (caused by `_derive_asus_model_code` bug pre-fix) deleted before re-refreshing 14 www.asus.com URLs. Post-cleanup retry produced 14 correctly-keyed rows.
+   - **Lenovo year fix:** 16 wrong-year Lenovo rows + 190 spurious review_queue items deleted before re-refreshing 40 PSREF URLs. Post-cleanup re-refresh produced 4 Gen 11 @ 2026 (in-place update) + 16 new rows at corrected years.
+
+5. **HP `omen-173-inch-…-a7jp9av-1` dropped (HP-delisted).** scrapers-lib v1.6.0 raises `HPProductNotFoundError` because HP silently redirects the slug to homepage. Removed from POPULATION_QUEUE.md with a `<!-- dropped Session 39 — HP delisted (HPProductNotFoundError on fetch) -->` comment. Omen 17 retains DB coverage via the `db1097nr` SKU URL.
+
+6. **ASUS `rog-strix-g16-2026` /us/ variant parked (user direction).** Raises `RuntimeError: no <h2 class*='ProductSpec__productSpecItemTitle__'> blocks matched`; non-`/us/` variant of same product already in DB from a prior session. Likely region-specific DOM divergence (12/13 OTHER ROG `/us/` URLs succeeded, so not a blanket regression). Bullet stays in POPULATION_QUEUE as unchecked; revisit when scrapers-lib gets a regional-DOM fix.
+
+7. **Architectural surprise: Lenovo Essential precursors fold into regular Gen-9/10 family buckets.** S38 Decision 1 anticipated separate `loq-essential-15-gen-{9,10}` buckets for the E-suffix slugs (`LOQ_15IAX9E`, `LOQ_15ARP10E`). Empirically `_derive_lenovo_family_and_arch` resolves both into `loq-15-gen-9` / `loq-15-gen-10` (no separate "essential" family line for pre-Gen-11 forms). Net: Essential gen-9/-10 share a DB row with regular LOQ gen-9/-10. Gen-11 Essentials remain separate (`loq-essential-15-gen-11`) — that family line was formalized at Gen 11. Matches PSREF naming convention.
+
+8. **HP gen-mixed entries created N rows per N URLs (expected, S38 Decision 6 confirmed).** HP bridge derives model_code per URL slug; no family_code merging. Net: 25 successful HP URLs → 25 separate DB rows across 7 queue-product entries. Tolerated per S38 — review_queue absorbs the offering-union work.
+
+9. **ASUS T9.3 limit confirmed empirically.** 14 TUF + V16 retries produced 14 separate DB rows (not the 9 grouped per (size, year) declared in POPULATION_QUEUE.md). Matches S38 Decision 3 expectation. T9.3 stays deferred.
+
+### Files added / changed
+
+- **Code:**
+  - `competitive_database/cli/refresh.py` — `_coerce_vendor_url` hostname-aware; `_is_hp_product_not_found` predicate added; `_run_single` catches `HPProductNotFoundError`; Dell fetch passes `include_options=True`.
+  - `competitive_database/bridge/asus.py` — `_derive_asus_model_code` drops trailing `techspec` segment in addition to `spec`.
+  - `competitive_database/bridge/lenovo.py` — `_LENOVO_GEN_YEAR_MAP`, `_LENOVO_FAMILY_GEN_RE`, `_year_from_lenovo_family_code` helper; year-inference override added after family_code derivation; `parse()` reordered so family_code precedes year.
+
+- **Tests** — 331 → 339 green (+8 new, 1 fixture updated).
+  - `tests/cli/test_refresh.py`: +2 (ASUS www coercion), +2 (HP delisted predicate).
+  - `tests/bridge/test_asus.py`: +3 (`_derive_asus_model_code` for ROG `/spec/` + www `/techspec/` + V-series).
+  - `tests/bridge/test_lenovo.py`: +1 (direct `_year_from_lenovo_family_code` unit tests across gens 8/9/10/11 + unknown-gen + no-gen + empty), 2 updated (live AFR10H fixture asserts year=2025 + `vendor_full_name["status"] == "verified"`).
+
+- **Docs:**
+  - `docs/POPULATION_QUEUE.md` — 95 bullets ticked across 4 vendors. 3 Dell URLs swapped (bundle-tagged → bundle-less canonical, with revert comments). 1 HP URL dropped as delisted (commented-out placeholder). 1 ASUS URL stays unchecked (parked).
+  - `docs/TASKS.md` — no Stage/T-number adds; bug fixes captured as inline narrative here.
+  - `docs/SESSION_LOG.md` — this entry.
+
+- **Dependencies:** scrapers-lib local editable 1.1.0 → 1.6.0 (two sequential upgrades).
+
+### Where we left off (pickup pointers)
+
+- **4 vendor checkpoints pending** (user-driven, manual). `resolve` is interactive per-conflict scalar-disagreement triage; `find-empty` is non-interactive cell-listing but the fills are manual research. Heaviest queue is Lenovo (+240 items in first pass, ~190 cleared in re-refresh, net +50 post-cleanup) + HP gen-mixed entries (Victus 15 fa/fb, Omen 16 ap0+AV, OMEN MAX 16 ah000/ah0/ah100/ak0). Total review_queue: 336.
+- **Dell `options` data unused.** Bridge doesn't consume `snapshot.options` yet. Future enhancement: surface configurator-option SKUs as additional offering rows (CPU/GPU/RAM/Storage/Display/Keyboard/Battery/Adapter SKUs).
+- **ASUS `rog-strix-g16-2026` /us/ variant parked.** Awaiting scrapers-lib regional-DOM fix; non-/us/ already in DB so the product itself is covered.
+- **T9.3 ASUS family_code still deferred.** 14 TUF/V URLs landed as 14 separate DB rows per S38 Decision 3 — confirmed today as expected behavior, not a bug.
+- **HP `omen-173-inch-…av-1` URL removed from queue** as HP-delisted. Omen 17 retains coverage. If HP brings the slug back, drop a replacement URL in §To populate.
+- **scrapers-lib v1.6.0** installed editable. CD pinned at 0.1.0; scrapers-lib upstream contract is the Anchor + ProductSnapshot pair + brand-specific exception types now.
+- **Working tree at session close:** 6 code/test files changed (`cli/refresh.py`, `bridge/asus.py`, `bridge/lenovo.py`, `tests/cli/test_refresh.py`, `tests/bridge/test_asus.py`, `tests/bridge/test_lenovo.py`); 1 doc (`POPULATION_QUEUE.md`); this `SESSION_LOG.md` entry. `competitive.db` heavily mutated (+69 products, +309 review queue items net).
+- **Commit split proposal** (per standing logical-boundary preference):
+  - A) `Session 39: ship 4 bug fixes for Tier 1 refresh sprint (ASUS coercion + bridge slug, Lenovo gen→year decoder, HP delisted catch, Dell options flag)` — 3 code files + 3 test files
+  - B) `Session 39: POPULATION_QUEUE updates from Tier 1 refresh sprint` — `docs/POPULATION_QUEUE.md` only
+  - C) `Session 39 wrap: docs aligned with sprint outcome` — `docs/SESSION_LOG.md` (+ `docs/TASKS.md` if user wants T-numbers added)
+  - DB file (`competitive.db`) stays untracked / out of git per repo convention.
+
+---
+
 ## Session 38 — 2026-05-13 (populate sprint URL inventory: 66 product entries / 178 URLs queued in POPULATION_QUEUE.md; T9.3 ASUS family_code deferred; Acer year decoder documented)
 
 **Goal:** Execute the populate sprint URL collection per Session 37's late-session pickup pointers. Walk vendor-by-vendor (Dell → HP → Lenovo → ASUS → Acer; MSI skipped per user direction). User pastes product URLs from each vendor's site; Claude parses, groups by user's stated rule (size+year for ASUS/Lenovo; family-variant for Acer), and writes blocks into `docs/POPULATION_QUEUE.md` §To populate. No refresh runs this session — URL inventory only.
