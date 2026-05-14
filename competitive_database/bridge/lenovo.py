@@ -77,11 +77,6 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
 
     # --- Identity --------------------------------------------------------
     model_code = _derive_lenovo_model_code(snapshot.title or "", snapshot.url or "")
-    year, year_inferred = h.derive_year(
-        snapshot.title or "",
-        snapshot.url or "",
-        snapshot.fetched_at,
-    )
 
     sub_brand = _derive_lenovo_sub_brand(snapshot.title or "", snapshot.url or "")
     series = _derive_lenovo_series(snapshot.title or "", snapshot.url or "")
@@ -93,6 +88,23 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
     family_code, arch_marker = _derive_lenovo_family_and_arch(
         snapshot.title or "", snapshot.url or "", model_code
     )
+
+    # Year: PSREF titles + URLs don't carry year tokens (the gen suffix
+    # in the ProductKey encodes the launch year instead — gen 8=2023,
+    # 9=2024, 10=2025, 11=2026 per S38 Decision 1). The shared
+    # ``derive_year`` heuristic always falls through to fetched_at for
+    # Lenovo, which mis-stamps non-current-year products. When the
+    # family_code carries a recognized gen, prefer the gen→year map.
+    year, year_inferred = h.derive_year(
+        snapshot.title or "",
+        snapshot.url or "",
+        snapshot.fetched_at,
+    )
+    if year_inferred and family_code:
+        gen_year = _year_from_lenovo_family_code(family_code)
+        if gen_year is not None:
+            year = gen_year
+            year_inferred = False
 
     cand = CandidateProduct(model_code=model_code, year=year)
     cand.year_was_inferred = year_inferred
@@ -535,6 +547,35 @@ def _line_is_known_lenovo(line: str) -> bool:
     if not line:
         return False
     return any(line == p or line.startswith(p + "-") for p in _LENOVO_FAMILY_LINE_PREFIXES)
+
+
+# Lenovo PSREF ProductKey gen → launch year (S38 Decision 1). Add a new
+# entry per generation; unknown gens fall through to the shared
+# ``derive_year`` heuristic (fetched_at fallback with year_inferred=True).
+_LENOVO_GEN_YEAR_MAP = {
+    8: 2023,
+    9: 2024,
+    10: 2025,
+    11: 2026,
+}
+
+_LENOVO_FAMILY_GEN_RE = re.compile(r"-gen-(\d+)$")
+
+
+def _year_from_lenovo_family_code(family_code: str) -> Optional[int]:
+    """Map a Lenovo family_code's trailing ``-gen-N`` to a launch year.
+
+    Returns ``None`` for unknown gens; caller falls back to the shared
+    title/URL/fetched_at heuristic.
+    """
+    m = _LENOVO_FAMILY_GEN_RE.search(family_code or "")
+    if m is None:
+        return None
+    try:
+        gen = int(m.group(1))
+    except ValueError:
+        return None
+    return _LENOVO_GEN_YEAR_MAP.get(gen)
 
 
 # Sub-brand → recognized name patterns. Order matters: more specific first.

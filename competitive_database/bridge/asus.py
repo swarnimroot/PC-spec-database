@@ -284,13 +284,15 @@ def _derive_asus_model_code(title: str, url: str) -> str:
     """Pull the model-code token out of an ASUS title or URL.
 
     The slug from the URL's last path segment (or second-to-last when
-    ``/spec`` is the trailing segment) is the canonical identity. Falls
-    back to a slug-form of the title when no URL is given.
+    the trailing segment is ``spec`` for ROG or ``techspec`` for
+    ``www.asus.com``) is the canonical identity. Falls back to a
+    slug-form of the title when no URL is given.
     """
     if url:
         slug = url.rstrip("/").rsplit("/", 1)[-1].lower()
-        # Drop the trailing ``/spec`` segment when present.
-        if slug == "spec":
+        # Drop the trailing ``/spec`` (ROG) or ``/techspec/`` (www.asus.com TUF/V)
+        # marker so the real model slug is preserved.
+        if slug in {"spec", "techspec"}:
             slug = url.rstrip("/").rsplit("/", 2)[-2].lower()
         # Strip query / fragment.
         slug = slug.split("?", 1)[0].split("#", 1)[0]

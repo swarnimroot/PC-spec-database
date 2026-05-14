@@ -9,6 +9,7 @@ import pytest
 from competitive_database.cli.refresh import (
     _coerce_vendor_url,
     _collect_source_urls_from_product,
+    _is_hp_product_not_found,
     _resolve_url,
     _walk_source_urls,
     refresh_all_products,
@@ -58,6 +59,33 @@ def test_coerce_asus_url_spec_without_trailing_slash_gets_one():
 def test_coerce_non_asus_url_unchanged():
     url = "https://www.dell.com/en-us/shop/dell-laptops/foo/spd/ac16251"
     assert _coerce_vendor_url("dell", url) == url
+
+
+def test_coerce_asus_www_techspec_unchanged():
+    url = (
+        "https://www.asus.com/us/laptops/for-gaming/tuf-gaming/"
+        "asus-tuf-gaming-f16-2025/techspec/"
+    )
+    assert _coerce_vendor_url("asus", url) == url
+
+
+def test_coerce_asus_www_no_techspec_unchanged():
+    url = (
+        "https://www.asus.com/us/laptops/for-gaming/tuf-gaming/"
+        "asus-tuf-gaming-f16-2025/"
+    )
+    assert _coerce_vendor_url("asus", url) == url
+
+
+def test_is_hp_product_not_found_true_for_hp_error():
+    from scrapers_lib.tier2.hp import HPProductNotFoundError
+
+    assert _is_hp_product_not_found(HPProductNotFoundError("delisted")) is True
+
+
+def test_is_hp_product_not_found_false_for_other_errors():
+    assert _is_hp_product_not_found(RuntimeError("network")) is False
+    assert _is_hp_product_not_found(ValueError("bad arg")) is False
 
 
 def test_resolve_asus_url_without_spec_gets_coerced():

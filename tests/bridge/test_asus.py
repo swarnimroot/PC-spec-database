@@ -495,3 +495,31 @@ def test_parse_synthetic_display_full_attributes_extracted():
     assert d["vrr"]["value"] == "G-Sync"
     # ASUS uses "Anti-reflection" wording → matte.
     assert d["anti_glare"]["value"] == "matte"
+
+
+# ---------------------------------------------------------------------------
+# _derive_asus_model_code — unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_derive_model_code_rog_spec_strips_trailing_spec_segment():
+    url = "https://rog.asus.com/us/laptops/rog-zephyrus/rog-zephyrus-g16-2026/spec/"
+    assert asus_bridge._derive_asus_model_code("", url) == "rog-zephyrus-g16-2026"
+
+
+def test_derive_model_code_www_techspec_strips_trailing_techspec_segment():
+    url = (
+        "https://www.asus.com/us/laptops/for-gaming/tuf-gaming/"
+        "asus-tuf-gaming-f16-2025/techspec/"
+    )
+    assert (
+        asus_bridge._derive_asus_model_code("", url) == "asus-tuf-gaming-f16-2025"
+    )
+
+
+def test_derive_model_code_www_techspec_v_series():
+    url = (
+        "https://www.asus.com/us/laptops/for-gaming/all-series/"
+        "asus-v16-v3607/techspec/"
+    )
+    assert asus_bridge._derive_asus_model_code("", url) == "asus-v16-v3607"

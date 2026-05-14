@@ -59,25 +59,43 @@ def test_parse_live_legion_pro_7_basic_identity():
     cand = lenovo_bridge.parse(snap)
 
     assert cand.model_code == "16AFR10H"
-    # Live PSREF titles don't carry a bare year → fallback path.
-    assert cand.year == 2026
+    # PSREF titles/URLs carry no year token; the family_code's trailing
+    # ``-gen-10`` is decoded to 2025 (S38 Decision 1: gen 10 = 2025).
+    assert cand.year == 2025
     assert cand.brand["value"] == "Lenovo"
     assert cand.brand["status"] == "verified"
     assert cand.sub_brand["value"] == "Legion"
     assert cand.series["value"] == "Legion Pro 7"
-    # vendor_full_name flagged needs-review because year was inferred
-    # from fetched_at (PSREF titles never include a year).
-    assert cand.vendor_full_name["status"] == "needs-review"
+    # year came from the gen decoder (a reliable source) → vendor_full_name
+    # status stays verified.
+    assert cand.vendor_full_name["status"] == "verified"
     assert "Legion Pro 7" in cand.vendor_full_name["value"]
     # Provenance bundle wired up correctly.
     assert cand.brand["scraper_id"] == "lenovo.fetch_lenovo_product"
 
 
-def test_parse_live_year_was_inferred_flag_set():
-    """Live PSREF title carries no year → year_was_inferred True."""
+def test_parse_live_year_decoded_from_gen_suffix():
+    """Live PSREF title carries no year token, but the family_code's
+    trailing ``-gen-N`` resolves to a launch year (gen 10 = 2025).
+    ``year_was_inferred`` stays False because the gen decoder is a
+    reliable source."""
     snap = _load_snapshot(LIVE_LEGION)
     cand = lenovo_bridge.parse(snap)
-    assert cand.year_was_inferred is True
+    assert cand.year == 2025
+    assert cand.year_was_inferred is False
+
+
+def test_year_from_lenovo_family_code_gen_map():
+    """Direct unit tests for the gen → year map."""
+    assert lenovo_bridge._year_from_lenovo_family_code("legion-pro-5-16-gen-8") == 2023
+    assert lenovo_bridge._year_from_lenovo_family_code("loq-15-gen-9") == 2024
+    assert lenovo_bridge._year_from_lenovo_family_code("legion-7-16-gen-10") == 2025
+    assert lenovo_bridge._year_from_lenovo_family_code("legion-5-15-gen-11") == 2026
+    # Unknown gen → None (caller falls back to derive_year heuristic).
+    assert lenovo_bridge._year_from_lenovo_family_code("legion-x-gen-99") is None
+    # No gen suffix → None.
+    assert lenovo_bridge._year_from_lenovo_family_code("legion-pro-5-16") is None
+    assert lenovo_bridge._year_from_lenovo_family_code("") is None
 
 
 def test_parse_live_cpu_offerings_extracted_from_processor_name_field():

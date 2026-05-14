@@ -515,6 +515,18 @@ def _run_single(conn: sqlite3.Connection, args: argparse.Namespace) -> None:
         )
     except ValueError as exc:
         raise SystemExit(f"refresh: {exc}") from exc
+    except Exception as exc:
+        # HP-specific typed exception (scrapers-lib v1.6.0+): the slug
+        # was silently redirected to the homepage (delisted product).
+        # Exit non-zero with a clear message so retry tooling leaves the
+        # URL bullet unticked and the user can replace or drop it.
+        # Lazy import keeps tier2.hp (httpx, curl_cffi) off the CLI
+        # startup path for non-HP commands.
+        if _is_hp_product_not_found(exc):
+            raise SystemExit(
+                f"refresh: hp product page not found (delisted slug): {exc}"
+            ) from exc
+        raise
 
     t = summary["totals"]
     print(
@@ -593,14 +605,34 @@ def _resolve_url(
     return template.format(slug=slug_arg), slug_arg
 
 
+def _is_hp_product_not_found(exc: BaseException) -> bool:
+    """True iff ``exc`` is scrapers-lib's ``HPProductNotFoundError``.
+
+    Lazy import so tier2.hp (httpx + curl_cffi) stays off the CLI startup
+    path for non-HP invocations. Returns ``False`` cleanly if scrapers-lib
+    is missing or the symbol isn't exported (older versions).
+    """
+    try:
+        from scrapers_lib.tier2.hp import HPProductNotFoundError
+    except ImportError:
+        return False
+    return isinstance(exc, HPProductNotFoundError)
+
+
 def _coerce_vendor_url(brand: str, url: str) -> str:
     """Apply per-vendor URL normalizations.
 
     ASUS ROG spec pages require a trailing ``/spec/`` subpath; landing-
     page URLs without it cause the fetcher to fail. Auto-append it so
-    users can paste either form.
+    users can paste either form. ASUS TUF / V-series live on
+    ``www.asus.com`` and use ``/techspec/`` instead — those URLs are
+    left alone (the ``asus_www`` bridge regex rejects ``/techspec/spec/``).
     """
     if brand == "asus":
+        from urllib.parse import urlparse
+
+        if urlparse(url).hostname != "rog.asus.com":
+            return url
         path = url.rstrip("/")
         if path.endswith("/spec"):
             return path + "/"
@@ -621,8 +653,17 @@ def _fetch_snapshots(brand: str, url: str, slug: str, profiles_dir: str):
     if brand == "dell":
         from scrapers_lib.tier2.dell import fetch_dell_product
 
+        # ``include_options=True`` (scrapers-lib v1.5.0+) pulls the
+        # configurator option menu (CPU/GPU/RAM/etc.) on top of the 3 tile
+        # snapshots. ~5–8s extra per fetch. The option dict lands on every
+        # snapshot's ``options`` field; bridge consumption is opt-in and
+        # not wired up yet — flag is enabled so the data is available.
         return fetch_dell_product(
-            url, anchors=[anchor], profiles_dir=profiles_dir, warm=True
+            url,
+            anchors=[anchor],
+            profiles_dir=profiles_dir,
+            warm=True,
+            include_options=True,
         )
     if brand == "hp":
         from scrapers_lib.tier2.hp import fetch_hp_product
