@@ -89,250 +89,250 @@ Add one heading per new product below. For products with multiple config URLs, l
 - brand: dell
 - model_code: ac16250
 - year: 2026
-- [ ] https://www.dell.com/en-us/shop/cty/pdp/spd/alienware-aurora-ac16250-gaming-laptop/useac16250hbtshtgb
+- [x] https://www.dell.com/en-us/shop/dell-laptops/alienware-16-aurora-gaming-laptop/spd/alienware-aurora-ac16250-gaming-laptop  <!-- bundle-less canonical (bundle-tagged /cty/pdp/ form unsupported by Dell fetcher) -->
 
 ### Dell — Alienware 16X Aurora
 - brand: dell
 - model_code: ac16251
 - year: 2026
-- [ ] https://www.dell.com/en-us/shop/dell-laptops/alienware-16x-aurora-gaming-laptop/spd/alienware-aurora-ac16251-gaming-laptop/useac16251hbtshqmq    <!-- replaces previously-refreshed bundle-less URL; new URL is canonical going forward -->
+- [x] https://www.dell.com/en-us/shop/dell-laptops/alienware-16x-aurora-gaming-laptop/spd/alienware-aurora-ac16251-gaming-laptop  <!-- bundle-less canonical (S38 bundle-tagged pick reverted: Dell fetcher requires shop-landing form) -->
 
 ### Dell — Alienware 18 Area-51
 - brand: dell
 - model_code: aa18250
 - year: 2026
-- [ ] https://www.dell.com/en-us/shop/cty/pdp/spd/alienware-area-51-aa18250-gaming-laptop/useaa18250hbtphssm   <!-- replaces previously-refreshed bundle-less URL; new URL is canonical going forward -->
+- [x] https://www.dell.com/en-us/shop/dell-laptops/alienware-18-area-51-gaming-laptop/spd/alienware-area-51-aa18250-gaming-laptop  <!-- bundle-less canonical (S38 bundle-tagged pick reverted: Dell fetcher requires shop-landing form) -->
 
 ### Dell — Alienware 16 Area-51
 - brand: dell
 - model_code: aa16250
 - year: 2026
-- [ ] https://www.dell.com/en-us/shop/dell-laptops/alienware-16-area-51-gaming-laptop/spd/alienware-area-51-aa16250-gaming-laptop
+- [x] https://www.dell.com/en-us/shop/dell-laptops/alienware-16-area-51-gaming-laptop/spd/alienware-area-51-aa16250-gaming-laptop
 
 ### HP — Victus 15
 - brand: hp
 - model_code: victus-15
 - year: 2026
-- [ ] https://www.hp.com/us-en/shop/pdp/victus-gaming-laptop-15-fa2047nr                                  <!-- fa generation (older) -->
-- [ ] https://www.hp.com/us-en/shop/pdp/victus-by-hp-156-inch-gaming-laptop-pc-a8vy4av-1                  <!-- fa generation (A8VY4AV → 15t-fa200) -->
-- [ ] https://www.hp.com/us-en/shop/pdp/victus-gaming-laptop-15-fb3025nr                                  <!-- fb generation (2026) -->
-- [ ] https://www.hp.com/us-en/shop/pdp/victus-by-hp-156-inch-gaming-laptop-pc-bd5f1av-1                  <!-- generation unconfirmed -->
-- [ ] https://www.hp.com/us-en/shop/pdp/victus-by-hp-gaming-laptop-15z-fb300-156-a8ru6av-1                <!-- fb generation (15z-fb300) -->
+- [x] https://www.hp.com/us-en/shop/pdp/victus-gaming-laptop-15-fa2047nr                                  <!-- fa generation (older) -->
+- [x] https://www.hp.com/us-en/shop/pdp/victus-by-hp-156-inch-gaming-laptop-pc-a8vy4av-1                  <!-- fa generation (A8VY4AV → 15t-fa200) -->
+- [x] https://www.hp.com/us-en/shop/pdp/victus-gaming-laptop-15-fb3025nr                                  <!-- fb generation (2026) -->
+- [x] https://www.hp.com/us-en/shop/pdp/victus-by-hp-156-inch-gaming-laptop-pc-bd5f1av-1                  <!-- generation unconfirmed -->
+- [x] https://www.hp.com/us-en/shop/pdp/victus-by-hp-gaming-laptop-15z-fb300-156-a8ru6av-1                <!-- fb generation (15z-fb300) -->
 
 ### HP — Omen 15 (HyperX Omen)
 - brand: hp
 - model_code: omen-15
 - year: 2026
-- [ ] https://www.hp.com/us-en/shop/pdp/hyperx-omen-gaming-laptop-15t-ga000-15-c52b1av-1                  <!-- ga000 generation -->
-- [ ] https://www.hp.com/us-en/shop/pdp/hyperx-omen-15-inch-gaming-laptop-pc-gb0xxx-c51tpav-1             <!-- gb0xxx generation -->
-- [ ] https://www.hp.com/us-en/shop/pdp/hyperx-omen-gaming-laptop-15-gb0xxx-15-cj9d8av-1                  <!-- gb0xxx generation -->
-- [ ] https://www.hp.com/us-en/shop/pdp/hyperx-omen-15-inch-gaming-laptop-pc-15-gb0261nr                  <!-- gb0 SKU -->
+- [x] https://www.hp.com/us-en/shop/pdp/hyperx-omen-gaming-laptop-15t-ga000-15-c52b1av-1                  <!-- ga000 generation -->
+- [x] https://www.hp.com/us-en/shop/pdp/hyperx-omen-15-inch-gaming-laptop-pc-gb0xxx-c51tpav-1             <!-- gb0xxx generation -->
+- [x] https://www.hp.com/us-en/shop/pdp/hyperx-omen-gaming-laptop-15-gb0xxx-15-cj9d8av-1                  <!-- gb0xxx generation -->
+- [x] https://www.hp.com/us-en/shop/pdp/hyperx-omen-15-inch-gaming-laptop-pc-15-gb0261nr                  <!-- gb0 SKU -->
 
 ### HP — Omen 16
 - brand: hp
 - model_code: omen-16
 - year: 2026
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-16-inch-gaming-laptop-pc-a58a5av-1                           <!-- AV-code customizer entry -->
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-gaming-laptop-16-ap0097nr                                    <!-- ap0 generation -->
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-gaming-laptop-16-ap0047nr                                    <!-- ap0 generation -->
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-16-inch-gaming-laptop-pc-a59pfav-1                           <!-- AV-code customizer entry -->
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-16-inch-gaming-laptop-pc-b8cj1av-1                           <!-- AV-code customizer entry -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-16-inch-gaming-laptop-pc-a58a5av-1                           <!-- AV-code customizer entry -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-gaming-laptop-16-ap0097nr                                    <!-- ap0 generation -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-gaming-laptop-16-ap0047nr                                    <!-- ap0 generation -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-16-inch-gaming-laptop-pc-a59pfav-1                           <!-- AV-code customizer entry -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-16-inch-gaming-laptop-pc-b8cj1av-1                           <!-- AV-code customizer entry -->
 
 ### HP — Omen 17
 - brand: hp
 - model_code: omen-17
 - year: 2026
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-gaming-laptop-17-db1097nr                                    <!-- db1 generation -->
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-173-inch-gaming-laptop-pc-a7jp9av-1                          <!-- AV-code customizer entry -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-gaming-laptop-17-db1097nr                                    <!-- db1 generation -->
+<!-- omen-173-inch-…-a7jp9av-1 dropped Session 39 — HP delisted (HPProductNotFoundError on fetch) -->
 
 ### HP — HyperX OMEN MAX 16
 - brand: hp
 - model_code: 16t-ah100
 - year: 2026
 - [x] https://www.hp.com/us-en/shop/pdp/hyperx-omen-max-gaming-laptop-16t-ah100-16-cn3g9av-1              <!-- already in DB (refreshed) -->
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-max-gaming-laptop-16t-ah000-16-a4nq6av-1                     <!-- 16t-ah000 generation (older customizer) -->
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-max-gaming-laptop-16-ah0097nr                                <!-- ah0 SKU -->
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-max-16-inch-gaming-laptop-pc-a4sl1av-1                       <!-- AV-code customizer -->
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-max-16-inch-gaming-laptop-pc-b86wqav-3074457345621937826--1  <!-- AV-code with embedded catEntryId; may 404 -->
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-max-gaming-laptop-16-ak0098nr                                <!-- ak0 SKU (newer) -->
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-max-gaming-laptop-16-ah0057nr                                <!-- ah0 SKU -->
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-max-gaming-laptop-16-ak0047nr                                <!-- ak0 SKU (newer) -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-max-gaming-laptop-16t-ah000-16-a4nq6av-1                     <!-- 16t-ah000 generation (older customizer) -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-max-gaming-laptop-16-ah0097nr                                <!-- ah0 SKU -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-max-16-inch-gaming-laptop-pc-a4sl1av-1                       <!-- AV-code customizer -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-max-16-inch-gaming-laptop-pc-b86wqav-3074457345621937826--1  <!-- AV-code with embedded catEntryId; may 404 -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-max-gaming-laptop-16-ak0098nr                                <!-- ak0 SKU (newer) -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-max-gaming-laptop-16-ah0057nr                                <!-- ah0 SKU -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-max-gaming-laptop-16-ak0047nr                                <!-- ak0 SKU (newer) -->
 
 ### HP — Omen Transcend 14
 - brand: hp
 - model_code: omen-transcend-14
 - year: 2026
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-transcend-14-inch-gaming-laptop-pc-pdk-a88y7av-1             <!-- AV-code customizer entry -->
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-transcend-laptop-14-fb1047nr                                 <!-- fb1 SKU -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-transcend-14-inch-gaming-laptop-pc-pdk-a88y7av-1             <!-- AV-code customizer entry -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-transcend-laptop-14-fb1047nr                                 <!-- fb1 SKU -->
 
 ### HP — Omen Transcend 16 (merged target for "Omen Slim 16" per user clarification)
 - brand: hp
 - model_code: omen-transcend-16
 - year: 2026
-- [ ] https://www.hp.com/us-en/shop/pdp/omen-16-inch-gaming-laptop-pc-a59p7av-1                           <!-- jumpid says omen-slim-gaming-lap -->
+- [x] https://www.hp.com/us-en/shop/pdp/omen-16-inch-gaming-laptop-pc-a59p7av-1                           <!-- jumpid says omen-slim-gaming-lap -->
 
 ### Lenovo — LOQ 15 (Gen 11)
 - brand: lenovo
 - model_code: loq-15-gen-11
 - year: 2026
-- [ ] https://psref.lenovo.com/l/Product/LOQ/LOQ_15AHP11?tab=spec                                         <!-- AMD -->
-- [ ] https://psref.lenovo.com/l/Product/LOQ/LOQ_15IPH11?tab=spec                                         <!-- Intel -->
+- [x] https://psref.lenovo.com/l/Product/LOQ/LOQ_15AHP11?tab=spec                                         <!-- AMD -->
+- [x] https://psref.lenovo.com/l/Product/LOQ/LOQ_15IPH11?tab=spec                                         <!-- Intel -->
 
 ### Lenovo — LOQ 15 (Gen 10)
 - brand: lenovo
 - model_code: loq-15-gen-10
 - year: 2025
-- [ ] https://psref.lenovo.com/l/Product/LOQ/LOQ_15IRX10?tab=spec                                         <!-- Intel -->
-- [ ] https://psref.lenovo.com/l/Product/LOQ/LOQ_15AHP10?tab=spec                                         <!-- AMD -->
+- [x] https://psref.lenovo.com/l/Product/LOQ/LOQ_15IRX10?tab=spec                                         <!-- Intel -->
+- [x] https://psref.lenovo.com/l/Product/LOQ/LOQ_15AHP10?tab=spec                                         <!-- AMD -->
 
 ### Lenovo — LOQ 15 (Gen 9)
 - brand: lenovo
 - model_code: loq-15-gen-9
 - year: 2024
-- [ ] https://psref.lenovo.com/l/Product/LOQ/LOQ_15IAX9I?tab=spec                                         <!-- Intel IAX (suffix I) -->
-- [ ] https://psref.lenovo.com/l/Product/LOQ/LOQ_15ARP9?tab=spec                                          <!-- AMD ARP -->
-- [ ] https://psref.lenovo.com/l/Product/LOQ/LOQ_15IRX9?tab=spec                                          <!-- Intel IRX -->
-- [ ] https://psref.lenovo.com/l/Product/LOQ/LOQ_15IAX9?tab=spec                                          <!-- Intel IAX -->
-- [ ] https://psref.lenovo.com/l/Product/LOQ/LOQ_15AHP9?tab=spec                                          <!-- AMD AHP -->
+- [x] https://psref.lenovo.com/l/Product/LOQ/LOQ_15IAX9I?tab=spec                                         <!-- Intel IAX (suffix I) -->
+- [x] https://psref.lenovo.com/l/Product/LOQ/LOQ_15ARP9?tab=spec                                          <!-- AMD ARP -->
+- [x] https://psref.lenovo.com/l/Product/LOQ/LOQ_15IRX9?tab=spec                                          <!-- Intel IRX -->
+- [x] https://psref.lenovo.com/l/Product/LOQ/LOQ_15IAX9?tab=spec                                          <!-- Intel IAX -->
+- [x] https://psref.lenovo.com/l/Product/LOQ/LOQ_15AHP9?tab=spec                                          <!-- AMD AHP -->
 
 ### Lenovo — LOQ 17 (Gen 10)
 - brand: lenovo
 - model_code: loq-17-gen-10
 - year: 2025
-- [ ] https://psref.lenovo.com/l/Product/LOQ/LOQ_17IRX10?tab=spec                                         <!-- Intel -->
+- [x] https://psref.lenovo.com/l/Product/LOQ/LOQ_17IRX10?tab=spec                                         <!-- Intel -->
 
 ### Lenovo — LOQ Essential 15 (Gen 11)
 - brand: lenovo
 - model_code: loq-essential-15-gen-11
 - year: 2026
-- [ ] https://psref.lenovo.com/l/Product/LOQ/LOQ_Essential_15IRX11?tab=spec                               <!-- Intel -->
-- [ ] https://psref.lenovo.com/l/Product/LOQ/LOQ_Essential_15ARP11?tab=spec                               <!-- AMD -->
+- [x] https://psref.lenovo.com/l/Product/LOQ/LOQ_Essential_15IRX11?tab=spec                               <!-- Intel -->
+- [x] https://psref.lenovo.com/l/Product/LOQ/LOQ_Essential_15ARP11?tab=spec                               <!-- AMD -->
 
 ### Lenovo — LOQ Essential 15 (Gen 10)
 - brand: lenovo
 - model_code: loq-essential-15-gen-10
 - year: 2025
-- [ ] https://psref.lenovo.com/l/Product/LOQ/LOQ_15ARP10E?tab=spec                                        <!-- AMD ARP, E suffix = Essential precursor -->
+- [x] https://psref.lenovo.com/l/Product/LOQ/LOQ_15ARP10E?tab=spec                                        <!-- AMD ARP, E suffix = Essential precursor -->
 
 ### Lenovo — LOQ Essential 15 (Gen 9)
 - brand: lenovo
 - model_code: loq-essential-15-gen-9
 - year: 2024
-- [ ] https://psref.lenovo.com/l/Product/LOQ/LOQ_15IAX9E?tab=spec                                         <!-- Intel IAX, E suffix = Essential precursor -->
+- [x] https://psref.lenovo.com/l/Product/LOQ/LOQ_15IAX9E?tab=spec                                         <!-- Intel IAX, E suffix = Essential precursor -->
 
 ### Lenovo — Legion 5 15" (Gen 11)
 - brand: lenovo
 - model_code: legion-5-15-gen-11
 - year: 2026
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_5_15IPH11?tab=spec                                 <!-- Intel IPH -->
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_5_15IAX11?tab=spec                                 <!-- Intel IAX -->
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_5_15AHP11?tab=spec                                 <!-- AMD AHP -->
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_5_15AGP11?tab=spec                                 <!-- AMD AGP -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_5_15IPH11?tab=spec                                 <!-- Intel IPH -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_5_15IAX11?tab=spec                                 <!-- Intel IAX -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_5_15AHP11?tab=spec                                 <!-- AMD AHP -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_5_15AGP11?tab=spec                                 <!-- AMD AGP -->
 
 ### Lenovo — Legion 5 15" (Gen 10)
 - brand: lenovo
 - model_code: legion-5-15-gen-10
 - year: 2025
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_5_15IRX10?tab=spec                                 <!-- Intel IRX -->
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_5_15IAX10?tab=spec                                 <!-- Intel IAX -->
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_5_15AKP10?tab=spec                                 <!-- AMD AKP -->
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_5_15AHP10?tab=spec                                 <!-- AMD AHP -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_5_15IRX10?tab=spec                                 <!-- Intel IRX -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_5_15IAX10?tab=spec                                 <!-- Intel IAX -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_5_15AKP10?tab=spec                                 <!-- AMD AKP -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_5_15AHP10?tab=spec                                 <!-- AMD AHP -->
 
 ### Lenovo — Legion 5 15" (Gen 9)
 - brand: lenovo
 - model_code: legion-5-15-gen-9
 - year: 2024
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_5_15IRX9?tab=spec                                  <!-- Intel IRX -->
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_5_15APH9?tab=spec                                  <!-- AMD APH -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_5_15IRX9?tab=spec                                  <!-- Intel IRX -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_5_15APH9?tab=spec                                  <!-- AMD APH -->
 
 ### Lenovo — Legion 5 16" (Gen 10)
 - brand: lenovo
 - model_code: legion-5-16-gen-10
 - year: 2025
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_5_16IAX10?tab=spec                                 <!-- Intel IAX -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_5_16IAX10?tab=spec                                 <!-- Intel IAX -->
 
 ### Lenovo — Legion 5 16" (Gen 9)
 - brand: lenovo
 - model_code: legion-5-16-gen-9
 - year: 2024
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_5_16IRX9?tab=spec                                  <!-- Intel IRX -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_5_16IRX9?tab=spec                                  <!-- Intel IRX -->
 
 ### Lenovo — Legion Pro 5 16" (Gen 10)
 - brand: lenovo
 - model_code: legion-pro-5-16-gen-10
 - year: 2025
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16IRX10?tab=spec                             <!-- Intel IRX -->
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16IAX10?tab=spec                             <!-- Intel IAX -->
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16IAX10H?tab=spec                            <!-- Intel IAX, H suffix (SKU-trim variant) -->
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16ADR10?tab=spec                             <!-- AMD ADR -->
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16AFR10?tab=spec                             <!-- AMD AFR -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16IRX10?tab=spec                             <!-- Intel IRX -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16IAX10?tab=spec                             <!-- Intel IAX -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16IAX10H?tab=spec                            <!-- Intel IAX, H suffix (SKU-trim variant) -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16ADR10?tab=spec                             <!-- AMD ADR -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16AFR10?tab=spec                             <!-- AMD AFR -->
 
 ### Lenovo — Legion Pro 5 16" (Gen 9)
 - brand: lenovo
 - model_code: legion-pro-5-16-gen-9
 - year: 2024
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16IRX9?tab=spec                              <!-- Intel IRX -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16IRX9?tab=spec                              <!-- Intel IRX -->
 
 ### Lenovo — Legion Pro 5 16" (Gen 8)
 - brand: lenovo
 - model_code: legion-pro-5-16-gen-8
 - year: 2023
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16ARX8?tab=spec                              <!-- AMD ARX -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_5_16ARX8?tab=spec                              <!-- AMD ARX -->
 
 ### Lenovo — Legion 7 16" (Gen 11)
 - brand: lenovo
 - model_code: legion-7-16-gen-11
 - year: 2026
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_7_16AGP11?tab=spec                                 <!-- AMD AGP -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_7_16AGP11?tab=spec                                 <!-- AMD AGP -->
 
 ### Lenovo — Legion 7 16" (Gen 10)
 - brand: lenovo
 - model_code: legion-7-16-gen-10
 - year: 2025
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_7_16IAX10?tab=spec                                 <!-- Intel IAX -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_7_16IAX10?tab=spec                                 <!-- Intel IAX -->
 
 ### Lenovo — Legion 7 16" (Gen 9)
 - brand: lenovo
 - model_code: legion-7-16-gen-9
 - year: 2024
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_7_16IRX9?tab=spec                                  <!-- Intel IRX -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_7_16IRX9?tab=spec                                  <!-- Intel IRX -->
 
 ### Lenovo — Legion Pro 7 16" (Gen 10)
 - brand: lenovo
 - model_code: legion-pro-7-16-gen-10
 - year: 2025
 - [x] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_7_16AFR10H?tab=spec                            <!-- AMD AFR, already in DB (refreshed) -->
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_7_16IAX10H?tab=spec                            <!-- Intel IAX H -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_7_16IAX10H?tab=spec                            <!-- Intel IAX H -->
 
 ### Lenovo — Legion Pro 7 16" (Gen 9)
 - brand: lenovo
 - model_code: legion-pro-7-16-gen-9
 - year: 2024
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_7_16IRX9H?tab=spec                             <!-- Intel IRX H -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_Pro_7_16IRX9H?tab=spec                             <!-- Intel IRX H -->
 
 ### Lenovo — Legion 9 18" (Gen 10)
 - brand: lenovo
 - model_code: legion-9-18-gen-10
 - year: 2025
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_9_18IAX10?tab=spec                                 <!-- Intel IAX, 18" flagship -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_9_18IAX10?tab=spec                                 <!-- Intel IAX, 18" flagship -->
 
 ### Lenovo — Legion 9 16" (Gen 9)
 - brand: lenovo
 - model_code: legion-9-16-gen-9
 - year: 2024
-- [ ] https://psref.lenovo.com/l/Product/Legion/Legion_9_16IRX9?tab=spec                                  <!-- Intel IRX -->
+- [x] https://psref.lenovo.com/l/Product/Legion/Legion_9_16IRX9?tab=spec                                  <!-- Intel IRX -->
 
 ### ASUS — ROG Zephyrus G14 (2026)
 - brand: asus
 - model_code: rog-zephyrus-g14-2026-gu405
 - year: 2026
-- [ ] https://rog.asus.com/us/laptops/rog-zephyrus/rog-zephyrus-g14-2026-gu405/spec/
+- [x] https://rog.asus.com/us/laptops/rog-zephyrus/rog-zephyrus-g14-2026-gu405/spec/
 
 ### ASUS — ROG Zephyrus G14 (2025)
 - brand: asus
 - model_code: rog-zephyrus-g14-2025
 - year: 2025
-- [ ] https://rog.asus.com/us/laptops/rog-zephyrus/rog-zephyrus-g14-2025/spec/
+- [x] https://rog.asus.com/us/laptops/rog-zephyrus/rog-zephyrus-g14-2025/spec/
 
 ### ASUS — ROG Zephyrus G16 (2026)
 - brand: asus
@@ -344,66 +344,66 @@ Add one heading per new product below. For products with multiple config URLs, l
 - brand: asus
 - model_code: rog-zephyrus-g16-2025-gu605
 - year: 2025
-- [ ] https://rog.asus.com/us/laptops/rog-zephyrus/rog-zephyrus-g16-2025-gu605/spec/
+- [x] https://rog.asus.com/us/laptops/rog-zephyrus/rog-zephyrus-g16-2025-gu605/spec/
 
 ### ASUS — ROG Zephyrus Duo 16 (2026)
 - brand: asus
 - model_code: rog-zephyrus-duo-2026
 - year: 2026
-- [ ] https://rog.asus.com/us/laptops/rog-zephyrus/rog-zephyrus-duo-2026/spec/                            <!-- dual-screen flagship -->
+- [x] https://rog.asus.com/us/laptops/rog-zephyrus/rog-zephyrus-duo-2026/spec/                            <!-- dual-screen flagship -->
 
 ### ASUS — TUF Gaming 14 (2026)
 - brand: asus
 - model_code: asus-tuf-gaming-14-2026
 - year: 2026
-- [ ] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a14-2026-fa401ea/techspec/    <!-- AMD A14 -->
+- [x] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a14-2026-fa401ea/techspec/    <!-- AMD A14 -->
 
 ### ASUS — TUF Gaming 14 (2025)
 - brand: asus
 - model_code: asus-tuf-gaming-14-2025
 - year: 2025
-- [ ] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a14-2025/techspec/            <!-- AMD A14 -->
+- [x] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a14-2025/techspec/            <!-- AMD A14 -->
 
 ### ASUS — TUF Gaming 15 (2023)
 - brand: asus
 - model_code: asus-tuf-gaming-15-2023
 - year: 2023
-- [ ] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-f15-2023/techspec/            <!-- Intel F15 -->
-- [ ] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a15-2023/techspec/            <!-- AMD A15 -->
+- [x] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-f15-2023/techspec/            <!-- Intel F15 -->
+- [x] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a15-2023/techspec/            <!-- AMD A15 -->
 
 ### ASUS — TUF Gaming 16 (2026)
 - brand: asus
 - model_code: asus-tuf-gaming-16-2026
 - year: 2026
-- [ ] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-f16-2026/techspec/            <!-- Intel F16 -->
+- [x] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-f16-2026/techspec/            <!-- Intel F16 -->
 
 ### ASUS — TUF Gaming 16 (2025)
 - brand: asus
 - model_code: asus-tuf-gaming-16-2025
 - year: 2025
-- [ ] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-f16-2025/techspec/            <!-- Intel F16 -->
-- [ ] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a16-2025/techspec/            <!-- AMD A16 -->
+- [x] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-f16-2025/techspec/            <!-- Intel F16 -->
+- [x] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a16-2025/techspec/            <!-- AMD A16 -->
 
 ### ASUS — TUF Gaming 16 (2024)
 - brand: asus
 - model_code: asus-tuf-gaming-16-2024
 - year: 2024
-- [ ] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-f16-2024/techspec/            <!-- Intel F16 -->
-- [ ] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a16-2024/techspec/            <!-- AMD A16 -->
-- [ ] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a16-2024-fa608/techspec/      <!-- AMD A16 SKU variant (fa608) -->
+- [x] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-f16-2024/techspec/            <!-- Intel F16 -->
+- [x] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a16-2024/techspec/            <!-- AMD A16 -->
+- [x] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a16-2024-fa608/techspec/      <!-- AMD A16 SKU variant (fa608) -->
 
 ### ASUS — TUF Gaming 17 (2023)
 - brand: asus
 - model_code: asus-tuf-gaming-17-2023
 - year: 2023
-- [ ] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-f17-2023/techspec/            <!-- Intel F17 -->
-- [ ] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a17-2023/techspec/            <!-- AMD A17 -->
+- [x] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-f17-2023/techspec/            <!-- Intel F17 -->
+- [x] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a17-2023/techspec/            <!-- AMD A17 -->
 
 ### ASUS — TUF Gaming 18 (2025)
 - brand: asus
 - model_code: asus-tuf-gaming-18-2025
 - year: 2025
-- [ ] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a18-2025/techspec/            <!-- AMD A18 (scope add: not on original list) -->
+- [x] https://www.asus.com/us/laptops/for-gaming/tuf-gaming/asus-tuf-gaming-a18-2025/techspec/            <!-- AMD A18 (scope add: not on original list) -->
 
 > **NOTE:** ASUS entries below are grouped by (size, year) per user preference, but until ASUS `family_code` support lands (deferred T9.3, see TASKS.md), refresh will create one DB row per URL slug. Multiple-URL ASUS groupings (e.g. TUF 16 2025 = F16+A16 URLs, Strix G16 2025 = g614+non-g614 URLs) will temporarily appear as separate DB rows; they fold into the grouped products once T9.3 ships.
 
@@ -418,50 +418,50 @@ Add one heading per new product below. For products with multiple config URLs, l
 - brand: asus
 - model_code: rog-strix-g16-2025
 - year: 2025
-- [ ] https://rog.asus.com/us/laptops/rog-strix/rog-strix-g16-2025-g614/spec/                             <!-- with g614 internal code -->
-- [ ] https://rog.asus.com/us/laptops/rog-strix/rog-strix-g16-2025/spec/
+- [x] https://rog.asus.com/us/laptops/rog-strix/rog-strix-g16-2025-g614/spec/                             <!-- with g614 internal code -->
+- [x] https://rog.asus.com/us/laptops/rog-strix/rog-strix-g16-2025/spec/
 
 ### ASUS — ROG Strix G18 (2026)
 - brand: asus
 - model_code: rog-strix-g18-2026
 - year: 2026
-- [ ] https://rog.asus.com/us/laptops/rog-strix/rog-strix-g18-2026/spec/                                  <!-- /spec/ auto-appended -->
+- [x] https://rog.asus.com/us/laptops/rog-strix/rog-strix-g18-2026/spec/                                  <!-- /spec/ auto-appended -->
 
 ### ASUS — ROG Strix G18 (2025)
 - brand: asus
 - model_code: rog-strix-g18-2025
 - year: 2025
-- [ ] https://rog.asus.com/us/laptops/rog-strix/rog-strix-g18-2025-g814/spec/                             <!-- g814 internal -->
+- [x] https://rog.asus.com/us/laptops/rog-strix/rog-strix-g18-2025-g814/spec/                             <!-- g814 internal -->
 
 ### ASUS — ROG Strix Scar 16 (2025)
 - brand: asus
 - model_code: rog-strix-scar-16-2025
 - year: 2025
-- [ ] https://rog.asus.com/us/laptops/rog-strix/rog-strix-scar-16-2025/spec/
+- [x] https://rog.asus.com/us/laptops/rog-strix/rog-strix-scar-16-2025/spec/
 
 ### ASUS — ROG Strix Scar 18 (2026)
 - brand: asus
 - model_code: rog-strix-scar-18-2026
 - year: 2026
-- [ ] https://rog.asus.com/us/laptops/rog-strix/rog-strix-scar-18-2026/spec/
+- [x] https://rog.asus.com/us/laptops/rog-strix/rog-strix-scar-18-2026/spec/
 
 ### ASUS — ROG Strix Scar 18 (2025)
 - brand: asus
 - model_code: rog-strix-scar-18-2025
 - year: 2025
-- [ ] https://rog.asus.com/us/laptops/rog-strix/rog-strix-scar-18-2025/spec/
+- [x] https://rog.asus.com/us/laptops/rog-strix/rog-strix-scar-18-2025/spec/
 
 ### ASUS — V16 (V3607)
 - brand: asus
 - model_code: asus-v16-v3607
 - year: 2026
-- [ ] https://www.asus.com/us/laptops/for-gaming/all-series/asus-v16-v3607/techspec/                      <!-- mainstream gaming line, www.asus.com -->
+- [x] https://www.asus.com/us/laptops/for-gaming/all-series/asus-v16-v3607/techspec/                      <!-- mainstream gaming line, www.asus.com -->
 
 ### ASUS — ROG Flow Z13 (2025)
 - brand: asus
 - model_code: rog-flow-z13-2025
 - year: 2025
-- [ ] https://rog.asus.com/us/laptops/rog-flow/rog-flow-z13-2025/spec/                                    <!-- Z13 only; X13 not on lineup -->
+- [x] https://rog.asus.com/us/laptops/rog-flow/rog-flow-z13-2025/spec/                                    <!-- Z13 only; X13 not on lineup -->
 
 > **NOTE (Acer year decoder):** Acer is Tier 2 (no scraper yet — deferred per `scrapers-lib` upstream). URLs below are parking-lot provenance; no refresh fires today. `#pdpSpecs` fragments jump the browser to the spec panel. Grouped by family variant from URL slug, not year.
 >
