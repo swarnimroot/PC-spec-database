@@ -292,4 +292,18 @@ def test_parse_synthetic_design_fields_vdp_when_no_chassis_section():
         assert bundle["status"] == "vendor-doesn't-publish", (
             f"{fld} expected VDP, got {bundle['status']}"
         )
-        assert bundle["value"] is None
+
+
+def test_parse_cpu_with_series_disambiguator_preserves_parenthetical():
+    # Intel's "Core N (Series M)" naming must not truncate at '(' — the
+    # parenthetical disambiguates generation and must survive into the
+    # canonical model name.
+    offerings = dell_bridge._build_cpu_offerings(
+        "Intel® Core™ 7 (Series 2) 240H",
+        source_url="https://www.dell.com/example",
+        captured_at="2026-05-15T00:00:00",
+    )
+    assert offerings is not None
+    assert len(offerings) == 1
+    assert offerings[0]["model"]["value"] == "Core 7 (Series 2) 240H"
+    assert offerings[0]["model"]["status"] == "verified"

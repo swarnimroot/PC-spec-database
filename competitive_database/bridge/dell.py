@@ -253,12 +253,13 @@ def _strip_tm(text: str) -> str:
 # Recognized CPU name forms, after stripping trademark symbols:
 #   "Intel Core Ultra 9 285HX"
 #   "Intel Core Ultra 9 processor 290HX Plus"
+#   "Intel Core 7 (Series 2) 240H"
 #   "Intel Core i9-14900HX"
 #   "AMD Ryzen 9 9955HX3D"
 #   "AMD Ryzen AI 9 HX 370"
 _CPU_NAME_RE = re.compile(
     r"(?:Intel\s+)?"
-    r"(?:Core\s+(?:Ultra\s+)?(?:[i]?\d{1,2})(?:\s+processor)?\s+\S+(?:\s+Plus)?"
+    r"(?:Core\s+(?:Ultra\s+)?(?:[i]?\d{1,2})(?:\s+\(Series\s+\d+\))?(?:\s+processor)?\s+\S+(?:\s+Plus)?"
     r"|Core\s+[i]\d-\d{4,5}\w*"
     r"|AMD\s+Ryzen\s+(?:AI\s+)?\d+\s+\S+(?:\s+\d+)?"
     r"|Ryzen\s+(?:AI\s+)?\d+\s+\S+(?:\s+\d+)?)",
