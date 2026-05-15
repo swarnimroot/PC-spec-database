@@ -90,8 +90,19 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
     sub_brand = _derive_asus_sub_brand(snapshot.title or "", snapshot.url or "")
     series = _derive_asus_series(snapshot.title or "", snapshot.url or "")
 
+    # ASUS TUF Intel/AMD merge: family_code groups F/A variants of the
+    # same laptop; arch_marker attributes each board to its CPU vendor.
+    # Unparseable slugs (e.g., ROG) leave both ``None`` and the runner
+    # skips the merge dispatch for this product.
+    family_code, arch_marker = _derive_asus_family_and_arch(model_code)
+
     cand = CandidateProduct(model_code=model_code, year=year)
     cand.year_was_inferred = year_inferred
+    cand.family_code = family_code
+    if family_code is not None:
+        # Single-element list — merge ingest (M4) extends it across
+        # snapshots that share the same family_code.
+        cand.source_model_codes = [model_code]
 
     # vendor_full_name carries the meaningful identity provenance. If the
     # year was inferred from fetched_at (not the title/URL), flag the
@@ -134,6 +145,13 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
     # --- GPU + boards ---------------------------------------------------
     gpu_text = specs.get("Graphics")
     cand.boards = _build_boards(gpu_text, source_url, captured_at)
+
+    # Stamp arch_marker on every board in this snapshot — all boards in
+    # one ASUS TUF snapshot share one arch (CPU vendor is a property of
+    # the slug, not per-board). Absent when arch_marker is None.
+    if arch_marker is not None and cand.boards:
+        for board in cand.boards:
+            board["arch_marker"] = arch_marker
 
     # --- Memory ---------------------------------------------------------
     mem_text = specs.get("Memory")
@@ -301,6 +319,49 @@ def _derive_asus_model_code(title: str, url: str) -> str:
     if title:
         return re.sub(r"[^a-z0-9-]+", "-", title.lower()).strip("-")
     return ""
+
+
+# ASUS multi-SKU Intel/AMD merge: TUF Gaming publishes Intel and AMD
+# variants at distinct URLs (``asus-tuf-gaming-f16-2025`` /
+# ``asus-tuf-gaming-a16-2025``); the letter immediately before the size
+# digits is the CPU-vendor signal. Stripping it collapses both onto one
+# family_code. ROG slugs (``rog-zephyrus-g16-2026``) reuse ``g`` / ``m``
+# as series letters (NOT variant markers), so the merge is anchored on
+# the family-line prefix — only slugs whose prefix is in
+# ``_ASUS_FAMILY_LINE_PREFIXES`` are considered. Adding a new family
+# line that uses the F/A convention is a single allowlist append; no
+# per-product entries ever needed.
+_ASUS_FAMILY_LINE_PREFIXES = (
+    "asus-tuf-gaming",
+)
+_ASUS_VARIANT_SLUG_RE = re.compile(
+    r"^(?P<line>"
+    + "|".join(re.escape(p) for p in _ASUS_FAMILY_LINE_PREFIXES)
+    + r")-(?P<variant>[fa])(?P<size>\d{2})-(?P<year>\d{4})$"
+)
+_ASUS_VARIANT_TO_ARCH = {"f": "intel", "a": "amd"}
+
+
+def _derive_asus_family_and_arch(
+    model_code: str,
+) -> tuple[Optional[str], Optional[str]]:
+    """Derive ``(family_code, arch_marker)`` from an ASUS slug-form model_code.
+
+    Matches TUF Gaming F/A pairs (``asus-tuf-gaming-f16-2025`` /
+    ``-a16-2025``) and returns the arch-agnostic family_code plus
+    ``intel``/``amd`` marker. Returns ``(None, None)`` for slugs that
+    don't match a known family-line variant pattern (e.g., ROG slugs,
+    where the URL doesn't encode a CPU-vendor signal). Caller leaves
+    both fields ``None`` on the candidate; ingest runner skips merge.
+    """
+    if not model_code:
+        return None, None
+    m = _ASUS_VARIANT_SLUG_RE.match(model_code)
+    if m is None:
+        return None, None
+    family = f"{m.group('line')}-{m.group('size')}-{m.group('year')}"
+    arch_marker = _ASUS_VARIANT_TO_ARCH[m.group("variant")]
+    return family, arch_marker
 
 
 # Sub-brand → recognized name patterns. Order matters: more specific first.

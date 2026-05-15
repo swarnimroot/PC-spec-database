@@ -523,3 +523,48 @@ def test_derive_model_code_www_techspec_v_series():
         "asus-v16-v3607/techspec/"
     )
     assert asus_bridge._derive_asus_model_code("", url) == "asus-v16-v3607"
+
+
+# ---------------------------------------------------------------------------
+# Multi-SKU merge: TUF Intel/AMD family_code + arch_marker derivation
+# ---------------------------------------------------------------------------
+
+
+def test_derive_family_and_arch_tuf_f16_returns_intel():
+    family, arch = asus_bridge._derive_asus_family_and_arch("asus-tuf-gaming-f16-2025")
+    assert family == "asus-tuf-gaming-16-2025"
+    assert arch == "intel"
+
+
+def test_derive_family_and_arch_tuf_a16_returns_amd():
+    family, arch = asus_bridge._derive_asus_family_and_arch("asus-tuf-gaming-a16-2025")
+    assert family == "asus-tuf-gaming-16-2025"
+    assert arch == "amd"
+
+
+def test_derive_family_and_arch_tuf_f17_different_size_collapses_correctly():
+    # Confirms the regex generalizes across screen sizes — adding a TUF
+    # F17/A17 pair tomorrow needs zero code changes.
+    family_f, _ = asus_bridge._derive_asus_family_and_arch("asus-tuf-gaming-f17-2025")
+    family_a, _ = asus_bridge._derive_asus_family_and_arch("asus-tuf-gaming-a17-2025")
+    assert family_f == family_a == "asus-tuf-gaming-17-2025"
+
+
+def test_derive_family_and_arch_rog_zephyrus_returns_none():
+    # ROG slugs use ``g``/``m`` as series letters, NOT Intel/AMD markers
+    # — must not be treated as a merge pair.
+    family, arch = asus_bridge._derive_asus_family_and_arch("rog-zephyrus-g16-2026")
+    assert family is None
+    assert arch is None
+
+
+def test_derive_family_and_arch_empty_model_code_returns_none():
+    assert asus_bridge._derive_asus_family_and_arch("") == (None, None)
+
+
+def test_derive_family_and_arch_tuf_without_fa_returns_none():
+    # A TUF slug missing the F/A letter (degenerate / hypothetical) must
+    # not be treated as a merge pair — there's no variant signal to strip.
+    family, arch = asus_bridge._derive_asus_family_and_arch("asus-tuf-gaming-16-2025")
+    assert family is None
+    assert arch is None
