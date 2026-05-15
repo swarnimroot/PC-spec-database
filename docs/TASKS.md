@@ -6,15 +6,15 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 
 ## Active
 - T9.2 Display canonicalizer in `views/formatting.py` — per-field rule lookup + opt-in via `field_path` kwarg on `display_value`; one rule today (`panel_type` "IPS-level"→"IPS"); wired into `ui/find.py` dropdown + cell-match — Session 37
+- Stage 10 — UX/UI redesign — full rethink of Streamlit frontend (user: current visuals "not good even at initial stages"); brainstorm-first per S42 roadmap, no committed substages yet — Session 42
 
 ## Next
 - (empty — Stage 9 candidates surface as daily use reveals more dropdown variants or filter friction)
 
 ## Deferred
-- T9.6 `cli/resolve.py` `accept_candidate` on `catalog_text` paths fails when `candidate_value` is bundled dict (e.g. `{"value":"8"}`) — `_apply_action` passes the dict to `write_catalog_text_at_path` which raises `sqlite3.ProgrammingError`. Workaround: `manual_override --value <int>`. Filed Session 40 — hit on ASUS cpu_catalog cores resolves
-- T9.5 `bridge/dell.py` CPU model truncation at `(` — Dell PDP strings like `"Intel® Core™ 7 Processor (Series 2) 240H"` parsed to `"Core 7 (Series"`. Filed Session 40 — repaired ac16250 in-place; orphan catalog rows DELETEd
 - T9.4 Dell `snapshot.options` consumption — bridge to surface scrapers-lib v1.5.0 configurator options (CPU/GPU/RAM/Storage/Display/Keyboard/Battery/Adapter/OS) as additional offering rows; fetcher flag wired Session 39 but bridge doesn't read the field yet
-- T9.3 ASUS `family_code` support — mirror Lenovo T7.0a/b cross-SKU merge for ASUS (F/A CPU variants, internal SKU codes like `fa608`). Without it, each ASUS URL becomes its own DB row; populate-sprint groupings in POPULATION_QUEUE.md (e.g. TUF 16 2025 = 1 product from F16+A16 URLs) won't actually union at refresh. Discovered Session 38 during populate sprint
+- ASUS TUF URL template in `cli/refresh.py` — `refresh --from-db` on `asus-tuf-gaming-*` model_codes won't auto-build URLs (no `www.asus.com/.../tuf-gaming/{slug}/techspec/` template); gated on user adding first TUF product to DB — Session 42
+- Stage 11 — Database hierarchy layer — user wants to add another product-hierarchy layer; not fully thought through, brainstorm-first; surface proactively when Stage 10 closes — Session 42
 - T7.0d Keyboard structured offerings split — Session 19
 - T8.8 (c) Refresh-targets enumeration dedup (`ui/refresh.py:104-152` ↔ `cli/refresh.py:334-374` near-duplicate planning loops) — gated on a third caller surfacing per Session 33 Decision #8 (rule-of-three convention) — Session 35
 - T8.8 (d) Cross-product URL dedup in refresh `--all` (`cli/refresh.py:709-715`'s `_collect_source_urls_from_product` dedups per-call only) — gated on a shared URL pattern emerging across products — Session 35

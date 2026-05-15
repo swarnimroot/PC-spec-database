@@ -6,6 +6,61 @@ Newest sessions at the top.
 
 ---
 
+## Session 42 — 2026-05-15 (Code bucket cleared: T9.5 Dell CPU regex preserves `(Series N)`; T9.6 `resolve` unwraps `{"value": ...}` bundle; ASUS TUF multi-SKU rollup with zero per-product hardcoding; 349/349 green)
+
+**Goal:** User re-ordered the remaining roadmap at session start: (1) close the code bucket — ASUS multi-SKU rollup plus open bugs T9.5 + T9.6; (2) full UX/UI redesign of the Streamlit frontend (current visuals "not good even at initial stages"); (3) database hierarchy layer brainstorm post-UX; (4) Acer + MSI ingestion last; (5) Phase 3 deprioritized, possibly dropped. Manual-review backlog (229 Lenovo queue rows deferred from S40) parked indefinitely. This session executes step (1); the rest carries forward.
+
+**Outcome:** All three code-bucket items shipped, all small-to-medium scope, no new dependencies.
+
+- **T9.5 (Dell CPU regex).** Intel's new naming form "Core 7 (Series 2) 240H" truncated at `(` because the regex's `\S+` greedily captured `(Series` as the model code and stopped there. `_CPU_NAME_RE` in `bridge/dell.py` gained an optional `(?:\s+\(Series\s+\d+\))?` segment between the digit and model suffix. Parenthetical preserved in the canonical name — it disambiguates Intel generations, dropping it would conflate Series 1 and Series 2 chips into the same catalog key.
+- **T9.6 (`resolve` catalog_text dict-unwrap).** `ingest/catalog_resolve.py::_enqueue_catalog_disagreement` stores catalog disagreement candidates as `json.dumps({"value": <new>})` (wrapped form), but `cli/resolve.py::_apply_action`'s `accept_candidate` branch passed the decoded dict straight to `write_catalog_text_at_path`, which binds to a SQL string column → `sqlite3.ProgrammingError`. Defensive unwrap added at the consumer (`isinstance(decoded, dict) and "value" in decoded`); producer left intact so the 229 parked Lenovo queue rows keep their existing wrapped shape until manual review resumes.
+- **ASUS TUF multi-SKU rollup (T9.3).** New `_derive_asus_family_and_arch` in `bridge/asus.py`. TUF F/A pairs (`asus-tuf-gaming-f16-2025` / `-a16-2025`) collapse to family_code `asus-tuf-gaming-16-2025` with `arch_marker` `"intel"` / `"amd"`. `parse()` stamps `cand.family_code`, `cand.source_model_codes = [model_code]`, and per-board `arch_marker` when the slug matches. Vendor-agnostic ingest layer (`ingest/runner.py` + `cli/refresh.py:250-251` family_code coercion) already in place from Lenovo's T7.0a — no runner changes needed. Two-arch merge in a single ingest batch produces one row with two distinct-arch boards (test confirms).
+
+**Pre-flight constraint from user (mid-session):** "no hard-coding anything where if I add future products, the code should be already set up to do the multi-sku-rollup and not need to do it for each product." Met by parameterizing the regex over a 1-entry allowlist (`_ASUS_FAMILY_LINE_PREFIXES = ("asus-tuf-gaming",)`); regex auto-composes from the tuple. New TUF F17 / A17 / future-year variants ingest correctly with **zero code changes**. Adding a hypothetical second family line that uses the F/A convention is a single allowlist append. ROG slugs (`rog-zephyrus-g16-2026` — `G` is the series letter, not a CPU-vendor marker) intentionally return `(None, None)` so the runner skips merge dispatch.
+
+### Decisions made this session
+
+1. **Roadmap re-ordered with the manual-review backlog parked indefinitely.** Order: code bucket → UX redesign → database hierarchy brainstorm → Acer/MSI → maybe Phase 3. User: "Acer + MSI ingestion for the end once we have the complete working project how I want it to be." Captured in `roadmap_priority.md` (auto-memory), referenced from `MEMORY.md`. Surfaces in every future session's system prompt.
+
+2. **T9.6 fix landed at the consumer (`cli/resolve.py`), not the producer (`ingest/catalog_resolve.py`).** Flipping the producer to store plain text would require a one-off migration over the 229 parked Lenovo queue rows whose `candidate_value` already carries the `{"value": "..."}` shape. Defensive unwrap leaves the parked data intact and doesn't block manual review when it resumes.
+
+3. **ASUS `arch_marker` uses simple `"intel"` / `"amd"` (not Lenovo-style combined `"intel-nvidia"` / `"amd-radeon"`).** The TUF slug encodes CPU-vendor signal only; GPU side isn't in the URL. Board merge identity is `(label, arch_marker, frozenset of GPU names)` — bare `"intel"` / `"amd"` keeps Intel and AMD boards distinct, matches what's actually in the slug, and avoids false precision. GPU disambiguation already happens via the board's `gpus` list at view time.
+
+4. **ASUS family-line allowlist over a per-line if/elif tree.** Even with one entry today, the regex composes from `_ASUS_FAMILY_LINE_PREFIXES = ("asus-tuf-gaming",)` via `re.escape` + `|` join. A hypothetical future line that uses the same F/A convention is a one-line allowlist append, no other code changes. Mirrors Lenovo's `_LENOVO_FAMILY_LINE_PREFIXES` shape (7 entries today). User constraint: no per-product hardcoding — met.
+
+5. **ASUS bridge owns the variant signal in the URL slug; no internal-SKU parsing.** TUF publishes Intel and AMD at distinct URLs whose slugs carry the F/A letter directly (`-f16-` vs `-a16-`). No need to parse internal SKU codes off the rendered page (`G614F` vs `G614A` style) — the URL-level signal is deterministic and earlier in the pipeline. ROG slugs do NOT carry the same signal (per-CPU variants live behind dropdowns on a single URL), so ROG sits outside this merge — confirmed with user before coding (the only design question that needed user input).
+
+6. **TUF URL template in `cli/refresh.py` deferred.** Bridge + ingest layer is complete; merge happens correctly given any pair of TUF snapshots. The remaining gap is that `refresh --from-db model_code=asus-tuf-gaming-*` won't auto-construct the techspec URL because the existing refresh.py URL templates only cover ROG (`rog.asus.com/.../{slug}/spec/`). Filed in TASKS Deferred — re-open when the user wants to add the first TUF product.
+
+7. **`CandidateProduct.family_code` / `source_model_codes` docstring generalized from Lenovo-specific to vendor-agnostic.** The field shape was always vendor-agnostic; the comment was misleading. Both Lenovo and ASUS TUF examples now appear in the docstring. No functional change.
+
+8. **Database hierarchy layer noted as a planned post-UX brainstorm.** User mid-session: "another layer to product hierarchy, remind me later. I haven't completely thought of that, need to brainstorm." Stored in `roadmap_priority.md` step 3 with explicit "surface proactively when Stage 10 (UX redesign) closes" handle. Also seeded in TASKS Deferred as Stage 11 for doc discoverability.
+
+### Files added / changed
+
+- **Code:**
+  - `competitive_database/bridge/dell.py` — `_CPU_NAME_RE` extended with `(?:\s+\(Series\s+\d+\))?` between the digit and model suffix; docstring example list adds `"Intel Core 7 (Series 2) 240H"`.
+  - `competitive_database/cli/resolve.py` — `_apply_action` `accept_candidate` / `catalog_text` branch unwraps `{"value": ...}` to a plain string before `write_catalog_text_at_path`. One-line comment cites the producer site so a future reader can trace it.
+  - `competitive_database/bridge/asus.py` — new `_ASUS_FAMILY_LINE_PREFIXES`, `_ASUS_VARIANT_SLUG_RE` (regex composed from the allowlist), `_ASUS_VARIANT_TO_ARCH`, and `_derive_asus_family_and_arch(model_code)`. `parse()` stamps `cand.family_code` / `cand.source_model_codes` / per-board `arch_marker` when the derivation returns non-None.
+  - `competitive_database/bridge/types.py` — `family_code` / `source_model_codes` docstring generalized; cites both Lenovo and ASUS TUF as concrete examples.
+- **Tests added:**
+  - `tests/bridge/test_dell.py::test_parse_cpu_with_series_disambiguator_preserves_parenthetical` — end-to-end through `_build_cpu_offerings` against `"Intel® Core™ 7 (Series 2) 240H"`; asserts canonical model `"Core 7 (Series 2) 240H"`, status `verified`.
+  - `tests/cli/test_resolve.py::test_resolve_accept_candidate_catalog_text_unwraps_bundled_value` + new `_seed_catalog_text_disagreement` helper — synthesized catalog disagreement row with wrapped `{"value": "24"}` candidate; `accept_candidate` must write plain string `"24"` to `cpu_catalog.cores`.
+  - `tests/bridge/test_asus.py` — six derivation unit tests (F16 → intel, A16 → amd, F17/A17 collapse, ROG returns None, empty model_code, TUF without F/A).
+  - `tests/ingest/test_asus_merge.py` (NEW, mirrors `test_lenovo_merge.py` structure) — two end-to-end merge tests: single Intel snapshot stamps family_code + source_model_codes + arch_marker correctly; Intel + AMD in same batch produces one row with two distinct-arch boards, source_model_codes carries both slugs.
+- **Docs changed:**
+  - `README.md` — test count 339 → 349; Stage 9 paragraph gains a closing sentence noting Session 42 closures (T9.5 / T9.6 / T9.3).
+  - `docs/TASKS.md` — T9.5 / T9.6 / T9.3 removed from Deferred (done; narrative here). Stage 10 (UX/UI redesign) added to Active. ASUS TUF URL template + Stage 11 (DB hierarchy brainstorm) added to Deferred.
+  - `docs/SESSION_LOG.md` — this entry.
+
+### Carryforward / pickup pointers
+
+- **Next session focus:** Stage 10 UX/UI redesign. User wants brainstorm-first — current Streamlit visuals "not good even at initial stages." Don't jump to code; start by walking the existing UI surface (`competitive_database/ui/`: `hub.py`, `browse.py`, `compare.py`, `find.py`, `triage.py`, `edit.py`, `refresh.py`), surface what's specifically painful per screen, then brainstorm direction collaboratively.
+- **DB state unchanged this session.** 76 products / 4 vendors / 229 unresolved queue rows (Lenovo, parked). 349/349 tests.
+- **Roadmap memory** (`roadmap_priority.md`) is the source of truth on session-to-session priority. Surfaces in MEMORY.md.
+
+---
+
 ## Session 41 — 2026-05-14 (Browse-one-product UI refresh: cascading Company → Product → Year picker + Section/Feature/Value table; `ui --base-path` flag for reverse-proxy hosting; 339/339 green)
 
 **Goal:** Replace `ui/browse.py`'s wall-of-text orchestrator dump (one giant colored `<pre>` block with every field inlined) with a cleaner picker + table layout per user direction — "dropdowns should be Company → Product → Year, and the data in a good-looking easy-to-read table with section, feature and value as columns." Side ask later in the session: the launcher needs to support being served behind a reverse proxy at a non-root URL path.
