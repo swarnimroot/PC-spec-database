@@ -284,6 +284,11 @@ def _apply_action(
                 if row["candidate_value"] is not None
                 else None
             )
+            # Catalog disagreement rows wrap the value as {"value": "..."}
+            # (see ingest/catalog_resolve.py::_enqueue_catalog_disagreement);
+            # unwrap before writing so sqlite3 receives a plain string.
+            if isinstance(decoded, dict) and "value" in decoded:
+                decoded = decoded["value"]
             write_catalog_text_at_path(conn, parsed, decoded)
         elif parsed.kind == "products_offering_list":
             # Column-level offering diffs: candidate_value holds the full

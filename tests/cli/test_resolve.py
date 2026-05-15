@@ -697,3 +697,84 @@ def test_resolve_accept_new_chip_missing_catalog_row_errors(tmp_path):
     with pytest.raises(SystemExit) as exc:
         resolve.main(args)
     assert "no cpu_catalog row" in str(exc.value)
+
+
+def _seed_catalog_text_disagreement(
+    conn,
+    *,
+    table: str,
+    model: str,
+    column: str,
+    existing_val: str,
+    candidate_val: str,
+) -> int:
+    conn.execute(
+        f"INSERT INTO {table} (model, {column}, catalog_status) VALUES (?, ?, ?)",
+        (model, existing_val, "vouched"),
+    )
+    field_path = f"{table}.{model}.{column}"
+    cur = conn.execute(
+        """
+        INSERT INTO review_queue (
+            product_model_code, product_year, field_path, conflict_type,
+            existing_value, existing_provenance,
+            candidate_value, candidate_provenance, detected_at
+        )
+        VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)
+        """,
+        (
+            _PK["model_code"],
+            _PK["year"],
+            field_path,
+            "value_disagreement",
+            json.dumps({"value": existing_val}),
+            json.dumps({"value": candidate_val}),
+            json.dumps(_scraped(candidate_val)),
+            "2026-05-15T00:00:00+00:00",
+        ),
+    )
+    return cur.lastrowid
+
+
+def test_resolve_accept_candidate_catalog_text_unwraps_bundled_value(tmp_path):
+    # Catalog disagreement rows store candidate_value as JSON-encoded
+    # {"value": "..."} (see ingest/catalog_resolve.py::_enqueue_catalog_disagreement).
+    # accept_candidate must unwrap the dict to a plain string before
+    # writing the catalog cell, or sqlite3 rejects the dict bind (T9.6).
+    conn = _fresh_db(tmp_path)
+    try:
+        with transaction(conn):
+            qid = _seed_catalog_text_disagreement(
+                conn,
+                table="cpu_catalog",
+                model="Core Ultra 9 285HX",
+                column="cores",
+                existing_val="16",
+                candidate_val="24",
+            )
+    finally:
+        conn.close()
+
+    args = argparse.Namespace(
+        id=qid,
+        action="accept_candidate",
+        value=None,
+        value_json=None,
+        note="vendor updated cores count",
+        entered_by=None,
+        db=str(tmp_path / "rs.db"),
+    )
+    resolve.main(args)
+
+    conn = connect(tmp_path / "rs.db")
+    try:
+        row = conn.execute(
+            "SELECT cores FROM cpu_catalog WHERE model = ?",
+            ("Core Ultra 9 285HX",),
+        ).fetchone()
+        qrow = _resolved_row(conn, qid)
+    finally:
+        conn.close()
+
+    assert row["cores"] == "24"
+    assert qrow["resolution"] == "accepted_candidate"
