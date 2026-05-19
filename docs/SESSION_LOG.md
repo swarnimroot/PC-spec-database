@@ -6,6 +6,159 @@ Newest sessions at the top.
 
 ---
 
+## Session 43 — 2026-05-19 (Stage 10a UI redesign — eight phases A–H; +2 data-model extensions: `manual` real third bundle status, `source_url` on manual bundles; 339 → 349 tests green)
+
+**Goal:** Brainstorm + execute Stage 10 UX/UI redesign per the user's direction at the close of Session 42 — current Streamlit visuals "not good even at initial stages." Brainstorm-first per the locked S42 roadmap; lock visual identity, mockups for all 6 screens (Hub / Browse / Compare / Find / Edit / Refresh), then implement.
+
+**Outcome:** **Stage 10a — Visual polish: COMPLETE.** Eight phases (A foundation, B Hub, C Browse, D Compare, E Find, F Edit, G Refresh, H cleanup) shipped under one editorial-spec-sheet visual identity. Two unplanned data-model extensions shipped mid-stream — `manual` promoted to a real third bundle status (no schema migration), and `source_url` now persisted on manual provenance bundles. Tests 339 → 349 (peaked at 364 mid-Stage; settled 349 after Phase G's obsolete-test prune).
+
+### Brainstorm phase (earlier in this session)
+
+- **Visual direction locked = Option B "editorial spec-sheet"** over Option A "operator console." Reference feel: Notion home / Stripe dashboard / Apple spec page — light palette, generous whitespace, descriptive card-based CTAs, calmer hierarchy. Rejected: dark dense "Linear / Vercel" data-tool style (would have read smaller to the team-leader audience). Density caveat baked in: editorial style applies to chrome + entry surfaces; working data surfaces (Compare grid, Browse table, Find results) inherit palette/type/chrome but ramp density up on the actual tables.
+- **App name placeholder = "Spec Compass"** (not committed to; can swap any time).
+- **Chrome shape locked:** top-bar nav with logo + 3 hero links (Browse / Compare / Find) + `···` overflow for utilities (Edit / Refresh). No sidebar. Minimal footer; no internal task IDs (current screens leaked `Stage 8 / Phase 2 UI · T8.X`; must not carry into the redesign).
+- **Mockups approved** for all 6 screens via the project's ASCII preview-mockup convention.
+- **Stage 10 substages locked:** 10a visual polish → 10b data display cleanup field by field → 10c review queue redesign. Triage parked through 10a + 10b.
+
+### Phase A — Foundation
+
+- New `competitive_database/ui/theme.py` — `PALETTE` / `SPACE` / `RADIUS` / `TYPE` design tokens + `inject_global_css()`. Marker color values moved into `theme.PALETTE["markers"]`; `_markers.py` re-exports the back-compat constants.
+- New `competitive_database/ui/_chrome.py` — `render_header(active)` top-bar nav + `render_footer()` thin divider.
+- New `competitive_database/ui/_components.py` — placeholder seeded with refined `dot_marker`.
+- New `.streamlit/config.toml` — light-theme defaults.
+- `ui/app.py` wires chrome above every route + sets the editorial page title.
+- **Mid-phase legibility patch:** swapped hex literals in `browse.py` / `compare.py` / `find.py` / `triage.py` for `theme.PALETTE` references; identity strip in browse flipped from dark navy to light.
+- **Palette darken pass for warm-bg legibility:** `text_muted` #6b7280→#4b5563, `text_faint` #9ca3af→#6b7280, `markers.empty` #cbd5d1→#94a3b8, `markers.vendor_no_publish` #9ca3af→#6b7280.
+
+### Phase B — Hub migration
+
+- `hub.py` full rewrite per mockup: hero line + 3 rounded metric tiles (products / vendors / days since refresh) + 3 rounded CTA cards (Browse / Compare / Find) with primary `Open →` buttons.
+- **Dropped the Review-queue metric** (triage parked through Stage 10a; resurfaces in 10c).
+- Dropped the `Stage 8 / Phase 2 UI · T8.X` footer caption.
+- Updated `tests/ui/test_app_smoke.py::test_hub_renders_against_empty_db` for the new copy.
+- **Mid-phase tweaks:** subtle slate-tint on primary `Open →` buttons (new `bg_accent_soft` / `bg_accent_soft_hover` PALETTE keys + Streamlit primary-button CSS override). Footer text "Spec Compass / Updated weekly" removed; thin top-border divider retained.
+
+### Phase C — Browse migration
+
+- `browse.py` gutted to ~20 lines (picker + empty-state + two helper calls).
+- Helpers extracted to `_components.py`: `cascading_picker(conn, key_prefix, want_year=True)`, `identity_strip_html(product)`, `spec_table_html(product, sections=None)`, `marker_legend_inline_html()`, refined `dot_marker(marker)`, `MARKER_LABELS` constant.
+- Identity strip is now a light bordered band with 4 labelled columns (sub-brand / series / status / segment) — no more dark navy box.
+- Spec-table cells render colored `●` dot + value (no `[verified]` text suffix); inline legend moved to top-right of the table header.
+- Dropped `← Hub` button + `T8.1` caption.
+- New `tests/ui/test_components.py` (3 tests).
+
+### Phase D — Compare migration
+
+- `compare.py` fully rewritten (~130 lines). State via `compare.column_ids` (default `[1]`, max 4).
+- N vertical picker columns side-by-side (Company → Product → Year cascaded per column); `+` button to add (hidden at N=4); `×` to remove (hidden at N=1); segment auto-shown read-only below the dropdowns.
+- Grid renders when ≥2 products fully picked.
+- `cascading_picker` gained a `vertical: bool = False` kwarg (Browse stays horizontal; Compare opts in).
+- New `comparison_grid_html(products, sections=None)` in `_components.py` plus private helpers `_product_header`, `_cmp_value_cell_html`, `_cmp_section_rows_html`, `_divergence_flags`.
+- **`▌` divergence cue:** 3px accent left-border + faint `bg_accent_soft` tint on cells that disagree with the row's strict majority (`max_count * 2 > N` rule).
+- Dropped vendor / segment / status filter selectboxes + the multiselect + `← Hub` button + `T8.X` caption.
+
+### Phase E — Find migration
+
+- `find.py` presentation layer fully rewritten; behavioral core (`_cell_matches`, `_expand_template`, `_distinct_values_for_template`, `_union_templates`, `_template_of`, `_coerce_number`) preserved.
+- New layout: editorial title + sub-line, three-box query bar (**Spec field** / **Match** / **Value**) with plain-English labels — ~50-entry `_LEAF_LABEL_OVERRIDES` map ("Refresh rate" / "Peak brightness (nits)" / etc.); `_OP_LABEL` for 7 ops in plain English ("equals" / "is at least" / "marked unavailable") — no math symbols.
+- Optional **Narrow by** row below (Company, Year).
+- Results render as rounded `cd-find__card` cards: friendly product name + brand · sub-brand + matching field with dot marker + CPU/GPU context + `Open →` button.
+- `Open →` cross-navigates to Browse via `st.session_state["browse.company/product/year"]` + view switch.
+- Dropped `← Hub` button + caption + monospace grep-dump results + raw templated paths.
+- Updated `tests/ui/test_app_smoke.py::test_view_dispatcher_routes_to_find_screen` for the page-title sentinel; updated `tests/ui/test_find_apptest.py` (5 tests) for the new keyed inputs + friendly labels.
+
+### Phase F — Edit migration
+
+- `edit.py` fully rewritten as a **bulk per-product editor** (NOT single-field).
+- Cascading **horizontal** picker (`cascading_picker(conn, "edit", vertical=False)` — Browse-style with `▾` chevrons, NOT the vertical read-only list with `▸` arrows that the first redraft used).
+- All fields listed vertically below the picker, grouped by section with dotted `╌╌╌ SECTION ╌╌╌` headers.
+- Compact rows show `feature · ● value · ✎` pencil affordance; clicking expands an inline form (new value text input + status horizontal radio + source URL input + note textarea + Remove change button). Active row gets a 3px accent left-border.
+- Bottom Save bar: quiet `Cancel` + primary `Save N change(s)` with live count and disabled-at-zero.
+- State in `edit.pending` dict + `edit.active_rows` set, both keyed by concrete path; cleared on product switch.
+- New `views/formatting.py::field_type(path)` + `coerce_to_field_type(path, raw)` for behind-the-scenes type inference. Suffix rules: `_wh/_mm/_kg/_ms` → float; `_mhz/_hz/_w/_gen/_count/_pct/_cores/_gb/_mb/_mts` → int; explicit override map for booleans + a few specific ints/floats; default str.
+- Promoted `friendly_field_label(section, template)` + `friendly_leaf_label(leaf, section)` from `find.py` to `_components.py` (third-consumer threshold).
+- Replaced `tests/ui/test_edit_apptest.py` with 4 AppTest tests.
+
+### Two mid-stream gaps fixed (both during Phase F)
+
+- **Source URL now persists.** `manual_edit_cell` gained `source_url: str | None = None` param; persisted to the top-level `source_url` key on the manual provenance bundle when non-None. CLI flag: `--source-url`. UI plumbs the form value through.
+- **`manual` is now a real third status.** Added to `db/helpers._MANUAL_STATUSES` (Python-level enum — no schema migration; status is free-text in a JSON column). `views/formatting.marker_for_bundle` now checks `status == "manual"` first and returns `MARKER_MANUAL` (blue dot) regardless of `entered_by`. UI pill no longer aliases to `vouched`. Tests bumped to 364/364 at this point.
+
+### Phase G — Refresh migration
+
+- `ui/refresh.py` fully rewritten. **Three-mode tab picker** at the top: **All products** / **By company** / **Selected products**. `st.session_state["refresh.mode"]` carries the choice; active tab cue uses the primary-button slate-tint.
+- Per-mode body: single plan line + primary `Run refresh` button (label morphs to `Run refresh on N products` in Selected mode, disabled at zero).
+- **Run-time UI:** single `st.empty()` placeholder rewritten between products with a slim `cd-refresh__progress-card` (headline `Refreshing K of N…`, friendly product sub-line, `st.progress(K/N)`, counter). No `st.status`; no streaming event log.
+- **Post-run result panel** persisted in `st.session_state["refresh.last_result"]`: headline + 4 metric tiles (Refreshed / New products inserted / Conflicts (in queue) / Catalog additions) + "What needs attention" lines (priority `●` for conflicts + catalog additions, info `·` for low confidence + year inferred; 0-count lines suppressed) + Skipped (N) expander + Errors sub-section under needs-review marker color.
+- **Public-name lift** in `cli/refresh.py`: `_VENDOR_TEMPLATES` → `VENDOR_TEMPLATES` and `_collect_source_urls_from_product` → `collect_source_urls_from_product` (back-compat aliases retained at file bottom).
+- **Dropped Custom-URL mode entirely.** The dropped UI surface took its test file `tests/ui/test_refresh_helpers.py` with it — 16 obsolete `_validate_url_brand` tests removed. +1 new alias test, ±2 refresh AppTest cases swapped. Test count returns to **349**.
+
+### Phase H — Cleanup
+
+- Deleted unused helpers in `_markers.py`: `colorize_text`, `colorize_marker`, `render_cell`, `_MARKER_RE`, plus stale imports.
+- Removed dead `.cd-footer` CSS class from `theme.py`.
+- Removed `← Hub` button + two `Stage 8 / Phase 2 UI · T8.5` footer captions from `triage.py` (chrome cleanup carve-out — full triage redesign still parked for 10c).
+- **Verified:** zero `← Hub` strings in UI surface, zero `T8.X` / `T9.X` / `Stage 8` / `Stage 9` user-visible captions in UI surface (4 remaining hits are module-level historical docstrings in `__init__.py` + `triage.py` — not user-visible). All `#[0-9a-fA-F]{6}` hex literals confined to `theme.PALETTE`.
+
+### Decisions made this session
+
+1. **Visual direction = Option B (editorial spec-sheet)** over Option A (operator console). Audience = user + team + leader requires polished look.
+2. **App name placeholder = "Spec Compass"** (not committed to; can swap any time).
+3. **Stage 10 substages locked:** 10a visual polish → 10b data display cleanup field by field → 10c review queue redesign. Triage parked through 10a + 10b.
+4. **JSON-literal toggle dropped entirely** (not even an "Advanced" expander). Type coercion inferred per field via the new `field_type(path)` / `coerce_to_field_type(path, raw)` helpers. If a field truly needs boolean / null / list and inference doesn't cover it, surface a clear error on save rather than fail silently.
+5. **`manual` added as a real third DB status; source URL persists on manual edits.** Both Python-side only — no schema migration (status is free-text JSON).
+6. **Refresh has three modes (not two):** All products / By company / Selected products. Custom-URL mode dropped.
+7. **Refresh's run-time UI is a slim progress card; no streaming event log.** Reverses the T8.7 `st.status` decision now that the redesign treats Refresh as a designed surface, not a debug pipe.
+8. **The `▌` divergence cue on Compare uses a strict-majority rule** (`max_count * 2 > N`). Cells that match the row's strict majority get no cue; everything else does.
+
+### Files added / changed
+
+- **Code (added):**
+  - `competitive_database/ui/theme.py`
+  - `competitive_database/ui/_chrome.py`
+  - `competitive_database/ui/_components.py`
+  - `.streamlit/config.toml`
+- **Code (modified):**
+  - `competitive_database/ui/app.py` — chrome + page title wiring
+  - `competitive_database/ui/hub.py` — full rewrite (Phase B)
+  - `competitive_database/ui/browse.py` — gutted to ~20 lines (Phase C)
+  - `competitive_database/ui/compare.py` — full rewrite (Phase D)
+  - `competitive_database/ui/find.py` — presentation rewrite, behavioral core preserved (Phase E)
+  - `competitive_database/ui/edit.py` — full rewrite as bulk editor (Phase F)
+  - `competitive_database/ui/refresh.py` — full rewrite, three-mode tabs (Phase G)
+  - `competitive_database/ui/triage.py` — chrome-only cleanup (Phase H)
+  - `competitive_database/ui/_markers.py` — dead helpers deleted (Phase H); marker colors re-exported from `theme.PALETTE["markers"]`
+  - `competitive_database/cli/manual_edit.py` — `--source-url` flag + `source_url` parameter on `manual_edit_cell`; status accepts `manual`
+  - `competitive_database/cli/refresh.py` — public `VENDOR_TEMPLATES` + `collect_source_urls_from_product` aliases
+  - `competitive_database/db/helpers.py` — `_MANUAL_STATUSES = {"vouched", "needs-review", "manual"}`
+  - `competitive_database/views/formatting.py` — new `field_type(path)` + `coerce_to_field_type(path, raw)`; `marker_for_bundle` checks `status == "manual"` arm
+- **Tests (added):**
+  - `tests/ui/test_components.py` — Phase C component helpers
+- **Tests (modified):**
+  - `tests/ui/test_app_smoke.py`, `tests/ui/test_edit_apptest.py`, `tests/ui/test_find_apptest.py`, `tests/ui/test_refresh_apptest.py`
+  - `tests/cli/test_manual_edit.py`, `tests/cli/test_manual_edit_arch_marker.py`, `tests/cli/test_refresh.py`
+  - `tests/views/test_formatting.py`
+- **Tests (deleted):**
+  - `tests/ui/test_refresh_helpers.py` — 16 obsolete `_validate_url_brand` tests for the dropped Custom-URL UI surface
+- **Docs changed:**
+  - `README.md` — test count 339 → 349; Stage 10a paragraph added; `manual-edit` CLI reference updated for `--source-url` + `manual` status; UI Quick-start updated for the editorial hub layout
+  - `docs/ARCHITECTURE.md` — Provenance shape (`source_url` on manual + `manual` status); UI layer file layout + new Stage 10a paragraph; `manual_edit_cell` signature update; `views/formatting.py` summary updated
+  - `docs/DATA_MODEL.md` — Manual cell metadata table updated (`source_url` optional, `status` includes `manual`); Stage 10a additions called out
+  - `docs/PRD.md` — Phase table + Phase 2 UI description updated for Stage 10a
+  - `docs/TASKS.md` — Stage 10 closed, Stage 10b moved to Active, Stage 10c to Next; two Stage 10a follow-up items added to Deferred
+  - `docs/SESSION_LOG.md` — this entry
+
+### Carryforward / pickup pointers
+
+- **Next session focus: Stage 10b — Data display cleanup, field by field, with user.** Brainstorm-first conversation. CPU rollup ("Intel RPL-H Refresh" instead of per-SKU "Core 7 240H" / "Core 9 270H") is the user-cited motivator. Equivalent decisions needed per category. Per-field choice: view-layer rollup (static map in display code) vs catalog enrichment (new field on the data model).
+- **Stage 10c (Triage redesign) is gated on 10a + 10b closing.** Until then, Triage carries only the Phase H chrome cleanup. Module-level docstrings in `ui/triage.py` + `ui/__init__.py` still reference historical T8.X scope — fold into the 10c cleanup pass.
+- **Annotation-only boolean edits in Edit are lossy** when the value rerenders as `"yes"`/`"no"` then re-coerces. Filed in TASKS Deferred; audit when 10b touches the field-type map.
+- **DB state unchanged this session.** 76 products / 4 vendors / 229 unresolved queue rows (Lenovo, parked). 349/349 tests.
+- **Working tree at session close:** all changes uncommitted (parent agent handles commits).
+- **Memory:** Stage 10 design log lives in `memory/stage10_design.md` (full mockup narrative + decision history); will be deleted once choices are fully encoded in code, per its own self-instruction. Roadmap (`memory/roadmap_priority.md`) is the source of truth on substage ordering.
+
+---
+
 ## Session 42 — 2026-05-15 (Code bucket cleared: T9.5 Dell CPU regex preserves `(Series N)`; T9.6 `resolve` unwraps `{"value": ...}` bundle; ASUS TUF multi-SKU rollup with zero per-product hardcoding; 349/349 green)
 
 **Goal:** User re-ordered the remaining roadmap at session start: (1) close the code bucket — ASUS multi-SKU rollup plus open bugs T9.5 + T9.6; (2) full UX/UI redesign of the Streamlit frontend (current visuals "not good even at initial stages"); (3) database hierarchy layer brainstorm post-UX; (4) Acer + MSI ingestion last; (5) Phase 3 deprioritized, possibly dropped. Manual-review backlog (229 Lenovo queue rows deferred from S40) parked indefinitely. This session executes step (1); the rest carries forward.

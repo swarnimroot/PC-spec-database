@@ -16,7 +16,7 @@ encodes provenance and confidence at a glance:
 | `[verified]` | Scraped from the vendor's spec page; bundle status `verified`.                          |
 | `[?]`       | Scraped, bundle status `needs-review` (e.g. catalog rows auto-added during ingestion).   |
 | `[—]`       | Scraped, bundle status `vendor-doesn't-publish`. The scraper checked; the field is not exposed by the vendor. |
-| `[m]`       | Manually entered (any status — `vouched` or `needs-review`). Distinguished from scraped by the bundle's `entered_by` key. |
+| `[m]`       | Manually entered (any status — `vouched`, `needs-review`, or `manual`). Distinguished from scraped by the bundle's `entered_by` key OR by an explicit `status == "manual"` (Stage 10a / Session 43). |
 | `[empty]`   | Cell never written (no bundle). Distinct from `[—]`: empty means we haven't tried.       |
 | `[partial]` | Aggregate marker for a category with mixed leaf statuses. Currently only used by `formatting.aggregate_markers`; per-leaf markers are usually preferred over aggregating. |
 

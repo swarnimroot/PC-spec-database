@@ -6,18 +6,20 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 
 ## Active
 - T9.2 Display canonicalizer in `views/formatting.py` — per-field rule lookup + opt-in via `field_path` kwarg on `display_value`; one rule today (`panel_type` "IPS-level"→"IPS"); wired into `ui/find.py` dropdown + cell-match — Session 37
-- Stage 10 — UX/UI redesign — full rethink of Streamlit frontend (user: current visuals "not good even at initial stages"); brainstorm-first per S42 roadmap, no committed substages yet — Session 42
+- Stage 10b — Data display cleanup, field by field — brainstorm-first per-field rollup vs catalog-enrichment decisions; CPU rollup ("Intel RPL-H Refresh" instead of per-SKU) is the user-cited motivator — Session 43
 
 ## Next
-- (empty — Stage 9 candidates surface as daily use reveals more dropdown variants or filter friction)
+- Stage 10c — Review queue triage redesign — filter / sort / grouping for the 229 unresolved Lenovo rows + friendly labels (no `value_dis` / `low_conf` abbreviations); gated on 10a + 10b closing — Session 43
 
 ## Deferred
 - T9.4 Dell `snapshot.options` consumption — bridge to surface scrapers-lib v1.5.0 configurator options (CPU/GPU/RAM/Storage/Display/Keyboard/Battery/Adapter/OS) as additional offering rows; fetcher flag wired Session 39 but bridge doesn't read the field yet
 - ASUS TUF URL template in `cli/refresh.py` — `refresh --from-db` on `asus-tuf-gaming-*` model_codes won't auto-build URLs (no `www.asus.com/.../tuf-gaming/{slug}/techspec/` template); gated on user adding first TUF product to DB — Session 42
 - Stage 11 — Database hierarchy layer — user wants to add another product-hierarchy layer; not fully thought through, brainstorm-first; surface proactively when Stage 10 closes — Session 42
 - T7.0d Keyboard structured offerings split — Session 19
-- T8.8 (c) Refresh-targets enumeration dedup (`ui/refresh.py:104-152` ↔ `cli/refresh.py:334-374` near-duplicate planning loops) — gated on a third caller surfacing per Session 33 Decision #8 (rule-of-three convention) — Session 35
-- T8.8 (d) Cross-product URL dedup in refresh `--all` (`cli/refresh.py:709-715`'s `_collect_source_urls_from_product` dedups per-call only) — gated on a shared URL pattern emerging across products — Session 35
+- T8.8 (c) Refresh-targets enumeration dedup (`ui/refresh.py` ↔ `cli/refresh.py` near-duplicate planning loops) — gated on a third caller surfacing per Session 33 Decision #8 (rule-of-three convention) — Session 35
+- T8.8 (d) Cross-product URL dedup in refresh `--all` (`cli/refresh.py::collect_source_urls_from_product` dedups per-call only) — gated on a shared URL pattern emerging across products — Session 35
+- Triage / `__init__.py` historical-scope docstring cleanup — module-level docstrings in `ui/triage.py` + `ui/__init__.py` still reference T8.X scope; cosmetic only, fold into Stage 10c — Session 43
+- Edit annotation-only boolean round-trip — annotation-only edits on bool fields render the existing value as `"yes"`/`"no"` in the text input, then re-coerce on save (lossy for `True`/`False`); audit when 10b touches the field-type map — Session 43
 - Acer / MSI parsers — waiting on `scrapers-lib` Tier 2 upstream
 - Catalog chip-spec auto-fetch (Intel ARK / NVIDIA / AMD) — future enrichment job
 - History layer — Phase 4
@@ -33,5 +35,6 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 - Stage 6 — Validation pass — 2026-05-08 (7, T6.1 Partial)
 - Stage 7 — Polish — 2026-05-11 (9, T7.0d Def)
 - Stage 8 — Phase 2 UI — 2026-05-12 (9, T8.8(c)+T8.8(d) Def)
+- Stage 10a — UI visual polish — 2026-05-19 (8 phases A–H; +2 data-model extensions: `manual` real third status, `source_url` on manual bundles)
 
 (Per-stage task detail: SESSION_LOG.md)

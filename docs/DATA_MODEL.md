@@ -322,7 +322,13 @@ Every cell carries an attached provenance record + status flag. List-of-offering
 | `entered_by` | string |
 | `entered_at` | timestamp |
 | `source_note` | string (free-form) |
-| `status` | `vouched` / `needs-review` |
+| `source_url` | string (optional — Stage 10a / Session 43) |
+| `status` | `vouched` / `needs-review` / `manual` |
+
+**Stage 10a (Session 43) additions:**
+
+- **`manual` is a real third status** alongside `vouched` and `needs-review`. Enforced Python-side via `db/helpers._MANUAL_STATUSES = {"vouched", "needs-review", "manual"}`; the UI's "manual" pill no longer aliases to `vouched`. `views/formatting.marker_for_bundle` returns `MARKER_MANUAL` (blue dot) when `status == "manual"` regardless of `entered_by`. No schema migration needed — `status` is free-text inside the JSON bundle column.
+- **`source_url` may be present on manual bundles.** When `manual-edit` is invoked with `--source-url` (or the Edit UI form's Source URL field is filled), the value is persisted as a top-level `source_url` key on the manual bundle — parallel to the `source_url` already carried by scraped bundles. Optional; omitted when no URL is supplied.
 
 ### Plain-vs-bundle rule for offering leaves
 
