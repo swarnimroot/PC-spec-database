@@ -20,6 +20,7 @@ Markers
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Literal
 
 MARKER_VERIFIED = "[verified]"
 MARKER_NEEDS_REVIEW = "[?]"
@@ -71,9 +72,11 @@ def marker_for_bundle(bundle: dict | None) -> str:
     """Map one provenance bundle (or absence) to its visible marker."""
     if bundle is None:
         return MARKER_EMPTY
+    status = bundle.get("status")
+    if status == "manual":
+        return MARKER_MANUAL
     if "entered_by" in bundle:
         return MARKER_MANUAL
-    status = bundle.get("status")
     if status == "verified":
         return MARKER_VERIFIED
     if status == "vendor-doesn't-publish":
@@ -121,6 +124,99 @@ def display_value(bundle: dict | None, *, field_path: str | None = None) -> str:
     if field_path is not None:
         return canonicalize_display(field_path, rendered)
     return rendered
+
+
+FieldType = Literal["str", "int", "float", "bool"]
+
+
+# Path-leaf → expected Python type, used by the Edit UI to coerce text
+# input back to the right shape before writing. Anything not listed here
+# defaults to ``"str"``; numeric suffix rules (see ``field_type``) catch
+# the common quantitative leaves so the override map stays small.
+_FIELD_TYPE_OVERRIDES: dict[str, FieldType] = {
+    "memory_slots": "int",
+    "fan_count": "int",
+    "speaker_count": "int",
+    "cell_count": "int",
+    "cpu_tdp_max": "int",
+    "tgp_max": "int",
+    "tpp_max": "int",
+    "wattage_w": "int",
+    "wattage_wh": "float",
+    "size_inches": "float",
+    "base_clock": "float",
+    "boost_clock": "float",
+    "weight_kg_min": "float",
+    "weight_kg_max": "float",
+    "width_mm": "float",
+    "depth_mm": "float",
+    "height_mm_min": "float",
+    "height_mm_max": "float",
+    "memory_overclocking": "bool",
+    "anti_glare": "bool",
+    "vrr": "bool",
+    "has_subwoofer": "bool",
+    "has_numpad": "bool",
+    "ir_supported": "bool",
+    "privacy_shutter": "bool",
+}
+
+# Numeric-suffix rules: a leaf ending in one of these suffixes is the
+# named numeric type. Checked after the explicit override map; suffix
+# ordering doesn't matter because ``endswith`` is exclusive.
+_INT_SUFFIXES: tuple[str, ...] = (
+    "_mhz", "_hz", "_w", "_gen", "_count", "_pct",
+    "_cores", "_gb", "_mb", "_mts",
+)
+_FLOAT_SUFFIXES: tuple[str, ...] = (
+    "_wh", "_mm", "_kg", "_ms",
+)
+
+
+def field_type(path: str) -> FieldType:
+    """Infer the expected Python type for a dotted field path's leaf."""
+    leaf = path.split(".")[-1]
+    if leaf in _FIELD_TYPE_OVERRIDES:
+        return _FIELD_TYPE_OVERRIDES[leaf]
+    for suffix in _FLOAT_SUFFIXES:
+        if leaf.endswith(suffix):
+            return "float"
+    for suffix in _INT_SUFFIXES:
+        if leaf.endswith(suffix):
+            return "int"
+    return "str"
+
+
+def coerce_to_field_type(path: str, raw: str) -> object:
+    """Coerce a string value to the expected type for ``path``; raises ValueError."""
+    expected = field_type(path)
+    text = raw.strip()
+    if expected == "str":
+        return raw
+    if expected == "int":
+        try:
+            return int(text)
+        except ValueError as exc:
+            raise ValueError(
+                f"expected an integer for '{path.split('.')[-1]}'; got {raw!r}"
+            ) from exc
+    if expected == "float":
+        try:
+            return float(text)
+        except ValueError as exc:
+            raise ValueError(
+                f"expected a number for '{path.split('.')[-1]}'; got {raw!r}"
+            ) from exc
+    if expected == "bool":
+        lowered = text.casefold()
+        if lowered in {"true", "yes", "y", "1"}:
+            return True
+        if lowered in {"false", "no", "n", "0"}:
+            return False
+        raise ValueError(
+            f"expected yes/no for '{path.split('.')[-1]}'; got {raw!r}"
+        )
+    return raw
 
 
 def format_leaf(label: str, bundle: dict | None) -> str:

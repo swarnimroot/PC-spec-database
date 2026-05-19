@@ -14,7 +14,7 @@ import os
 import streamlit as st
 
 from competitive_database.db.connection import connect
-from competitive_database.ui import browse, compare, edit, find, hub, refresh, triage
+from competitive_database.ui import _chrome, browse, compare, edit, find, hub, refresh, triage
 
 
 def _db_path() -> str:
@@ -31,15 +31,27 @@ _VIEWS = {
     "refresh": refresh.render,
 }
 
+# Routes that live under the ``···`` overflow chip — surfaced as
+# ``active="overflow"`` so the chrome can underline the dots, not the
+# hero links.
+_OVERFLOW_ROUTES: frozenset[str] = frozenset({"edit", "refresh", "queue"})
+
 
 def main() -> None:
-    st.set_page_config(page_title="Competitive Database", layout="wide")
+    st.set_page_config(
+        page_title="Spec Compass",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
     db_path = _db_path()
     conn = connect(db_path)
     try:
         view = st.session_state.get("view", "hub")
+        active = "overflow" if view in _OVERFLOW_ROUTES else view
+        _chrome.render_header(active=active)
         render = _VIEWS.get(view, hub.render)
         render(conn, db_path=db_path)
+        _chrome.render_footer()
     finally:
         conn.close()
 

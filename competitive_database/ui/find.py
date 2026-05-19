@@ -1,35 +1,12 @@
-"""Find products where… — single-field filter playground.
+"""Find products — single-spec query bar + result cards.
 
-T8.4 scope: pick one path from the union of
-``views.orchestrator.all_field_paths`` (offering indices collapsed to a
-wildcard so the filter sweeps every instantiated offering), pick a
-comparator, pick a value when the op needs one. Every product is
-scanned; matches are grouped per-product with each matching cell
-rendered as ``value [marker]`` inline.
-
-T9.1 (Session 36): value input is a dropdown of distinct values present
-in the DB for the chosen (section, field), not free text. The dropdown
-is computed by ``_distinct_values_for_template`` over the same product
-loop ``_render_matches`` uses; values are sorted numerically when
-``_coerce_number`` succeeds, alphabetically (casefold) otherwise.
-
-T9.2 (Session 37): both ``_distinct_values_for_template`` and
-``_cell_matches`` pass the field path through to
-``views.formatting.display_value`` / ``canonicalize_display`` so
-duplicate-meaning string variants collapse to a single canonical form
-(currently ``panel_type`` "IPS-level" → "IPS"). Symmetric: the dropdown
-shows the canonical form, and any stored variant matches a pick of the
-canonical form, so picking "IPS" matches products that store either
-"IPS" or "IPS-level".
-
-Read-only; reuses ``ui/_markers.resolve_path`` + ``render_cell``.
-
-Catalog spec columns (e.g. ``cpu_catalog.npu_tops``) are not in the
-``all_field_paths`` registry yet, so they're out of scope for this
-filter. ``cpu_offerings.*.model`` with ``contains`` is the closest hook
-for "CPU with NPU X" today; a registry extension would lift that
-limitation later (no schema work needed — the catalog rows are already
-loaded by ``views.load.load_cpu_catalog``).
+Phase E (Stage 10a) rewrite of the Find screen. The behavioral core —
+``_cell_matches``, ``_expand_template``, ``_distinct_values_for_template``,
+``_union_templates`` — is preserved unchanged; the presentation layer
+moves from a 4-selectbox row + monospace grep dump to a labelled query
+bar (Spec field / Match / Value) plus optional Company/Year narrow-by
+chips plus result cards with dot markers and an ``Open →`` jump to
+Browse.
 """
 
 from __future__ import annotations
@@ -40,9 +17,23 @@ from typing import Any
 
 import streamlit as st
 
-from competitive_database.ui._markers import render_cell, resolve_path
+from competitive_database.ui._components import (
+    _product_name,
+    dot_marker,
+    friendly_field_label as _friendly_field_label,
+    friendly_leaf_label as _friendly_leaf_label,
+)
+from competitive_database.ui._markers import resolve_path
 from competitive_database.views import load, orchestrator
-from competitive_database.views.formatting import canonicalize_display, display_value
+from competitive_database.views.formatting import (
+    MARKER_EMPTY,
+    MARKER_VENDOR_NO_PUB,
+    MARKER_VERIFIED,
+    canonicalize_display,
+    display_value,
+    marker_for_bundle,
+)
+
 
 _OP_EQ = "="
 _OP_CONTAINS = "contains"
@@ -52,8 +43,20 @@ _OP_IS_SET = "is set"
 _OP_IS_EMPTY = "is empty"
 _OP_NO_PUB = "vendor doesn't publish"
 _OPS_NEED_VALUE = {_OP_EQ, _OP_CONTAINS, _OP_GE, _OP_LE}
-_OPS_ALL = [_OP_EQ, _OP_CONTAINS, _OP_GE, _OP_LE, _OP_IS_SET, _OP_IS_EMPTY, _OP_NO_PUB]
+_OPS_ALL = [_OP_EQ, _OP_GE, _OP_LE, _OP_CONTAINS, _OP_IS_SET, _OP_IS_EMPTY, _OP_NO_PUB]
 
+# Plain-English op labels shown in the Match dropdown.
+_OP_LABEL: dict[str, str] = {
+    _OP_EQ: "equals",
+    _OP_GE: "is at least",
+    _OP_LE: "is at most",
+    _OP_CONTAINS: "contains",
+    _OP_IS_SET: "has any value",
+    _OP_IS_EMPTY: "is empty",
+    _OP_NO_PUB: "marked unavailable",
+}
+_LABEL_TO_OP: dict[str, str] = {label: op for op, label in _OP_LABEL.items()}
+_OP_LABELS_ORDERED: list[str] = [_OP_LABEL[op] for op in _OPS_ALL]
 
 def _list_product_pks(conn: sqlite3.Connection) -> list[tuple[str, int]]:
     rows = conn.execute(
@@ -79,11 +82,7 @@ def _template_of(path: str) -> str:
 def _union_templates(
     products: list[dict[str, Any]],
 ) -> list[tuple[str, str]]:
-    """Union of (section, template) across products, render order preserved.
-
-    Templates collapse offering indices so the user picks one slot and the
-    filter sweeps every instantiated offering on every product.
-    """
+    """Union of (section, template) across products, render order preserved."""
     seen: set[tuple[str, str]] = set()
     section_order: list[str] = []
     section_templates: dict[str, list[str]] = {}
@@ -155,9 +154,6 @@ def _cell_matches(
             return False
         return bundle.get("value") is not None
 
-    # Value-comparing ops: need a concrete rendered value. Canonicalize so
-    # the comparison projects raw "IPS-level" cells onto canonical "IPS"
-    # picks from the dropdown.
     if plain is not None:
         rendered = canonicalize_display(field_path, plain)
     elif bundle is not None and bundle.get("status") != "vendor-doesn't-publish":
@@ -186,18 +182,7 @@ def _cell_matches(
 def _distinct_values_for_template(
     products: list[dict[str, Any]], template: str
 ) -> list[str]:
-    """Sorted distinct rendered values across products for this template.
-
-    Mirrors the path-expansion loop in ``_render_matches`` but collects
-    ``display_value(bundle)`` (or the ``plain`` string for plain-string
-    leaves) instead of running an op against each cell. Skips empty
-    cells, ``vendor doesn't publish`` placeholders, and bundles whose
-    ``value`` is None so the dropdown only offers picks you could
-    actually filter on.
-
-    Sort order: numeric values first (by numeric value), then string
-    values (alphabetically, case-insensitive).
-    """
+    """Sorted distinct rendered values across products for this template."""
     seen: set[str] = set()
     for prod in products:
         for concrete_path in _expand_template(prod, template):
@@ -220,65 +205,278 @@ def _distinct_values_for_template(
     return sorted(seen, key=_sort_key)
 
 
-def _vendor_label(prod: dict[str, Any]) -> str | None:
-    brand = prod.get("brand")
-    if isinstance(brand, dict) and brand.get("value"):
-        return str(brand["value"])
+def _label_for_product(prod: dict[str, Any]) -> str:
+    """Friendly ``Product Name · Year`` line for the result card header."""
+    mc = str(prod.get("model_code") or "")
+    yr_raw = prod.get("year")
+    try:
+        yr = int(yr_raw) if yr_raw is not None else 0
+    except (TypeError, ValueError):
+        yr = 0
+    vfn_bundle = prod.get("vendor_full_name")
+    vfn = None
+    if isinstance(vfn_bundle, dict):
+        v = vfn_bundle.get("value")
+        if isinstance(v, str):
+            vfn = v
+    name = _product_name(vfn, mc, yr)
+    return f"{name} · {yr}" if yr else name
+
+
+def _brand_subbrand(prod: dict[str, Any]) -> str:
+    """Right-aligned brand / sub-brand text for the card header."""
+    brand = _scalar_bundle_str(prod.get("brand"))
+    sub = _scalar_bundle_str(prod.get("sub_brand"))
+    if brand and sub:
+        return f"{brand} / {sub}"
+    if brand:
+        return brand
+    if sub:
+        return sub
+    return ""
+
+
+def _scalar_bundle_str(bundle: Any) -> str | None:
+    if not isinstance(bundle, dict):
+        return None
+    v = bundle.get("value")
+    if isinstance(v, str) and v:
+        return v
     return None
 
 
-_RESULT_FONT = (
-    "font-family:ui-monospace,Consolas,Menlo,monospace;"
-    "font-size:0.85rem;line-height:1.55"
-)
+def _company_of(prod: dict[str, Any]) -> str:
+    return _scalar_bundle_str(prod.get("brand")) or "Unknown"
 
 
-def _render_matches(
+def _year_of(prod: dict[str, Any]) -> int | None:
+    yr_raw = prod.get("year")
+    try:
+        return int(yr_raw) if yr_raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _context_specs(prod: dict[str, Any]) -> str:
+    """First CPU model + first board GPU model, joined with ``·``."""
+    parts: list[str] = []
+    cpus = prod.get("cpu_offerings") or []
+    if cpus:
+        cpu_bundle = cpus[0].get("model") if isinstance(cpus[0], dict) else None
+        if isinstance(cpu_bundle, dict):
+            v = display_value(cpu_bundle)
+            if v:
+                parts.append(v)
+    boards = prod.get("boards") or []
+    if boards:
+        gpus = boards[0].get("gpus") if isinstance(boards[0], dict) else None
+        if isinstance(gpus, list) and gpus:
+            gpu_bundle = gpus[0]
+            if isinstance(gpu_bundle, dict):
+                v = display_value(gpu_bundle)
+                if v:
+                    parts.append(v)
+    return " · ".join(parts)
+
+
+def _format_match(
+    bundle: dict | None, plain: str | None, field_path: str
+) -> tuple[str, str]:
+    """Return ``(value_str, marker_token)`` for a matched cell."""
+    if plain is not None:
+        return plain, MARKER_VERIFIED
+    marker = marker_for_bundle(bundle)
+    if marker in (MARKER_EMPTY, MARKER_VENDOR_NO_PUB):
+        return ("vendor doesn't publish" if marker == MARKER_VENDOR_NO_PUB else "—"), marker
+    value = display_value(bundle, field_path=field_path) or "—"
+    return value, marker
+
+
+def _find_matches(
     products: list[dict[str, Any]],
     template: str,
     op: str,
     value: str,
-) -> tuple[str, int, int]:
-    """Render the result list HTML; also return (n_products, n_cells)."""
-    blocks: list[str] = []
-    n_products = 0
-    n_cells = 0
+) -> list[tuple[dict[str, Any], str, str]]:
+    """Return matched products with one representative ``(value, marker)`` each.
+
+    A product matches if at least one concrete path on it satisfies the
+    op. The representative is taken from the first matching cell so each
+    card shows one line, not a sub-list.
+    """
+    out: list[tuple[dict[str, Any], str, str]] = []
     for prod in products:
-        prod_matches: list[tuple[str, str]] = []
         for concrete_path in _expand_template(prod, template):
             bundle, plain = resolve_path(prod, concrete_path)
             if _cell_matches(bundle, plain, op, value, concrete_path):
-                prod_matches.append((concrete_path, render_cell(bundle, plain)))
-                n_cells += 1
-        if not prod_matches:
-            continue
-        n_products += 1
-        mc = html.escape(str(prod.get("model_code")))
-        yr = html.escape(str(prod.get("year")))
-        vendor = _vendor_label(prod)
-        vendor_html = (
-            f' <span style="color:#8b949e">({html.escape(vendor)})</span>'
-            if vendor
-            else ""
+                vstr, marker = _format_match(bundle, plain, concrete_path)
+                out.append((prod, vstr, marker))
+                break
+    return out
+
+
+def _render_card(
+    prod: dict[str, Any],
+    spec_label: str,
+    value_str: str,
+    marker: str,
+) -> None:
+    """Render one result card; wire the ``Open →`` button to jump to Browse."""
+    name_year = _label_for_product(prod)
+    brand_sub = _brand_subbrand(prod)
+    context = _context_specs(prod)
+
+    body_lines: list[str] = []
+    body_lines.append(
+        '<div class="cd-find__card-header">'
+        f'<div class="cd-find__card-title">{html.escape(name_year)}</div>'
+        f'<div class="cd-find__card-brand">{html.escape(brand_sub)}</div>'
+        "</div>"
+    )
+    body_lines.append(
+        '<div class="cd-find__card-match">'
+        f'<span class="cd-find__card-feature">{html.escape(spec_label)}</span>'
+        '<span class="cd-find__card-sep"></span>'
+        f"{dot_marker(marker)}"
+        f'<span class="cd-find__card-value">{html.escape(value_str)}</span>'
+        "</div>"
+    )
+    if context:
+        body_lines.append(
+            f'<div class="cd-find__card-context">{html.escape(context)}</div>'
         )
-        header = f"<div><strong>{mc} · {yr}</strong>{vendor_html}</div>"
-        match_lines = "".join(
-            f'<div style="padding-left:1.5rem">'
-            f'<span style="color:#8b949e">{html.escape(p)}</span>: {c}</div>'
-            for p, c in prod_matches
-        )
-        blocks.append(
-            f'<div style="margin-bottom:0.75rem">{header}{match_lines}</div>'
-        )
-    body = "".join(blocks)
-    return body, n_products, n_cells
+
+    body_html = (
+        '<div class="cd-find__card">' + "".join(body_lines) + "</div>"
+    )
+
+    container = st.container()
+    with container:
+        cols = st.columns([5, 1])
+        with cols[0]:
+            st.markdown(body_html, unsafe_allow_html=True)
+        with cols[1]:
+            mc = prod.get("model_code")
+            yr = _year_of(prod)
+            key = f"find.open.{mc}.{yr}"
+            if st.button("Open →", key=key, use_container_width=True):
+                _open_in_browse(prod)
+
+
+def _open_in_browse(prod: dict[str, Any]) -> None:
+    """Wire Browse's cascading-picker session keys and switch view."""
+    company = _company_of(prod)
+    mc = str(prod.get("model_code") or "")
+    yr = _year_of(prod)
+    vfn = _scalar_bundle_str(prod.get("vendor_full_name"))
+    product_name = _product_name(vfn, mc, yr or 0)
+    st.session_state["browse.company"] = company
+    st.session_state["browse.product"] = product_name
+    if yr is not None:
+        st.session_state["browse.year"] = yr
+    st.session_state["view"] = "browse"
+    st.rerun()
+
+
+_CARD_CSS = """
+<style>
+.cd-find__card {
+    background: var(--cd-bg-card);
+    border: 1px solid var(--cd-border);
+    border-radius: var(--cd-radius-md);
+    padding: var(--cd-space-md) var(--cd-space-lg);
+    margin: var(--cd-space-sm) 0;
+}
+.cd-find__card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--cd-space-md);
+    margin-bottom: var(--cd-space-xs);
+}
+.cd-find__card-title {
+    font-size: var(--cd-size-base);
+    font-weight: 600;
+    color: var(--cd-text);
+}
+.cd-find__card-brand {
+    font-size: var(--cd-size-sm);
+    color: var(--cd-text-muted);
+}
+.cd-find__card-match {
+    display: flex;
+    align-items: center;
+    gap: var(--cd-space-xs);
+    font-size: var(--cd-size-sm);
+    color: var(--cd-text);
+    margin-bottom: var(--cd-space-xs);
+}
+.cd-find__card-feature {
+    color: var(--cd-text-muted);
+    margin-right: var(--cd-space-sm);
+}
+.cd-find__card-sep {
+    width: var(--cd-space-xs);
+}
+.cd-find__card-value {
+    font-weight: 500;
+}
+.cd-find__card-context {
+    font-size: var(--cd-size-sm);
+    color: var(--cd-text-muted);
+}
+.cd-find__label {
+    color: var(--cd-text-faint);
+    font-size: var(--cd-size-xs);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 500;
+    margin-bottom: var(--cd-space-xs);
+}
+.cd-find__title {
+    font-size: var(--cd-size-xl);
+    font-weight: 600;
+    color: var(--cd-text);
+    margin-bottom: var(--cd-space-xs);
+}
+.cd-find__subtitle {
+    font-size: var(--cd-size-sm);
+    color: var(--cd-text-muted);
+    margin-bottom: var(--cd-space-lg);
+}
+.cd-find__count {
+    font-size: var(--cd-size-lg);
+    font-weight: 500;
+    color: var(--cd-text);
+    margin: var(--cd-space-lg) 0 var(--cd-space-sm) 0;
+}
+.cd-find__count--empty {
+    color: var(--cd-text-muted);
+}
+.cd-find__narrow-label {
+    color: var(--cd-text-faint);
+    font-size: var(--cd-size-xs);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 500;
+    margin-top: var(--cd-space-md);
+}
+</style>
+"""
 
 
 def render(conn: sqlite3.Connection, *, db_path: str) -> None:
-    st.title("Find products where…")
-    if st.button("← Hub"):
-        st.session_state["view"] = "hub"
-        st.rerun()
+    """Render the Find-products screen."""
+    del db_path  # chrome handles attribution; no internal IDs leak here.
+
+    st.markdown(_CARD_CSS, unsafe_allow_html=True)
+    st.markdown(
+        '<div class="cd-find__title">Find products</div>'
+        '<div class="cd-find__subtitle">'
+        "Build a query to surface laptops matching a single spec."
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
     pks = _list_product_pks(conn)
     if not pks:
@@ -291,54 +489,146 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
         st.info("No filterable cells in this database.")
         return
 
-    sections: list[str] = []
-    for section, _ in paths:
-        if section not in sections:
-            sections.append(section)
+    # Build the flat Spec-field options: ``"Section · Feature"`` labels in
+    # render order, with a parallel map back to (section, template).
+    spec_options: list[str] = []
+    spec_lookup: dict[str, tuple[str, str]] = {}
+    for section, template in paths:
+        label = _friendly_field_label(section, template)
+        # Disambiguate the (rare) duplicate-label case by appending the
+        # raw leaf — keeps the dropdown stable when two sections happen
+        # to share a friendly name.
+        suffix = 1
+        unique = label
+        while unique in spec_lookup:
+            suffix += 1
+            unique = f"{label} ({suffix})"
+        spec_options.append(unique)
+        spec_lookup[unique] = (section, template)
 
-    c1, c2, c3 = st.columns([1, 2, 1])
-    section = c1.selectbox("Section", sections)
-    in_section = [t for s, t in paths if s == section]
-    template = c2.selectbox(
-        "Field",
-        in_section,
-        format_func=lambda t: t.replace(".*.", ".N."),
-    )
-    op = c3.selectbox("Op", _OPS_ALL)
+    # Op label currently picked; default ``equals``.
+    op_default_label = _OP_LABEL[_OP_EQ]
+    op_state_key = "find.op_label"
+    op_current = st.session_state.get(op_state_key, op_default_label)
+    needs_value = _LABEL_TO_OP[op_current] in _OPS_NEED_VALUE
 
-    if op in _OPS_NEED_VALUE:
-        values = _distinct_values_for_template(products, template)
-        if not values:
-            st.info(
-                "No values to filter on for this field — no product has a "
-                "filled, non-publish-skipped cell at this path."
-            )
-            st.caption(f"Reading from `{db_path}` — Stage 8 / Phase 2 UI · T8.4")
-            return
-        value = st.selectbox("Value", values, key="find-value-select")
+    # Query bar: Spec field / Match / Value (Value hidden when n/a).
+    if needs_value:
+        c_field, c_op, c_value = st.columns([2, 2, 2])
     else:
-        value = ""
+        c_field, c_op = st.columns([2, 2])
+        c_value = None
 
-    st.caption(
-        "Tip: `is set` returns every product where this cell is populated "
-        "(non-empty, non-publish-skipped) — covers \"which vendors publish "
-        "this field\" use-case queries."
-    )
+    with c_field:
+        st.markdown('<div class="cd-find__label">Spec field</div>', unsafe_allow_html=True)
+        spec_label = st.selectbox(
+            "Spec field",
+            spec_options,
+            key="find.spec_field",
+            label_visibility="collapsed",
+        )
 
-    body, n_products, n_cells = _render_matches(products, template, op, value)
-    if n_products == 0:
-        st.info("0 products match.")
-        st.caption(f"Reading from `{db_path}` — Stage 8 / Phase 2 UI · T8.4")
+    with c_op:
+        st.markdown('<div class="cd-find__label">Match</div>', unsafe_allow_html=True)
+        op_label = st.selectbox(
+            "Match",
+            _OP_LABELS_ORDERED,
+            key=op_state_key,
+            label_visibility="collapsed",
+        )
+    op = _LABEL_TO_OP[op_label]
+
+    section, template = spec_lookup[spec_label]
+
+    value = ""
+    if op in _OPS_NEED_VALUE and c_value is not None:
+        values = _distinct_values_for_template(products, template)
+        with c_value:
+            st.markdown('<div class="cd-find__label">Value</div>', unsafe_allow_html=True)
+            if values:
+                value = st.selectbox(
+                    "Value",
+                    values,
+                    key="find.value_select",
+                    label_visibility="collapsed",
+                )
+            else:
+                st.markdown(
+                    '<div style="font-size:var(--cd-size-sm);'
+                    'color:var(--cd-text-muted);'
+                    'padding-top:var(--cd-space-xs);">'
+                    "No values to filter on for this field."
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+                value = ""
+                # Render the narrow-by row + zero-result line anyway, so
+                # the layout doesn't collapse on the user.
+                _render_narrow_by(products)
+                st.markdown(
+                    '<div class="cd-find__count cd-find__count--empty">'
+                    "No products match this query.</div>",
+                    unsafe_allow_html=True,
+                )
+                return
+
+    # Narrow-by chip row.
+    company_filter, year_filter = _render_narrow_by(products)
+
+    # Compute matches, then apply narrow-by filters.
+    matches = _find_matches(products, template, op, value)
+    if company_filter != "(any)":
+        matches = [m for m in matches if _company_of(m[0]) == company_filter]
+    if year_filter != "(any)":
+        matches = [m for m in matches if _year_of(m[0]) == year_filter]
+
+    n = len(matches)
+    if n == 0:
+        st.markdown(
+            '<div class="cd-find__count cd-find__count--empty">'
+            "No products match this query.</div>",
+            unsafe_allow_html=True,
+        )
         return
 
-    summary = f"{n_products} product{'s' if n_products != 1 else ''} match"
-    if n_cells != n_products:
-        summary += f" · {n_cells} matching cells"
     st.markdown(
-        f'<div style="{_RESULT_FONT}">'
-        f'<div style="margin-bottom:0.5rem"><strong>{html.escape(summary)}</strong></div>'
-        f"{body}"
-        f"</div>",
+        f'<div class="cd-find__count">{n} product{"s" if n != 1 else ""} match</div>',
         unsafe_allow_html=True,
     )
-    st.caption(f"Reading from `{db_path}` — Stage 8 / Phase 2 UI · T8.4")
+
+    feature_label = _friendly_leaf_label(template.split(".")[-1], section)
+    spec_card_label = f"{section} {feature_label.lower()}"
+
+    for prod, vstr, marker in matches:
+        _render_card(prod, spec_card_label, vstr, marker)
+
+
+def _render_narrow_by(
+    products: list[dict[str, Any]],
+) -> tuple[str, int | str]:
+    """Render the optional Company/Year filter chips; return current picks."""
+    st.markdown(
+        '<div class="cd-find__narrow-label">Narrow by</div>',
+        unsafe_allow_html=True,
+    )
+    companies = sorted({_company_of(p) for p in products}, key=str.lower)
+    years_int = sorted({_year_of(p) for p in products if _year_of(p) is not None}, reverse=True)
+    company_opts = ["(any)"] + companies
+    year_opts: list[Any] = ["(any)"] + years_int
+
+    c1, c2, _ = st.columns([1, 1, 2])
+    with c1:
+        company = st.selectbox(
+            "Company",
+            company_opts,
+            key="find.narrow.company",
+            label_visibility="visible",
+        )
+    with c2:
+        year = st.selectbox(
+            "Year",
+            year_opts,
+            key="find.narrow.year",
+            label_visibility="visible",
+        )
+    return company, year

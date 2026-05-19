@@ -1,42 +1,27 @@
-"""Dashboard hub - landing page render.
-
-T8.0 shipped three live counts (products, vendors, review queue). T8.1
-added a single "Browse one product" entry-point that navigates to
-``ui/browse.py`` via ``st.session_state["view"]``. T8.2 replaced the
-single button with the four-destination grid (browse / compare / find /
-queue) and added the fourth health stat: days since the most recent
-``captured_at`` across every scraped bundle in ``products``. T8.6 added
-a fifth destination ("Manual-edit a cell") split as a second "Curate"
-row beneath the three read-only destinations. T8.7 fills the third
-Curate slot with "Refresh products".
-"""
+"""Editorial Hub landing screen (Stage 10 Phase B)."""
 
 from __future__ import annotations
 
+import html
 import json
 import sqlite3
 from datetime import datetime, timezone
 
 import streamlit as st
 
+from competitive_database.ui import theme
 
-# Read-only screens: the 3 discovery surfaces.
-_READ_DESTINATIONS: tuple[tuple[str, str], ...] = (
-    ("Browse one product", "browse"),
-    ("Compare side-by-side", "compare"),
-    ("Find products where…", "find"),
-)
 
-# Curation screens: the 3 write paths
-# (T8.5 review queue + T8.6 manual edit + T8.7 refresh trigger).
-_WRITE_DESTINATIONS: tuple[tuple[str, str], ...] = (
-    ("Review queue triage", "queue"),
-    ("Manual-edit a cell", "edit"),
-    ("Refresh products", "refresh"),
+# Card definitions: (title, description, route).
+_CTA_CARDS: tuple[tuple[str, str, str], ...] = (
+    ("Browse", "The full catalog, one row per laptop.", "browse"),
+    ("Compare", "Place any two or more laptops side by side.", "compare"),
+    ("Find", "Filter by the spec that matters to you.", "find"),
 )
 
 
-def _counts(conn: sqlite3.Connection) -> tuple[int, int, int]:
+def _counts(conn: sqlite3.Connection) -> tuple[int, int]:
+    """Return (product_count, distinct_brand_count) from the live DB."""
     products = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
     brand_rows = conn.execute(
         "SELECT brand FROM products WHERE brand IS NOT NULL"
@@ -46,10 +31,7 @@ def _counts(conn: sqlite3.Connection) -> tuple[int, int, int]:
         bundle = json.loads(row[0])
         if isinstance(bundle, dict) and bundle.get("value") is not None:
             brands.add(bundle["value"])
-    queue = conn.execute(
-        "SELECT COUNT(*) FROM review_queue WHERE resolved_at IS NULL"
-    ).fetchone()[0]
-    return products, len(brands), queue
+    return products, len(brands)
 
 
 def _walk_captured_at(node: object, out: list[str]) -> None:
@@ -65,6 +47,7 @@ def _walk_captured_at(node: object, out: list[str]) -> None:
 
 
 def _days_since_last_refresh(conn: sqlite3.Connection) -> int | None:
+    """Days since the most recent ``captured_at`` across all products."""
     cols = [r[1] for r in conn.execute("PRAGMA table_info(products)")]
     bundled = [c for c in cols if c not in {"model_code", "year", "family_code", "source_model_codes"}]
     if not bundled:
@@ -98,30 +81,104 @@ def _days_since_last_refresh(conn: sqlite3.Connection) -> int | None:
     return max(delta.days, 0)
 
 
+def _tile(value: str, label: str) -> str:
+    """Render a rounded box with a large value on top and a small label below."""
+    p = theme.PALETTE
+    return (
+        f'<div style="'
+        f'background:{p["bg_card"]};'
+        f'border:1px solid {p["border"]};'
+        f'border-radius:{theme.RADIUS["lg"]}px;'
+        f'padding:{theme.SPACE["lg"]}px;'
+        f'">'
+        f'<div style="'
+        f'font-size:{theme.TYPE["size_hero"]}px;'
+        f'font-weight:{theme.TYPE["weight_semibold"]};'
+        f'color:{p["text"]};'
+        f'line-height:1.1;'
+        f'">{html.escape(value)}</div>'
+        f'<div style="'
+        f'margin-top:{theme.SPACE["xs"]}px;'
+        f'font-size:{theme.TYPE["size_sm"]}px;'
+        f'color:{p["text_muted"]};'
+        f'">{html.escape(label)}</div>'
+        f'</div>'
+    )
+
+
+def _card_shell(title: str, description: str) -> str:
+    """Render the top half of a CTA card (title + sub-copy)."""
+    p = theme.PALETTE
+    return (
+        f'<div style="'
+        f'background:{p["bg_card"]};'
+        f'border:1px solid {p["border"]};'
+        f'border-radius:{theme.RADIUS["lg"]}px;'
+        f'padding:{theme.SPACE["lg"]}px;'
+        f'">'
+        f'<div style="'
+        f'font-size:{theme.TYPE["size_lg"]}px;'
+        f'font-weight:{theme.TYPE["weight_semibold"]};'
+        f'color:{p["text"]};'
+        f'">{html.escape(title)}</div>'
+        f'<div style="'
+        f'margin-top:{theme.SPACE["sm"]}px;'
+        f'font-size:{theme.TYPE["size_sm"]}px;'
+        f'color:{p["text_muted"]};'
+        f'line-height:1.5;'
+        f'">{html.escape(description)}</div>'
+        f'</div>'
+    )
+
+
 def render(conn: sqlite3.Connection, *, db_path: str) -> None:
-    st.title("Competitive Database")
-    products, vendors, queue = _counts(conn)
+    """Render the Hub landing screen."""
+    del db_path  # chrome handles attribution; no internal IDs leak here.
+    p = theme.PALETTE
+
+    # Hero line.
+    st.markdown(
+        f'<div style="'
+        f'margin-top:{theme.SPACE["xxl"]}px;'
+        f'margin-bottom:{theme.SPACE["xxl"]}px;'
+        f'font-size:{theme.TYPE["size_xl"]}px;'
+        f'font-weight:{theme.TYPE["weight_normal"]};'
+        f'color:{p["text_muted"]};'
+        f'">The competitive gaming-laptop reference.</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Metric tiles.
+    products, vendors = _counts(conn)
     days = _days_since_last_refresh(conn)
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Products", products)
-    col2.metric("Vendors", vendors)
-    col3.metric("Review queue", queue)
-    col4.metric("Days since refresh", "—" if days is None else days)
-    st.divider()
+    if products == 0 or days is None:
+        days_value = "—"
+    else:
+        days_value = f"{days} days"
+    metric_cols = st.columns(3)
+    with metric_cols[0]:
+        st.markdown(_tile(str(products), "products"), unsafe_allow_html=True)
+    with metric_cols[1]:
+        st.markdown(_tile(str(vendors), "vendors"), unsafe_allow_html=True)
+    with metric_cols[2]:
+        st.markdown(_tile(days_value, "since refresh"), unsafe_allow_html=True)
 
-    st.markdown("**Explore**")
-    read_cols = st.columns(3)
-    for col, (label, route) in zip(read_cols, _READ_DESTINATIONS):
-        if col.button(label, key=f"hub_{route}", use_container_width=True):
-            st.session_state["view"] = route
-            st.rerun()
+    # Spacer between metric row and CTA row.
+    st.markdown(
+        f'<div style="height:{theme.SPACE["xxl"]}px"></div>',
+        unsafe_allow_html=True,
+    )
 
-    st.markdown("**Curate**")
-    # 3-column grid so write buttons stay the same width as the read row.
-    write_cols = st.columns(3)
-    for col, (label, route) in zip(write_cols, _WRITE_DESTINATIONS):
-        if col.button(label, key=f"hub_{route}", use_container_width=True):
-            st.session_state["view"] = route
-            st.rerun()
-
-    st.caption(f"Reading from `{db_path}` — Stage 8 / Phase 2 UI · T8.7")
+    # CTA cards.
+    card_cols = st.columns(3)
+    for col, (title, description, route) in zip(card_cols, _CTA_CARDS):
+        with col:
+            st.markdown(_card_shell(title, description), unsafe_allow_html=True)
+            if st.button(
+                "Open →",
+                key=f"hub_cta_{route}",
+                use_container_width=True,
+                type="primary",
+            ):
+                st.session_state["view"] = route
+                st.rerun()

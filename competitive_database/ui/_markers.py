@@ -1,30 +1,22 @@
-"""Shared marker + path-resolve helpers for the UI layer.
+"""Shared marker palette + path-resolve helpers for the UI layer.
 
-Three UI screens (``browse``, ``compare``, ``find`` as of T8.4) need the
-same six-marker color palette and the same dotted-path → cell resolver.
-Extracted out of ``ui/browse.py`` + ``ui/compare.py`` at the rule-of-three
-threshold per ARCHITECTURE §UI layer.
+Color values live in ``theme.PALETTE['markers']``; ``MARKER_COLORS`` is
+a derived re-export keyed by the canonical ``views.formatting`` marker
+constants so existing callers keep working unchanged.
 
 Public surface:
 
 - ``MARKER_COLORS`` — color hex per ``views.formatting`` marker constant.
-- ``colorize_marker(marker)`` — wrap a single marker token in a colored span.
-- ``colorize_text(escaped)`` — substitute every marker token in pre-escaped
-  text with colored spans (used by ``browse.py`` for the whole orchestrator
-  dump).
 - ``resolve_path(product, path)`` — dotted-path → ``(bundle, plain)`` lookup
   matching the union of leaf shapes emitted by
   ``views.orchestrator.all_field_paths``.
-- ``render_cell(bundle, plain)`` — render one cell as ``value [marker]`` HTML
-  with the marker colored.
 """
 
 from __future__ import annotations
 
-import html
-import re
 from typing import Any, Optional
 
+from competitive_database.ui.theme import PALETTE
 from competitive_database.views.formatting import (
     MARKER_EMPTY,
     MARKER_MANUAL,
@@ -32,34 +24,21 @@ from competitive_database.views.formatting import (
     MARKER_PARTIAL,
     MARKER_VENDOR_NO_PUB,
     MARKER_VERIFIED,
-    display_value,
-    marker_for_bundle,
 )
 
-MARKER_COLORS: dict[str, str] = {
-    MARKER_VERIFIED: "#3fb950",       # green
-    MARKER_NEEDS_REVIEW: "#d29922",   # amber
-    MARKER_VENDOR_NO_PUB: "#8b949e",  # gray
-    MARKER_MANUAL: "#58a6ff",         # blue
-    MARKER_EMPTY: "#6e7681",          # dim
-    MARKER_PARTIAL: "#d29922",        # amber
+_TOKEN_TO_CONCEPT: dict[str, str] = {
+    MARKER_VERIFIED: "verified",
+    MARKER_NEEDS_REVIEW: "needs_review",
+    MARKER_VENDOR_NO_PUB: "vendor_no_publish",
+    MARKER_MANUAL: "manual",
+    MARKER_EMPTY: "empty",
+    MARKER_PARTIAL: "needs_review",
 }
 
-_MARKER_RE = re.compile("(" + "|".join(re.escape(m) for m in MARKER_COLORS) + ")")
-
-
-def colorize_marker(marker: str) -> str:
-    """Wrap a single marker token in a colored span."""
-    color = MARKER_COLORS[marker]
-    return f'<span style="color:{color}">{html.escape(marker)}</span>'
-
-
-def colorize_text(escaped: str) -> str:
-    """Substitute every marker token in pre-escaped text with colored spans.
-
-    Caller is responsible for HTML-escaping the input first.
-    """
-    return _MARKER_RE.sub(lambda m: colorize_marker(m.group(1)), escaped)
+MARKER_COLORS: dict[str, str] = {
+    token: PALETTE["markers"][concept]  # type: ignore[index]
+    for token, concept in _TOKEN_TO_CONCEPT.items()
+}
 
 
 def resolve_path(
@@ -96,19 +75,3 @@ def resolve_path(
             return None, leaf_val
         return None, None
     return None, None
-
-
-def render_cell(bundle: Optional[dict], plain: Optional[str]) -> str:
-    """Render one cell as ``value [marker]`` HTML; marker is colored.
-
-    Plain-string leaves render as the escaped string with no marker
-    (they carry no provenance bundle by design).
-    """
-    if plain is not None:
-        return html.escape(plain)
-    marker = marker_for_bundle(bundle)
-    marker_html = colorize_marker(marker)
-    value = display_value(bundle)
-    if not value:
-        return marker_html
-    return f"{html.escape(value)} {marker_html}"

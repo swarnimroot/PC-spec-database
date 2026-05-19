@@ -14,9 +14,13 @@ NEVER pass through canonicalization (None, bool, vendor-doesn't-publish).
 from __future__ import annotations
 
 from competitive_database.views.formatting import (
+    MARKER_MANUAL,
+    MARKER_NEEDS_REVIEW,
+    MARKER_VERIFIED,
     VENDOR_NO_PUB_TEXT,
     canonicalize_display,
     display_value,
+    marker_for_bundle,
 )
 
 
@@ -127,3 +131,44 @@ def test_display_value_field_path_ignored_for_bool():
         display_value(_bundle(False), field_path="display_offerings.*.panel_type")
         == "no"
     )
+
+
+# ---- marker_for_bundle status mapping -----------------------------------
+
+
+def test_formatting_status_manual_resolves_to_manual_marker():
+    """Stage 10a — a bundle with status='manual' renders the manual marker."""
+    bundle = {
+        "value": "yes",
+        "status": "manual",
+        "entered_by": "tester",
+        "entered_at": "2026-05-19T00:00:00+00:00",
+    }
+    assert marker_for_bundle(bundle) == MARKER_MANUAL
+
+
+def test_formatting_status_manual_marker_without_entered_by():
+    """A bundle whose status is 'manual' resolves to MARKER_MANUAL even without entered_by."""
+    bundle = {"value": "yes", "status": "manual"}
+    assert marker_for_bundle(bundle) == MARKER_MANUAL
+
+
+def test_formatting_status_vouched_with_entered_by_still_manual_marker():
+    """Existing manual bundles (status='vouched' + entered_by) keep the manual marker."""
+    bundle = {
+        "value": "yes",
+        "status": "vouched",
+        "entered_by": "tester",
+        "entered_at": "2026-05-19T00:00:00+00:00",
+    }
+    assert marker_for_bundle(bundle) == MARKER_MANUAL
+
+
+def test_formatting_status_verified_resolves_to_verified_marker():
+    bundle = {"value": "yes", "status": "verified"}
+    assert marker_for_bundle(bundle) == MARKER_VERIFIED
+
+
+def test_formatting_status_needs_review_resolves_to_needs_review_marker():
+    bundle = {"value": "yes", "status": "needs-review"}
+    assert marker_for_bundle(bundle) == MARKER_NEEDS_REVIEW

@@ -23,6 +23,7 @@ from typing import Any
 import streamlit as st
 
 from competitive_database.cli.resolve import coerce_value_string, resolve_row
+from competitive_database.ui import theme
 from competitive_database.ui._markers import MARKER_COLORS
 from competitive_database.views.formatting import marker_for_bundle
 
@@ -51,7 +52,7 @@ def _decode_json(raw: Any) -> Any:
 
 
 def _marker_html(marker: str) -> str:
-    color = MARKER_COLORS.get(marker, "#8b949e")
+    color = MARKER_COLORS.get(marker, theme.PALETTE["text_muted"])
     return f'<span style="color:{color}">{html.escape(marker)}</span>'
 
 
@@ -72,7 +73,7 @@ def _value_display(value_json: Any, provenance: Any) -> str:
     if isinstance(v, (dict, list)):
         body = f"<code>{html.escape(json.dumps(v, indent=2)[:400])}</code>"
     elif v is None:
-        body = '<span style="color:#6e7681">—</span>'
+        body = f'<span style="color:{theme.PALETTE["text_faint"]}">—</span>'
     elif isinstance(v, bool):
         body = "yes" if v else "no"
     else:
@@ -87,7 +88,7 @@ def _render_side_panel(label: str, value_json: Any, provenance: Any) -> None:
     st.markdown(f"**{label}**")
     if value_json is None and provenance is None:
         st.markdown(
-            '<div style="color:#6e7681;font-style:italic">(no value)</div>',
+            f'<div style="color:{theme.PALETTE["text_faint"]};font-style:italic">(no value)</div>',
             unsafe_allow_html=True,
         )
         return
@@ -323,9 +324,6 @@ def _render_sidebar(
 
 def render(conn: sqlite3.Connection, *, db_path: str) -> None:
     st.title("Review queue triage")
-    if st.button("← Hub"):
-        st.session_state["view"] = "hub"
-        st.rerun()
 
     # Surface the previous turn's resolve outcome (if any) at the top of
     # the page. Kept in session_state across the st.rerun() so the user
@@ -340,9 +338,6 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
     rows = _list_unresolved(conn)
     if not rows:
         st.success("Queue empty — no unresolved review rows.")
-        st.caption(
-            f"Reading from `{db_path}` — Stage 8 / Phase 2 UI · T8.5"
-        )
         return
 
     selected_id = st.session_state.get("queue_selected_id")
@@ -357,8 +352,3 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
     with main_col:
         row = next(r for r in rows if r["id"] == selected_id)
         _render_detail(conn, row)
-
-    st.caption(
-        f"Reading from `{db_path}` — Stage 8 / Phase 2 UI · T8.5 · "
-        f"first write path"
-    )

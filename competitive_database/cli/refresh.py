@@ -141,8 +141,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
 
 # Per-vendor URL template registry. Fetchers are imported lazily inside
 # ``_fetch_snapshots`` so unit tests don't pull in the live HTTP stack
-# when they don't need to.
-_VENDOR_TEMPLATES: dict[str, str] = {
+# when they don't need to. Phase G (Stage 10a) lifted this to a public
+# name so the UI can plan refresh batches without importing a private
+# helper; ``_VENDOR_TEMPLATES`` is kept as a back-compat alias for
+# existing callers.
+VENDOR_TEMPLATES: dict[str, str] = {
     "dell": DEFAULT_DELL_URL_TMPL,
     "hp": DEFAULT_HP_URL_TMPL,
     "lenovo": DEFAULT_LENOVO_URL_TMPL,
@@ -188,10 +191,10 @@ def refresh_product(
             on_step(event)
 
     brand_l = (brand or "").lower()
-    if brand_l not in _VENDOR_TEMPLATES:
+    if brand_l not in VENDOR_TEMPLATES:
         raise ValueError(
             f"brand {brand!r} is not supported; "
-            f"known: {sorted(_VENDOR_TEMPLATES)}"
+            f"known: {sorted(VENDOR_TEMPLATES)}"
         )
 
     if from_db:
@@ -205,7 +208,7 @@ def refresh_product(
 
     if from_db:
         assert model is not None
-        urls = _collect_source_urls_from_product(
+        urls = collect_source_urls_from_product(
             conn, model_code=model, year=year
         )
         if not urls:
@@ -317,8 +320,8 @@ def refresh_all_products(
     Iterates ``products`` ordered by ``(model_code, year)``. Per row:
 
     - Parses the ``brand`` bundle. If missing/malformed or the value is
-      not in ``_VENDOR_TEMPLATES``, the product is skipped with a reason.
-    - Calls :func:`_collect_source_urls_from_product` to check that at
+      not in ``VENDOR_TEMPLATES``, the product is skipped with a reason.
+    - Calls :func:`collect_source_urls_from_product` to check that at
       least one scraped ``source_url`` exists on the row. If not, skipped.
     - Otherwise invokes :func:`refresh_product` with ``from_db=True``.
       Per-product errors (``ValueError`` and any other exception) are
@@ -354,13 +357,13 @@ def refresh_all_products(
         if brand_value is None:
             items.append((mc, yr, None, "brand bundle is empty or missing"))
             continue
-        if brand_value not in _VENDOR_TEMPLATES:
+        if brand_value not in VENDOR_TEMPLATES:
             items.append(
                 (mc, yr, brand_value, f"brand {brand_value!r} not supported")
             )
             continue
         try:
-            urls = _collect_source_urls_from_product(
+            urls = collect_source_urls_from_product(
                 conn, model_code=mc, year=yr
             )
         except ValueError as exc:
@@ -601,7 +604,7 @@ def _resolve_url(
         slug = url.rstrip("/").rsplit("/", 1)[-1]
         return url, slug
     assert slug_arg is not None
-    template = _VENDOR_TEMPLATES[brand]
+    template = VENDOR_TEMPLATES[brand]
     return template.format(slug=slug_arg), slug_arg
 
 
@@ -688,14 +691,14 @@ def _fetch_snapshots(brand: str, url: str, slug: str, profiles_dir: str):
         return fetch_asus_product(url, anchors=[anchor])
     raise ValueError(
         f"brand {brand!r} has no fetcher wired in; "
-        f"known: {sorted(_VENDOR_TEMPLATES)}"
+        f"known: {sorted(VENDOR_TEMPLATES)}"
     )
 
 
 # --- --from-db helpers ---------------------------------------------------
 
 
-def _collect_source_urls_from_product(
+def collect_source_urls_from_product(
     conn: sqlite3.Connection,
     model_code: str,
     year: Optional[int],
@@ -771,3 +774,13 @@ def _walk_source_urls(payload: Any, sink: list[str]) -> None:
     elif isinstance(payload, list):
         for item in payload:
             _walk_source_urls(item, sink)
+
+
+# --- Back-compat aliases (Phase G, Stage 10a) ----------------------------
+#
+# The UI Refresh screen (and any external callers) reach for the public
+# names; existing tests and pre-Phase-G code use the underscore-prefixed
+# private forms. Keep both bound to the same object so ``is`` comparisons
+# succeed and there's only one source of truth.
+_VENDOR_TEMPLATES = VENDOR_TEMPLATES
+_collect_source_urls_from_product = collect_source_urls_from_product

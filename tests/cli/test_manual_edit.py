@@ -54,6 +54,7 @@ def test_manual_edit_writes_scalar(tmp_path, capsys):
         note="DisplayMate review",
         status="vouched",
         entered_by="tester",
+        source_url=None,
         db=str(tmp_path / "me.db"),
     )
     manual_edit.main(args)
@@ -94,6 +95,7 @@ def test_manual_edit_value_int_coercion(tmp_path):
         note=None,
         status="vouched",
         entered_by="tester",
+        source_url=None,
         db=str(tmp_path / "me.db"),
     )
     manual_edit.main(args)
@@ -123,6 +125,7 @@ def test_manual_edit_value_json_bool(tmp_path):
         note=None,
         status="vouched",
         entered_by="tester",
+        source_url=None,
         db=str(tmp_path / "me.db"),
     )
     manual_edit.main(args)
@@ -154,6 +157,7 @@ def test_manual_edit_writes_offering_leaf(tmp_path):
         note=None,
         status="vouched",
         entered_by="tester",
+        source_url=None,
         db=str(tmp_path / "me.db"),
     )
     manual_edit.main(args)
@@ -183,6 +187,7 @@ def test_manual_edit_rejects_catalog_path(tmp_path):
         note=None,
         status="vouched",
         entered_by="tester",
+        source_url=None,
         db=str(tmp_path / "me.db"),
     )
     with pytest.raises(SystemExit) as exc:
@@ -203,7 +208,56 @@ def test_manual_edit_rejects_pk_path(tmp_path):
         note=None,
         status="vouched",
         entered_by="tester",
+        source_url=None,
         db=str(tmp_path / "me.db"),
     )
     with pytest.raises(SystemExit):
         manual_edit.main(args)
+
+
+def test_manual_edit_cell_accepts_manual_status(tmp_path):
+    """Stage 10a — 'manual' is a real third status alongside vouched / needs-review."""
+    conn = _fresh_db(tmp_path)
+    try:
+        with transaction(conn):
+            write_scalar(conn, "products", _PK, "brand", _scraped("Alienware"))
+        manual_edit.manual_edit_cell(
+            conn,
+            model_code=_PK["model_code"],
+            year=_PK["year"],
+            field_path="audio_jack",
+            value="yes",
+            status="manual",
+            entered_by="tester",
+        )
+        bundle = read_scalar(conn, "products", _PK, "audio_jack")
+    finally:
+        conn.close()
+
+    assert bundle is not None
+    assert bundle["status"] == "manual"
+    assert bundle["entered_by"] == "tester"
+
+
+def test_manual_edit_cell_persists_source_url(tmp_path):
+    """Stage 10a — source_url plumbed through manual_edit_cell into the bundle."""
+    conn = _fresh_db(tmp_path)
+    try:
+        with transaction(conn):
+            write_scalar(conn, "products", _PK, "brand", _scraped("Alienware"))
+        manual_edit.manual_edit_cell(
+            conn,
+            model_code=_PK["model_code"],
+            year=_PK["year"],
+            field_path="audio_jack",
+            value="yes",
+            status="manual",
+            entered_by="tester",
+            source_url="https://example.test/spec-sheet",
+        )
+        bundle = read_scalar(conn, "products", _PK, "audio_jack")
+    finally:
+        conn.close()
+
+    assert bundle is not None
+    assert bundle["source_url"] == "https://example.test/spec-sheet"

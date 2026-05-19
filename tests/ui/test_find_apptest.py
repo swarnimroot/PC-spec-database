@@ -1,16 +1,16 @@
-"""T9.1 — AppTest coverage for the Find-products value dropdown.
+"""AppTest coverage for the Find-products screen.
 
-The "Find products where…" screen now drives the value input from
-``_distinct_values_for_template`` instead of a free-text input. These
-tests seed products against an isolated temp DB, drive the cascade
-selectboxes, and assert the value selectbox content + the empty-field
-info branch.
+Phase E rewrite: the Find screen now exposes a labelled query bar
+(Spec field / Match / Value) with plain-English op labels and friendly
+``"Section · Feature"`` spec-field options. The behavioral core
+(``_distinct_values_for_template`` and ``_cell_matches``) is unchanged;
+these tests drive the new presentation but cover the same outcomes.
 
-Cascade selectboxes on this screen are positional and keyless:
-  - ``at.selectbox[0]`` = Section
-  - ``at.selectbox[1]`` = Field
-  - ``at.selectbox[2]`` = Op
-The value selectbox is the only one with a key (``find-value-select``).
+Selectbox keys on this screen:
+  - ``find.spec_field`` — Spec field (flat ``Section · Feature`` list)
+  - ``find.op_label``   — Match operator (plain-English label)
+  - ``find.value_select`` — Value picker (only when op needs a value)
+  - ``find.narrow.company`` / ``find.narrow.year`` — narrow-by filters
 """
 
 from __future__ import annotations
@@ -43,8 +43,13 @@ def _bundle(value):
     )
 
 
+def _value_box(at):
+    """Return the value selectbox (key=find.value_select) or None."""
+    matches = [s for s in at.selectbox if s.key == "find.value_select"]
+    return matches[0] if matches else None
+
+
 def _seed_two_vendors(db_path) -> None:
-    """Two products with distinct vendor_full_name values."""
     conn = connect(db_path)
     try:
         with transaction(conn):
@@ -63,12 +68,6 @@ def _seed_two_vendors(db_path) -> None:
 
 
 def _seed_three_refresh_rates(db_path) -> None:
-    """Three products, each with a distinct refresh_rate_hz on a display.
-
-    vendor_full_name is also set on each so the default cascade landing
-    (Identity / vendor_full_name) has values; Section will be flipped to
-    Display in the test body.
-    """
     conn = connect(db_path)
     try:
         with transaction(conn):
@@ -92,7 +91,6 @@ def _seed_three_refresh_rates(db_path) -> None:
 
 
 def _seed_only_vendor(db_path) -> None:
-    """One product with vendor_full_name set, brand left NULL."""
     conn = connect(db_path)
     try:
         with transaction(conn):
@@ -106,12 +104,6 @@ def _seed_only_vendor(db_path) -> None:
 
 
 def _seed_two_panel_variants(db_path) -> None:
-    """Two products: one stores panel_type "IPS", one stores "IPS-level".
-
-    T9.2 canonicalizes "IPS-level" → "IPS" on the find screen, so the
-    dropdown collapses to a single "IPS" entry and picking it matches
-    both products.
-    """
     conn = connect(db_path)
     try:
         with transaction(conn):
@@ -133,12 +125,11 @@ def _seed_two_panel_variants(db_path) -> None:
         conn.close()
 
 
-def test_value_dropdown_populated_for_default_cascade(empty_db):
-    """Default cascade lands on Identity/vendor_full_name with Op '='.
+def test_value_dropdown_populated_for_default_spec_field(empty_db):
+    """Default Spec field is the first option (Identity · Vendor name).
 
-    Seeds two products with distinct vendors and asserts the
-    ``find-value-select`` selectbox carries exactly those two values,
-    sorted casefold-alphabetically (Dell before HP).
+    Seeds two products with distinct vendors and asserts the value
+    selectbox carries those values, sorted casefold-alphabetically.
     """
     _seed_two_vendors(empty_db)
 
@@ -147,27 +138,21 @@ def test_value_dropdown_populated_for_default_cascade(empty_db):
     at.run()
     assert not at.exception, [str(e) for e in at.exception]
 
-    # Sanity: default cascade landed where we expect.
-    assert at.selectbox[0].value == "Identity"
-    assert at.selectbox[1].value == "vendor_full_name"
-    assert at.selectbox[2].value == "="
+    # Default op label is "equals"; default spec field lands on first option.
+    spec_box = [s for s in at.selectbox if s.key == "find.spec_field"][0]
+    op_box = [s for s in at.selectbox if s.key == "find.op_label"][0]
+    assert "Identity · Vendor name" in list(spec_box.options)
+    assert op_box.value == "equals"
 
-    value_boxes = [s for s in at.selectbox if s.key == "find-value-select"]
-    assert len(value_boxes) == 1, (
-        f"expected exactly one find-value-select; got {len(value_boxes)}"
-    )
-    value_box = value_boxes[0]
+    value_box = _value_box(at)
+    assert value_box is not None, "expected find.value_select to be rendered"
     assert list(value_box.options) == ["Dell Inc.", "HP Inc."], (
         f"unexpected dropdown options: {value_box.options!r}"
     )
 
 
 def test_value_dropdown_numeric_sort_on_refresh_rate(empty_db):
-    """Numeric leaf sorts numerically ascending, not alphabetically.
-
-    Three products with refresh_rate_hz of 60/120/240 — alphabetic sort
-    would give ["120", "240", "60"]; numeric sort gives ["60", "120", "240"].
-    """
+    """Numeric leaf sorts numerically ascending, not alphabetically."""
     _seed_three_refresh_rates(empty_db)
 
     at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
@@ -175,35 +160,26 @@ def test_value_dropdown_numeric_sort_on_refresh_rate(empty_db):
     at.run()
     assert not at.exception, [str(e) for e in at.exception]
 
-    # Drive Section → Display.
-    at.selectbox[0].set_value("Display").run()
-    assert not at.exception, [str(e) for e in at.exception]
-
-    # Field selectbox shows templates with the offering-index wildcard
-    # rendered as ".N." via format_func — AppTest exposes those formatted
-    # strings as ``options``, but ``set_value`` still takes the raw value.
-    field_box = at.selectbox[1]
-    target_raw = "display_offerings.*.refresh_rate_hz"
-    target_formatted = "display_offerings.N.refresh_rate_hz"
-    assert target_formatted in list(field_box.options), (
-        f"missing {target_formatted} in field options: {list(field_box.options)!r}"
+    spec_box = [s for s in at.selectbox if s.key == "find.spec_field"][0]
+    target_label = "Display · Refresh rate"
+    assert target_label in list(spec_box.options), (
+        f"missing {target_label!r} in spec-field options: "
+        f"{list(spec_box.options)!r}"
     )
-    field_box.set_value(target_raw).run()
+    spec_box.set_value(target_label).run()
     assert not at.exception, [str(e) for e in at.exception]
 
-    value_boxes = [s for s in at.selectbox if s.key == "find-value-select"]
-    assert len(value_boxes) == 1
-    assert list(value_boxes[0].options) == ["60", "120", "240"], (
-        f"numeric sort broken: got {value_boxes[0].options!r}"
+    value_box = _value_box(at)
+    assert value_box is not None
+    assert list(value_box.options) == ["60", "120", "240"], (
+        f"numeric sort broken: got {value_box.options!r}"
     )
 
 
-def test_empty_field_shows_info_banner_and_hides_value_select(empty_db):
-    """When no product has a filled cell at the chosen template, the
-    info banner renders and the value selectbox is absent.
-
-    Seeds one product with vendor_full_name only, then drives the Field
-    selectbox to ``brand`` (which no product has filled).
+def test_empty_field_shows_inline_message_and_no_results(empty_db):
+    """When no product has a filled cell at the chosen template, an
+    inline "No values to filter on" message renders and the value
+    selectbox is absent. The result panel shows "No products match".
     """
     _seed_only_vendor(empty_db)
 
@@ -212,28 +188,28 @@ def test_empty_field_shows_info_banner_and_hides_value_select(empty_db):
     at.run()
     assert not at.exception, [str(e) for e in at.exception]
 
-    # Section stays "Identity"; flip Field to "brand" (NULL on the one product).
-    at.selectbox[1].set_value("brand").run()
+    spec_box = [s for s in at.selectbox if s.key == "find.spec_field"][0]
+    # Flip to "Identity · Brand" — brand is NULL on the seeded product.
+    target = "Identity · Brand"
+    assert target in list(spec_box.options), (
+        f"missing {target!r} in spec-field options: {list(spec_box.options)!r}"
+    )
+    spec_box.set_value(target).run()
     assert not at.exception, [str(e) for e in at.exception]
 
-    info_msgs = [i.value for i in at.info]
-    assert any(
-        "No values to filter on for this field" in m for m in info_msgs
-    ), f"expected empty-field info banner; saw infos {info_msgs!r}"
-
-    value_boxes = [s for s in at.selectbox if s.key == "find-value-select"]
-    assert value_boxes == [], (
-        f"value selectbox should be absent when no values exist; "
-        f"got {value_boxes!r}"
+    markdown_blob = "\n".join(m.value for m in at.markdown)
+    assert "No values to filter on for this field" in markdown_blob, (
+        f"expected inline 'no values' message; saw markdown {markdown_blob!r}"
     )
+    assert _value_box(at) is None, (
+        "value selectbox should be absent when no values exist"
+    )
+    assert "No products match this query." in markdown_blob
 
 
 def test_panel_type_canonicalizes_ips_level_to_ips(empty_db):
     """T9.2: dropdown shows a single canonical "IPS" entry for products
     that store either "IPS" or "IPS-level".
-
-    Seeds two products with distinct stored values and asserts the
-    value selectbox carries exactly one option, "IPS".
     """
     _seed_two_panel_variants(empty_db)
 
@@ -242,26 +218,20 @@ def test_panel_type_canonicalizes_ips_level_to_ips(empty_db):
     at.run()
     assert not at.exception, [str(e) for e in at.exception]
 
-    at.selectbox[0].set_value("Display").run()
+    spec_box = [s for s in at.selectbox if s.key == "find.spec_field"][0]
+    spec_box.set_value("Display · Panel").run()
     assert not at.exception, [str(e) for e in at.exception]
 
-    at.selectbox[1].set_value("display_offerings.*.panel_type").run()
-    assert not at.exception, [str(e) for e in at.exception]
-
-    value_boxes = [s for s in at.selectbox if s.key == "find-value-select"]
-    assert len(value_boxes) == 1
-    assert list(value_boxes[0].options) == ["IPS"], (
-        f"canonical collapse broken: got {value_boxes[0].options!r}"
+    value_box = _value_box(at)
+    assert value_box is not None
+    assert list(value_box.options) == ["IPS"], (
+        f"canonical collapse broken: got {value_box.options!r}"
     )
 
 
 def test_panel_type_canonical_pick_matches_both_stored_variants(empty_db):
-    """T9.2: picking "IPS" from the canonical dropdown matches BOTH the
-    product that stores "IPS" raw and the one that stores "IPS-level".
-
-    Verifies the cell-match side of the canonicalizer (``_cell_matches``
-    passes ``concrete_path`` so the stored value is projected to its
-    canonical form before equality compares against the dropdown pick).
+    """T9.2: picking "IPS" matches both the product that stores "IPS"
+    raw and the one that stores "IPS-level".
     """
     _seed_two_panel_variants(empty_db)
 
@@ -270,17 +240,12 @@ def test_panel_type_canonical_pick_matches_both_stored_variants(empty_db):
     at.run()
     assert not at.exception, [str(e) for e in at.exception]
 
-    at.selectbox[0].set_value("Display").run()
-    at.selectbox[1].set_value("display_offerings.*.panel_type").run()
+    spec_box = [s for s in at.selectbox if s.key == "find.spec_field"][0]
+    spec_box.set_value("Display · Panel").run()
     assert not at.exception, [str(e) for e in at.exception]
 
-    # Op stays at default "=" and value defaults to first (and only) option, "IPS".
-    # Result-summary markdown carries "2 products match" and both model_codes.
-    bodies = [m.value for m in at.markdown]
-    assert any("2 products match" in b for b in bodies), (
-        f"expected '2 products match' in markdown bodies; got {bodies!r}"
-    )
-    joined = "\n".join(bodies)
-    assert "strict-ips" in joined and "legion-ips" in joined, (
-        f"expected both model_codes in result body; got {joined!r}"
+    markdown_blob = "\n".join(m.value for m in at.markdown)
+    # Two products match; the result count line carries the count text.
+    assert "2 products match" in markdown_blob, (
+        f"expected '2 products match' in markdown; got {markdown_blob!r}"
     )

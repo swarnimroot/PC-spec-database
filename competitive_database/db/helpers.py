@@ -17,7 +17,9 @@ from typing import Any, Optional
 # --- Status enums --------------------------------------------------------
 
 _SCRAPED_STATUSES = {"verified", "needs-review", "vendor-doesn't-publish"}
-_MANUAL_STATUSES = {"vouched", "needs-review"}
+# Stage 10a: ``manual`` joins ``vouched`` / ``needs-review`` as a real third
+# status value so the Edit UI's "manual" pill no longer aliases to vouched.
+_MANUAL_STATUSES = {"vouched", "needs-review", "manual"}
 
 
 # --- Bundle factories ----------------------------------------------------
@@ -50,10 +52,12 @@ def make_manual_bundle(
     source_note: Optional[str] = None,
     status: str = "vouched",
     entered_at: Optional[str] = None,
+    source_url: Optional[str] = None,
 ) -> dict:
     """Build a manual-cell provenance bundle (dict; does not write).
 
     ``entered_at`` defaults to the current UTC time as ISO-8601.
+    ``source_url`` is optional and only persisted when non-None.
     """
     if status not in _MANUAL_STATUSES:
         raise ValueError(
@@ -61,13 +65,16 @@ def make_manual_bundle(
         )
     if entered_at is None:
         entered_at = datetime.now(timezone.utc).isoformat()
-    return {
+    bundle: dict = {
         "value": value,
         "source_note": source_note,
         "entered_by": entered_by,
         "entered_at": entered_at,
         "status": status,
     }
+    if source_url is not None:
+        bundle["source_url"] = source_url
+    return bundle
 
 
 def make_vendor_doesnt_publish_bundle(

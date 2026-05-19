@@ -81,9 +81,14 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     )
     p.add_argument(
         "--status",
-        choices=("vouched", "needs-review"),
+        choices=("vouched", "needs-review", "manual"),
         default="vouched",
         help="Manual-bundle status.",
+    )
+    p.add_argument(
+        "--source-url",
+        default=None,
+        help="Optional source URL persisted on the bundle (e.g. vendor spec sheet).",
     )
     p.add_argument(
         "--entered-by",
@@ -108,6 +113,7 @@ def manual_edit_cell(
     status: str = "vouched",
     note: str | None = None,
     entered_by: str | None = None,
+    source_url: str | None = None,
 ) -> dict[str, Any]:
     """Write a manual cell at ``field_path`` on ``(model_code, year)``.
 
@@ -148,6 +154,7 @@ def manual_edit_cell(
             entered_by=eb,
             source_note=note,
             status=status,
+            source_url=source_url,
         )
 
     if year is None:
@@ -201,6 +208,7 @@ def main(args: argparse.Namespace) -> None:
                 status=args.status,
                 note=args.note,
                 entered_by=args.entered_by,
+                source_url=args.source_url,
             )
         except ValueError as exc:
             raise SystemExit(f"manual-edit: {exc}") from exc

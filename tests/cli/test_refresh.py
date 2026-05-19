@@ -690,3 +690,18 @@ def test_main_single_requires_brand(tmp_path):
     )
     with pytest.raises(SystemExit, match="--brand is required"):
         refresh_main(args)
+
+
+def test_public_names_alias_private():
+    """Phase G (Stage 10a) lifted the per-vendor template registry and the
+    source-url collector to public names; the underscore-prefixed forms
+    must remain bound to the same objects so existing callers keep
+    working."""
+    from competitive_database.cli.refresh import (
+        VENDOR_TEMPLATES,
+        _VENDOR_TEMPLATES,
+        collect_source_urls_from_product,
+        _collect_source_urls_from_product as _coll,
+    )
+    assert VENDOR_TEMPLATES is _VENDOR_TEMPLATES
+    assert collect_source_urls_from_product is _coll

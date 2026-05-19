@@ -86,6 +86,7 @@ def _manual_edit_args(tmp_path, *, field, value, value_json=None):
         note=None,
         status="vouched",
         entered_by="tester",
+        source_url=None,
         db=str(tmp_path / _DB_NAME),
     )
 
