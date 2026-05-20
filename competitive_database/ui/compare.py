@@ -11,6 +11,7 @@ import streamlit as st
 from competitive_database.ui._components import (
     cascading_picker,
     comparison_grid_html,
+    inject_compare_styles,
 )
 from competitive_database.ui.theme import PALETTE
 from competitive_database.views import load as views_load
@@ -23,6 +24,17 @@ from competitive_database.views.formatting import (
 
 _MAX_COLUMNS = 4
 _STATE_IDS = "compare.column_ids"
+
+# Width of the empty offset column placed to the LEFT of every picker
+# stack. The comparison grid below allots 12% to the section label and
+# 18% to the feature label, so the picker dropdowns line up with the
+# value column once those two prefix columns are accounted for. A single
+# 1/10-width spacer column (≈10%) is the closest Streamlit ``columns``
+# can get to "just shy of section + feature" without going wider than
+# the spec-detail value column underneath.
+_PICKER_OFFSET_WEIGHT = 1
+_PICKER_BODY_WEIGHT = 5
+_ADD_COL_WEIGHT = 1
 
 
 def _column_ids() -> list[int]:
@@ -47,7 +59,7 @@ def _remove_column(cid: int) -> None:
         return
     ids.remove(cid)
     st.session_state[_STATE_IDS] = ids
-    for suffix in ("company", "product", "year"):
+    for suffix in ("company", "sub_brand", "series", "product", "year"):
         st.session_state.pop(f"compare.col{cid}.{suffix}", None)
 
 
@@ -74,7 +86,14 @@ def _segment_line_html(product: dict[str, Any]) -> str:
 
 
 def render(conn: sqlite3.Connection, *, db_path: str) -> None:
-    """Render the Compare side-by-side screen."""
+    """Render the Compare side-by-side screen.
+
+    Stage 10c: strict-cascade Series-rung pickers, each preceded by a
+    blank offset column so the dropdowns line up with the comparison
+    grid's value column underneath. The ``+`` button parks at the right
+    and is centered on a faint rail line that runs behind it across the
+    picker stack.
+    """
     del db_path  # chrome handles attribution; no internal IDs leak here.
     st.title("Compare side-by-side")
 
@@ -82,16 +101,28 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
         st.info("No products in the database yet.")
         return
 
+    inject_compare_styles()
+
     ids = _column_ids()
     n = len(ids)
-    # One column per picker plus a trailing slim column for the ``+`` button
-    # so it parks neatly to the right of the rightmost picker.
-    layout = list(ids) + ["__add__"]
-    cols = st.columns(len(layout))
+
+    # Each picker column becomes a pair: [offset, body]. Trailing slim
+    # column hosts the ``+`` button. Widths echo the comparison-grid
+    # below so dropdowns sit above the value column, not over the
+    # section/feature label prefix.
+    weights: list[int] = []
+    for _ in ids:
+        weights.extend([_PICKER_OFFSET_WEIGHT, _PICKER_BODY_WEIGHT])
+    weights.append(_ADD_COL_WEIGHT)
+    cols = st.columns(weights)
 
     picked_products: list[dict[str, Any]] = []
-    for cid, col in zip(ids, cols[:n]):
-        with col:
+    for i, cid in enumerate(ids):
+        # Offset column: intentionally empty — pure visual padding so the
+        # cascade dropdowns line up with the comparison-grid columns.
+        _offset_col = cols[2 * i]
+        body_col = cols[2 * i + 1]
+        with body_col:
             # Tiny ``×`` affordance to drop this column; hidden at N=1.
             if n > 1:
                 if st.button(
@@ -105,6 +136,8 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
                 conn,
                 key_prefix=f"compare.col{cid}",
                 vertical=True,
+                strict_cascade=True,
+                rung_mode="series",
             )
             if picked is not None:
                 st.markdown(
@@ -114,6 +147,12 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
                 picked_products.append(picked["row"])
 
     with cols[-1]:
+        # Wrapper carries the faint rail (CSS pseudo-element) + centers
+        # the ``+`` button vertically over the picker stack.
+        st.markdown(
+            '<div class="cd-cmp-add-wrap" id="cd-cmp-add-wrap">',
+            unsafe_allow_html=True,
+        )
         if n < _MAX_COLUMNS:
             if st.button(
                 "+",
@@ -122,6 +161,17 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
             ):
                 _add_column()
                 st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # Faint rail line spanning the picker block, sitting behind the ``+``
+    # button. Rendered as a full-width div whose horizontal extent is
+    # masked by the page padding + the offset/body column layout above.
+    # Drawn here so it lands BELOW the picker stack in DOM order but is
+    # styled to sit at the vertical center via negative margin.
+    st.markdown(
+        '<div class="cd-cmp-rail"></div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown(
         f'<div style="height:var(--cd-space-lg)"></div>',
