@@ -9,6 +9,7 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 - Stage 10c — Review queue triage redesign — filter / sort / grouping for the 229 unresolved Lenovo rows + friendly labels (no `value_dis` / `low_conf` abbreviations); gated on 10a + 10b closing — Session 43
 
 ## Next
+- Small UI polish brainstorm — user-flagged at S46 close; to be enumerated Session 47; Stage 10c triage redesign gated on this — Session 46
 
 ## Deferred
 - T9.4 Dell `snapshot.options` consumption — bridge to surface scrapers-lib v1.5.0 configurator options (CPU/GPU/RAM/Storage/Display/Keyboard/Battery/Adapter/OS) as additional offering rows; fetcher flag wired Session 39 but bridge doesn't read the field yet
@@ -36,6 +37,6 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 - Stage 7 — Polish — 2026-05-11 (9, T7.0d Def)
 - Stage 8 — Phase 2 UI — 2026-05-12 (9, T8.8(c)+T8.8(d) Def)
 - Stage 10a — UI visual polish — 2026-05-19 (8 phases A–H; +2 data-model extensions: `manual` real third status, `source_url` on manual bundles)
-- Stage 10b — CPU + Graphics rollup — 2026-05-20 (schema migration + view rewrites + 65 CPU / 13 GPU curated rows; 349 → 364 tests)
+- Stage 10b — Data display rollup — FULLY CLOSED 2026-05-20 across two batches: Batch 1 Session 44 (CPU + Graphics — schema migration + view rewrites + 65 CPU / 13 GPU curated rows; 349 → 364 tests), Batch 2 Session 46 (remaining 14 sections rolled up + I/O multi-row + Keyboard/Thermals hidden + Browse/Compare/Find redesigns with Series rung + strict cascade + Find result cards; 364 → 479 tests)
 
 (Per-stage task detail: SESSION_LOG.md)

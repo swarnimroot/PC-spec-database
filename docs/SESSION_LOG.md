@@ -6,6 +6,152 @@ Newest sessions at the top.
 
 ---
 
+## Session 46 — 2026-05-20 (Stage 10b batch 2 — 14 remaining sections rolled up; Browse / Compare / Find redesigns — Series rung + strict cascade + Find result cards; 364 → 479 tests green)
+
+**Goal:** Close out Stage 10b — apply the rollup-row display treatment to every remaining visible section beyond CPU + Graphics (the Session 44 batch). Then act on the user's session-44-close ask for "some UI changes after the section work" — redesign Browse / Compare / Find around the new rolled-up tables.
+
+**Outcome:** **Stage 10b FULLY CLOSED.** All 14 remaining sections now render a single rolled-up line (or, for I/O, a four-row block) on the visual tables. Two sections (Keyboard + Thermals) are hidden from the visual rollup; both stay editable. Browse / Compare / Find each got a redesign on top of the new rollup pattern: Series replaces Product as the picker rung; strict cascade on every level (no auto-select); Compare's `+` button restyled and dropped onto a faint horizontal rail; Find restructured around a Section → Feature → Match → Value cascade with horizontal result cards carrying an `Open →` button that jumps to Browse pre-loaded. Tests **364 → 479** (+115).
+
+### Section rollups — batch 2 (14 sections)
+
+Each section's `views/<name>.py` now exposes `rollup_value(product) -> (display_string, marker)` returning one collapsed line; I/O is the one exception and exposes `rollup_rows(product) -> list[(label, value, marker)]` for its four sub-rows. Markers carry one collapsed worst-status across the per-offering bundles touched by the rollup.
+
+1. **Display** — per-offering combo: `<size>" <res_label> <hz>Hz <panel>` triples, size-hoisted when shared across offerings, ` · `-joined for multi-offering rows. Drops nits / HDR / gamuts / response / VRR / anti-glare / tier.
+2. **Memory** — `<type> <speed>MT/s · <slots> slots ; up to <max>GB`; `slots=0` → `soldered`. Drops overclocking.
+3. **Storage** — `N× GenX [+ M× GenY] ; up to <max>TB` (gen-bucketed; max stated in TB).
+4. **Battery** — per-offering combo: `<Wh>Wh <cells>-cell` triples, ` · `-joined. Drops tier.
+5. **Keyboard** — HIDDEN from the visual rollup (free-text descriptions are too verbose to roll up sensibly). Edit unchanged.
+6. **Camera** — resolution-only, ` · `-joined. Drops IR / shutter / tier.
+7. **Adapter** — `<wattages list> ; <connector>`; wattages ` · `-joined; connector clause omitted when NULL.
+8. **Audio** — `<n>-speaker <tuning_brand>`. Both halves optional. Drops subwoofer.
+9. **Network** — Wi-Fi standard only. Drops ethernet + Bluetooth.
+10. **I/O** — MULTI-ROW (4 sub-rows). USB: `N× TB · M× USB-C · K× USB-A` (count×type, no version). HDMI: `<count>× <version>`. SD card: literal `sd_card`. Audio jack: literal `audio_jack`. Each sub-row carries its own worst-status marker.
+11. **Thermals** — HIDDEN (all data NULL today). Edit unchanged.
+12. **Dimensions** — `<w> × <d> × <h_min>-<h_max> mm`; fallbacks for missing heights.
+13. **Weight** — `<min>-<max> kg`; one-sided fallbacks `<v> kg min` / `<v> kg max`.
+14. **Design** — cover materials only: `<material> (A + D)` when A+D match; `<m1> (A) · <m2> (D)` when split. Drops C-cover / thermal_shelf / lighting.
+
+### Registry / orchestrator changes
+
+- `views/orchestrator.py`: CPU section heading renamed `CPU` → **Processor** (both `_SECTION_REGISTRY` and `cpu.render()`).
+- New visible section order: Processor, Graphics, Display, Memory, Storage, then Keyboard / Camera / Audio / Network / I/O / Battery / Adapter / Thermals / Dimensions / Weight / Design.
+- New `_VISUAL_SECTIONS` tuple — excludes Keyboard + Thermals (the two sections hidden from the visual rollup). `_SECTION_REGISTRY` shape is unchanged, so Edit / `find-empty` continue to walk every section.
+
+### `_components.py` integration
+
+- Dispatch table `_rollup_for_section` wires every visible section's `rollup_value` / `rollup_rows` into `spec_table_html` + `comparison_grid_html`.
+- New helpers `_rollup_rows_html` / `_cmp_rollup_rows_html` cover the multi-row I/O case.
+- `friendly_leaf_label` CPU branch renamed to Processor to match the registry rename.
+
+### Screen redesigns — Browse / Compare / Find
+
+- **Browse** (`ui/browse.py`): strict-cascade picker (no auto-select at any level). Series rung replaces Product rung. Vertical breathing space (`xl` gap) added between identity strip and spec table.
+- **Compare** (`ui/compare.py`): strict-cascade picker, Series rung, restyled `+` button (subtle accent pill) sitting on a faint `cd-cmp-rail` horizontal line, empty-offset left column so dropdowns align with the spec rows below.
+- **Find** (`ui/find.py`): new cascade order **Section → Feature → Match → Value**, then narrow-by **Company → Series → Year**. Each downstream dropdown filtered by upstream. Results render as horizontal cards: identity crumbs + section rollup snippet + marker dot + `Open →` button that sets Browse's session-state keys and flips view so the user lands on the picked product loaded.
+
+### `_components.py` screen-helper additions (drives Browse / Compare / Find)
+
+- `cascading_picker` gained `strict_cascade: bool` + `rung_mode: "product" | "series"` kwargs. Legacy callers keep their existing behavior.
+- New private `_series_cascade` (Company → Sub-brand → Series → Year) parallels the legacy `_product_cascade`.
+- New public helpers `inject_compare_styles`, `find_rollup_for_section`, `find_result_card_html`, `inject_findcard_styles`.
+
+### Tests
+
+- 14 new `tests/views/test_<section>.py` files (Display, Memory, Storage, Battery, Keyboard, Camera, Adapter, Audio, Network, I/O, Thermals, Dimensions, Weight, Design).
+- `tests/views/test_cpu.py` updated for the Processor heading rename.
+- New `tests/ui/test_browse.py` (5 cases) and `tests/ui/test_compare.py` (5 cases). `tests/ui/test_find_apptest.py` reworked (5 existing + 4 new) for the new cascade + card render + `Open →` wiring.
+- Final pytest count: **479 passed** (from 364 at session start — net +115).
+
+### Decisions made this session
+
+1. **Each visible section renders as one rolled-up line on the visual tables**, with I/O the single exception (four sub-rows). User picked per-section across 14 `AskUserQuestion` mockup batches.
+2. **Two sections hidden from the visual rollup** — Keyboard (verbose free-text descriptions resist clean rollup) and Thermals (100% NULL across the DB today). Both remain editable on the Edit screen; the registry shape is unchanged.
+3. **Series replaces Product as the picker rung on Browse + Compare.** User asked for a coarser top-level pick after CPU/Graphics rollup made per-product picking feel low-signal. Verified `(vendor, sub_brand, series, year)` resolves to exactly one product across all 76 — no multi-product ambiguity.
+4. **Strict cascade on Browse + Compare** — no auto-select at any level; downstream pickers stay hidden until the upstream is picked.
+5. **Find result cards include an `Open →` CTA** that sets Browse's session-state keys + flips view, jumping the user directly to the picked product loaded.
+
+### Files changed (this session — code + tests)
+
+**Code (18 files):**
+- `competitive_database/views/{cpu,display,memory,storage,battery,camera,adapter,audio,network,io,dimensions,weight,design}.py` (rollup added; CPU also got the Processor heading rename).
+- `competitive_database/views/orchestrator.py` (Processor rename, reorder, new `_VISUAL_SECTIONS`).
+- `competitive_database/ui/{_components.py,browse.py,compare.py,find.py}` (rollup dispatch + screen redesigns).
+
+**Tests (17 files):**
+- 14 new `tests/views/test_<section>.py` files.
+- `tests/views/test_cpu.py` updated.
+- `tests/ui/test_app_smoke.py` (welcome-modal tests are pre-existing S45 work — already in the working tree at session start, not touched this session).
+- `tests/ui/test_find_apptest.py` reworked.
+- 2 new: `tests/ui/test_browse.py`, `tests/ui/test_compare.py`.
+
+**Working tree at session start also included pre-existing Session 45 changes** (Hub welcome modal — landed in S45 but not yet committed): `README.md` (S45 paragraph), `docs/SESSION_LOG.md` (S45 entry), `competitive_database/ui/hub.py` (welcome-modal implementation), `tests/ui/test_app_smoke.py` (4 new welcome-modal tests). These were carried alongside the S46 work and split into their own commit at wrap time.
+
+### Pickup pointers for next session
+
+- **Small UI polish changes** — user flagged at S46 close that they want some additional UI polish brainstorming before triage redesign begins. To be enumerated in Session 47. Stage 10c (review queue triage redesign) remains queued but is gated on that brainstorm landing first.
+- **Stage 10b is FULLY CLOSED** across both batches (CPU + Graphics S44, the remaining 14 sections S46). The Stage 10 design log (`memory/stage10_design.md`) carries the full audit trail.
+- **DB state unchanged this session:** 76 products / 4 vendors / 229 unresolved review_queue rows (Lenovo backlog, still parked).
+- **Working tree at session close:** three logical commits planned per the user's commit-split preference — S46 batch 2 (sections + registry + integration) / S46 Browse-Compare-Find redesigns / S46 wrap (docs alignment). Plus one commit for the pre-existing S45 welcome modal work (kept separate from S46 scope).
+- **Prior batch reference:** Session 44 commit `b07d9d9` carries the first half of Stage 10b (CPU + Graphics rollup + schema migration + curation).
+
+---
+
+## Session 45 — 2026-05-20 (Hub welcome modal — density grid + math reveal + 3-column intro; +4 new tests landed)
+
+**Goal:** Add a one-time-per-Streamlit-session welcome modal to the Hub. Concise, visual. Three sections (problem / what-it-does / who-it's-for) plus a proof-of-work moment that conveys catalog scale without bragging.
+
+**Outcome:** **Welcome modal landed.** Shows on the first Hub render of every Streamlit session; dismissed via "Got it" or the dialog's built-in X. Persistence flag (`welcome_seen`) is flipped *before* opening the dialog so X-dismissal also sticks. Four new UI tests added; all green.
+
+### Modal structure
+
+- **Hero block (top of modal).** Live density grid in SVG — one accent-colored square per product, laid out N-wide where N = `_categories_count()`. Below the grid, a math reveal: `products × spec_categories = total_fields` in 48px type with `×` and `=` operators muted between the three tiles. Below that, an italic kicker: "Hand-normalized across vendor catalogs." All three numbers are live; empty DB falls back to `—` with a muted outline placeholder grid so the layout doesn't collapse.
+- **Three-column explanatory block.** Single inline-HTML flex container, `align-items:stretch`, gap `xxxl` (48px), each card `flex:1 1 0`. Icon-top → bold title → body. The "Who it's for" column carries three stacked sub-rows (Product / Marketing / Competitive intel, each with a one-line use case); the label-on-left / description-on-right pattern wouldn't fit at column width so each row collapses vertically.
+- **Three SVG section icons** (32px line-art in accent color): scattered rectangles → tidy 2×2 grid → connected nodes. The Problem→What-this-does pair is a small visual story (scattered snaps into a grid).
+
+### Live coupling (Session 45 explicit decision)
+
+- **Vendor names** read from `products.brand` via a new `_vendor_names(conn)` helper, sorted alphabetically, joined with commas, `, etc.` appended. Empty-DB fallback string: `"every major OEM"`. So when Acer/MSI eventually seed, the modal body updates without a code change.
+- **Counts** all live: products from the existing `_counts(conn)`, spec categories from `len(_SECTION_REGISTRY)`, total fields is the product of the two. No hardcoded numbers anywhere in the modal copy.
+
+### The `@st.dialog` thread isolation gotcha
+
+- First "Got it" click raised `sqlite3.ProgrammingError: SQLite objects created in a thread can only be used in that same thread.` Root cause: Streamlit reruns `@st.dialog`-decorated bodies on a worker thread distinct from the main script thread that created `sqlite3.Connection`. SQLite refuses cross-thread reuse.
+- Fix: `_welcome_dialog` no longer takes `conn` — it accepts plain primitives (`products: int`, `categories: int`, `vendor_list_str: str`). `render()` computes all DB-derived values on the main thread and passes them through. The dialog body never touches the connection.
+- AppTest didn't catch the bug — it runs single-threaded, so the thread split doesn't reproduce in tests. Added `test_welcome_modal_dismisses_on_got_it_click` as a structural regression guard. Honest gap acknowledged at the time: real-browser verification was the only path to catching this class of bug. New memory entry `streamlit_dialog_thread_isolation.md` captures the rule for future Streamlit dialog work.
+
+### Iteration
+
+The modal landed in four user-facing iterations, each with a real-browser check between rounds:
+
+- **v1** — four-tile stats footer ("Under the hood: 76 products / 4 vendors / 16 spec categories / 349 tests"). User pushed back: "needs a wow / aha moment." Replaced the footer with a hero density grid + math reveal at the top of the modal; dropped the tests stat (engineering trivia for a product/marketing audience).
+- **v2** — sections rendered vertically (icon-left, three separate `st.markdown` calls). User pushed back: convert to 3 columns side-by-side. Refactored to a single inline-HTML flex container with `align-items:stretch`, icon-top, "Who it's for" sub-rows collapsed vertically.
+- **v3** — columns too close at `gap: xl` (24px). User pushed back. Bumped to `gap: xxxl` (48px).
+- **v4** — vendor list hardcoded as `Dell, HP, Lenovo, ASUS`. User pushed back: make live so Acer/MSI flow through. Added `_vendor_names(conn)`, joined with `, etc.`, fell back to `"every major OEM"` for the empty-DB path.
+
+### Files touched
+
+- `competitive_database/ui/hub.py` — added `_vendor_names`, `_hero_grid_svg`, `_welcome_hero_html`, `_welcome_card_html`, `_welcome_who_card_html`, `_welcome_dialog`, plus the trigger in `render()`. Earlier-draft helpers from intermediate iterations (`_count_tests`, `_TESTS_DIR`, `_stats_strip_html`, and the original icon-left `_welcome_section_html` / `_welcome_who_section_html`) were removed when subsequent iterations replaced them.
+- `tests/ui/test_app_smoke.py` — four new tests: renders on first visit, skipped when `welcome_seen` is set, dismisses on Got it click, lists live vendor names (seeds two brands and asserts `ASUS, Dell, etc.` appears in the body).
+
+### Decisions made this session
+
+1. **Modal trigger is per-Streamlit-session, not per-browser-cookie.** Flag stored in `st.session_state["welcome_seen"]`. Cookie-based "show only once ever per browser" considered and rejected: brittle in Streamlit (custom JS needed), and overkill for a local-first app where every fresh session is a deliberate Hub visit.
+2. **Flag set *before* opening the dialog, not on Got it click.** Covers both Got it and X-dismissal symmetrically; the user can't accidentally re-summon the modal by clicking X mid-session.
+3. **All DB-derived values cross the dialog boundary as primitives.** Driven by the cross-thread `sqlite3.ProgrammingError` discovered mid-session. Pattern: never pass `sqlite3.Connection` (or any thread-bound object) into a `@st.dialog`-decorated function.
+4. **Hardcoded numbers banned in modal copy.** Products / spec categories / fields all live from the DB or the section registry. Vendor names also live. The hardcoded `"every major OEM"` empty-DB fallback for `_vendor_names` is the only non-live string in the modal body.
+5. **Tests stat dropped from the modal.** Original v1 included a `_count_tests()` file-scan helper. Trimmed when the hero density grid + math reveal took over as the proof-of-work moment — "349 tests" reads as engineering trivia to the product/marketing/competitive-intel audience the modal is positioned for.
+
+### Pickup pointers for next session
+
+- **Stage 10c (review queue triage redesign)** remains next-active per Session 44's pickup pointers.
+- **Stage 10b continued** (per-field display cleanup for Display / Memory / Storage / Battery / Keyboard / Camera / Adapter / Audio / Network / I/O / Thermals / Dimensions / Weight / Design) was also queued from Session 44 but did not progress this session — the welcome modal was a side-quest.
+- **Modal visual verification** done in-browser by the user across all four iterations; no remaining visual TODOs at session close.
+- **DB state unchanged this session:** 76 products / 4 vendors / 229 unresolved queue rows (Lenovo backlog, still parked).
+- **Working tree at session close:** uncommitted changes in `competitive_database/ui/hub.py` + `tests/ui/test_app_smoke.py` (this session) layered on top of pre-existing uncommitted edits in `views/cpu.py` + `views/display.py` + `views/memory.py` from before Session 45 started. Split commits by topic before pushing.
+- **Pre-existing test failures NOT from this session:** `tests/views/test_cpu.py::test_empty_offerings_renders_empty` and `tests/views/test_cpu.py::test_render_emits_cpu_heading` fail at session close. Confirmed unrelated to Session 45 work: stashing only the Session 45 files (hub.py + test_app_smoke.py + docs) leaves both failures intact. Failure mode: renderer emits `Processor: ARL-H [verified]` where the tests expect `CPU: ARL-H [verified]` — looks like mid-edit work in `views/cpu.py` that renamed the section heading. Full suite at session close: **366 passing / 2 failing**. The 4 Session 45 tests in `tests/ui/test_app_smoke.py` are all green. Surfaced to the user, not auto-fixed (per CLAUDE.md scope-discipline rule).
+
+---
+
 ## Session 44 — 2026-05-20 (Stage 10b CPU + Graphics rollup; recovered from prior-session system restart via transcript subagent; 349 → 364 tests green; 65 CPU + 13 GPU catalog rows curated)
 
 **Goal:** Resume Stage 10b after a system restart killed the first Session 44 attempt mid-design. Recover the design intent without re-asking the user, then implement the locked CPU + Graphics rollup end-to-end: schema migration, view rewrites, catalog curation, UI + Edit-screen integration.
