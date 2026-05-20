@@ -31,7 +31,9 @@ Vendor coverage today: ASUS (`npu_tops`, `cores`); Lenovo (`cores`, `base_clock`
 |---|---|---|
 | `model` | string (PK) | Canonical model name as published by manufacturer (e.g., "Core Ultra 9 285HX"). Foreign key target from `products.cpu_offerings`. |
 | `brand` | string | Intel / AMD / *open enum* |
-| `architecture` | string | e.g., Arrow Lake HX, Hawk Point, Raptor Lake H |
+| `architecture_code` | string | Short code, e.g. `RPL-H R`, `ARL-HX`, `HWK R`, `STX-H`. JSON provenance bundle. **Stage 10b (Session 44)** — renamed from the previously-empty `architecture` column via an idempotent `ALTER … RENAME` migration. User-curated, not bridge-seeded. AMD `R` suffix migrated to ` R` (space) to match Intel; `-H` on Strix / Gorgon stays dashed because it marks a die variant, not a refresh. Drives the Stage 10b CPU rollup. |
+| `architecture_name` | string | Full architecture name, e.g. `Raptor Lake H Refresh`, `Arrow Lake HX`, `Hawk Point Refresh`, `Strix Halo`. JSON provenance bundle. **Stage 10b (Session 44)** — user-curated. |
+| `generation` | string | Marketing/series generation, e.g. `Core Ultra Series 2`, `Ryzen AI 300 series`. JSON provenance bundle. **Stage 10b (Session 44)** — user-curated. |
 | `cores` | number | Total core count |
 | `npu_tops` | number | NPU TOPS — chip-level NPU performance |
 | `base_clock` | number (GHz) | Optional |
@@ -49,7 +51,10 @@ One row per distinct GPU model (e.g., RTX 5070 Ti, Radeon RX 9070M). Populated d
 |---|---|---|
 | `model` | string (PK) | Canonical model name (e.g., "RTX 5070 Ti"). Foreign key target from `products.boards.gpus`. |
 | `brand` | string | NVIDIA / AMD / Intel / *open enum* |
-| `architecture` | string | e.g., Blackwell, RDNA 4, Battlemage |
+| `architecture` | string | e.g., Blackwell, RDNA 4, Battlemage. Reserved for future curation; left as-is during Stage 10b. |
+| `series` | string | e.g., `RTX 30 Series`, `RTX 40 Series`, `RTX 50 Series`. JSON provenance bundle. **Stage 10b (Session 44)** — user-curated. Empty for AMD / Intel rows today. |
+| `board` | string | Power-class tier: `MB1` (top: RTX 5070 Ti / 5080 / 5090), `MB2` (mid: 5050 / 5060 / 5070 / 4060 / 4070), `MB3` (entry: 3050 / 4050). JSON provenance bundle. **Stage 10b (Session 44)** — user-curated. Empty for AMD / Intel rows. Drives the Stage 10b Graphics rollup for NVIDIA GPUs. |
+| `gpu_class` | string | `discrete` or `integrated`. JSON provenance bundle. **Stage 10b (Session 44)** — user-curated. Rows tagged `integrated` drop out of the Graphics rollup entirely. NULL is treated as `discrete`. |
 | `cuda_cores` | number | Or stream processors / Xe cores per brand |
 | `vram_base` | number (GB) | |
 | `base_clock` | number | Optional |

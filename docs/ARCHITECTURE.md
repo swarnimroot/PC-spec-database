@@ -27,8 +27,12 @@ SQLite, one file (`competitive.db`), inspected via DB Browser for SQLite. All wr
 One row per CPU model. Primary key: `model` (string).
 Columns map directly to [`DATA_MODEL.md`](DATA_MODEL.md#cpu-catalog) — each column carries a provenance bundle (see below).
 
+Stage 10b (Session 44) added three curated columns: `architecture_code` (renamed from the previously-empty `architecture` column via an idempotent `ALTER … RENAME` migration), `architecture_name`, and `generation`. All three are JSON provenance bundles, populated by hand under the `vouched` status — not seeded by the bridge layer.
+
 #### `gpu_catalog`
 One row per GPU model. Primary key: `model` (string). Same provenance pattern.
+
+Stage 10b (Session 44) added three curated columns: `series`, `board`, and `gpu_class`. All three are JSON provenance bundles, populated by hand. The existing `architecture` column was kept as-is and is reserved for future curation (Blackwell / RDNA 4 / Battlemage / etc.).
 
 #### `products`
 One row per product. Composite primary key: `(model_code, year)`.
@@ -366,6 +370,17 @@ Single source of truth for human-readable product presentation. The `inspect-pro
 - **Identity block always shows all six identity fields.** Including `[empty]` for unset (`status` / `segment` are typical empties for vendors that don't publish them on the spec page). Confirmed against header-noise concerns; gap-spotting wins.
 - **Catalog spec lines render without per-line markers.** `cpu_catalog` / `gpu_catalog` spec columns (cores, NPU TOPS, architecture, etc.) are plain TEXT — no per-cell provenance bundle. The row-level `catalog_status` is shown once per offering; the `brand` bundle (the only bundled catalog column) keeps its own marker.
 - **`storage_slots` is offerings-shaped.** A list of slots, each with a `gen` leaf for PCIe generation. Lives in the `_OFFERINGS_FIELDS` set in `views/load.py` alongside `cpu_offerings`, `boards`, `display_offerings`, `battery_offerings`, `keyboard_offerings`, `adapter_offerings`, `camera_offerings`.
+
+### Stage 10b — CPU + Graphics rollup display rule (Session 44)
+
+Browse / Compare / Find collapse the CPU and Graphics sections to a single rollup line each. Per-SKU detail is preserved in the DB row and stays visible on the Edit screen — the rollup is a render-time pivot, not a stored value.
+
+- **CPU rollup** (`views/cpu.rollup_value(product, cpu_catalog) -> (str, marker)`): walks `cpu_offerings`, looks each model up in `cpu_catalog`, dedupes `architecture_code` values, and comma-joins what remains.
+- **Graphics rollup** (`views/boards.rollup_value(product, gpu_catalog) -> (str, marker)`): walks each board's `gpus`. For NVIDIA, the rollup contributes the catalog `board` value (e.g. `MB1` / `MB2` / `MB3`). For AMD / Intel, the rollup contributes the brand name. Rows with `gpu_class = "integrated"` drop out entirely.
+- **Worst-status marker** (`views/formatting.worst_marker(markers)`): both rollups carry one marker collapsed across the per-SKU offering bundles. Precedence: `needs-review > vendor-doesn't-publish > manual > verified`.
+- **Section heading rename:** `Boards` → `Graphics` in `views/orchestrator._SECTION_REGISTRY`, `ui/_components.friendly_leaf_label`, and the `views/boards.render` heading. The underlying `products.boards` column name is unchanged — the rename is presentation-only, so bridge / merge / DB code carries through.
+- **Edit screen path preservation:** `views/cpu.field_paths` and `views/boards.field_paths` are unchanged. The per-SKU bundle paths (`cpu_offerings.N.model`, `boards.N.gpus.M`, etc.) remain fillable through `manual-edit` / the Edit UI.
+- **Render-time enrichment:** `_components.spec_table_html` and `_components.comparison_grid_html` accept optional `cpu_catalog` and `gpu_catalog` kwargs; `ui/browse.py`, `ui/compare.py`, and `ui/find.py` load the catalogs at the same point they load each product and pass through.
 
 ### How the marker logic works
 

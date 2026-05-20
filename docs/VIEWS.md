@@ -50,7 +50,7 @@ this way; consistency wins.)
 
 ### Catalog spec lines render without per-line markers
 
-Inside the CPU and Boards (GPU) sections, after each catalog hit the
+Inside the CPU and Graphics (GPU) sections, after each catalog hit the
 view prints a `catalog status: <status>` line, then the catalog spec
 columns (`cores`, `NPU TOPS`, `architecture`, etc.) as plain
 `label: value` rows — no `[marker]` suffix.
@@ -79,7 +79,7 @@ Initially read as a scalar; it's actually a list-of-slot offerings
 in Stage 4 — the loader's `_OFFERINGS_FIELDS` set now correctly groups
 it with the other offering columns.
 
-### Boards: per-board GPU options nested under each board
+### Graphics: per-board GPU options nested under each board
 
 A board offering has scalar leaves (`label`, `tgp_max`, `tpp_max`,
 plus the Lenovo-only `arch_marker` added in T7.0a) plus a `gpus`
@@ -110,7 +110,7 @@ doesn't apply.
 The orchestrator emits sections in a fixed order:
 
 1. **Identity** (header rule + 6 identity fields)
-2. **CPU** → **Boards** (compute)
+2. **CPU** → **Graphics** (compute)
 3. **Memory** → **Storage** (RAM/disk)
 4. **Display**
 5. **Keyboard** → **Camera** → **Audio** (input/output peripherals)
@@ -139,13 +139,13 @@ fillable bundle the section currently exposes on the loaded product:
   cell" issue — `find-empty` correctly skips such sections).
 - Catalog leaves on `cpu_catalog` / `gpu_catalog` are NOT included.
   Those live on the catalog rows, not the products row, and aren't
-  fillable via per-product `manual-edit`. CPU and Boards therefore
+  fillable via per-product `manual-edit`. CPU and Graphics therefore
   expose only the product-level leaves (the `model` bundles, the board
   scalars, `cpu_tdp_max`).
-- The Boards section excludes the per-board `gpus` array. Its 4-level
+- The Graphics section excludes the per-board `gpus` array. Its 4-level
   path shape (`boards.N.gpus.M`) isn't supported by `manual-edit` /
   `resolve` yet.
-- The Boards section also excludes `boards.{idx}.label` (T7.0e,
+- The Graphics section also excludes `boards.{idx}.label` (T7.0e,
   Session 15). After T7.0c the display value is always the synthesized
   per-product ordinal `MB{ordinal}`, so manual edits to the stored
   label were silently masked at render. Dropping the leaf from
