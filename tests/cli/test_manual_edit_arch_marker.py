@@ -201,10 +201,17 @@ def test_merge_boards_after_arch_marker_hand_edit_keys_correctly(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_render_after_arch_marker_hand_edit_prints_plain_value(tmp_path):
-    """After a manual-edit on ``boards.0.arch_marker``, the boards view
-    surfaces the new value as a plain string ('arch: amd-radeon'), not
-    as a dict literal."""
+def test_render_after_arch_marker_hand_edit_has_no_dict_leak(tmp_path):
+    """After a manual-edit on ``boards.0.arch_marker``, the Graphics
+    view renders without leaking the underlying dict literal.
+
+    Stage 10b note: ``arch_marker`` itself no longer surfaces in the
+    rendered view (the Graphics rollup shows only board labels for
+    NVIDIA / brand for AMD/Intel). The hand-edit + load round-trip is
+    covered by ``test_load_product_decodes_plain_arch_marker_after_hand_edit``;
+    this test only guards against a regression where a stored bundle or
+    raw dict leaks into the rendered output.
+    """
     _seed_product(tmp_path, arch_marker="intel-rtx")
 
     args = _manual_edit_args(
@@ -219,7 +226,6 @@ def test_render_after_arch_marker_hand_edit_prints_plain_value(tmp_path):
         conn.close()
 
     out = render(product, {})
-    assert "arch: amd-radeon" in out
     # No raw-dict leak.
     assert "{'value':" not in out
     assert "'arch_marker'" not in out

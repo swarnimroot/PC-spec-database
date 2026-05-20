@@ -12,6 +12,8 @@ import streamlit as st
 
 from competitive_database.ui._markers import MARKER_COLORS, resolve_path
 from competitive_database.ui.theme import PALETTE
+from competitive_database.views import boards as boards_view
+from competitive_database.views import cpu as cpu_view
 from competitive_database.views import load
 from competitive_database.views.formatting import (
     MARKER_EMPTY,
@@ -24,6 +26,14 @@ from competitive_database.views.formatting import (
     marker_for_bundle,
 )
 from competitive_database.views.orchestrator import _SECTION_REGISTRY
+
+# Stage 10b: per-section row label for the rollup cells. Section names
+# are matched verbatim against ``_SECTION_REGISTRY`` so they stay in
+# sync.
+_ROLLUP_FEATURE_LABEL: dict[str, str] = {
+    "CPU": "Architecture",
+    "Graphics": "Boards",
+}
 
 
 _MARKERS = PALETTE["markers"]  # type: ignore[index]
@@ -149,7 +159,7 @@ def friendly_leaf_label(leaf: str, section: str) -> str:
     if leaf == "model":
         if section == "CPU":
             return "Processor"
-        if section == "Boards":
+        if section == "Graphics":
             return "Chip"
         return "Model"
     override = _LEAF_LABEL_OVERRIDES.get(leaf)
@@ -433,6 +443,32 @@ def _format_cell(
     return value, marker
 
 
+def _rollup_row_html(
+    section_name: str,
+    feature_label: str,
+    value_str: str,
+    marker: str,
+) -> str:
+    """One ``<tr>`` carrying the rolled-up CPU / Graphics cell.
+
+    Empty rollup renders ``—`` with the empty marker (consistent with
+    the per-section "(no data scraped)" placeholder elsewhere).
+    """
+    if value_str:
+        cell_value = value_str
+        cell_marker = marker
+    else:
+        cell_value = "—"
+        cell_marker = MARKER_EMPTY
+    return (
+        '<tr class="cd-spec__row cd-spec__row--last">'
+        f'<td class="cd-spec__section" rowspan="1">{html.escape(section_name)}</td>'
+        f'<td class="cd-spec__feature">{html.escape(feature_label)}</td>'
+        f'<td class="cd-spec__value">{_value_cell_html(cell_value, cell_marker)}</td>'
+        "</tr>"
+    )
+
+
 def _section_rows_html(
     section_name: str,
     paths: list[tuple[str, str]],
@@ -473,13 +509,46 @@ def _section_rows_html(
 def spec_table_html(
     product: dict[str, Any],
     sections: list[tuple[str, Any]] | None = None,
+    *,
+    cpu_catalog: dict[str, dict[str, Any]] | None = None,
+    gpu_catalog: dict[str, dict[str, Any]] | None = None,
 ) -> str:
-    """Return the full Section / Feature / Value spec table HTML with inline legend."""
+    """Return the full Section / Feature / Value spec table HTML with inline legend.
+
+    Stage 10b: ``CPU`` and ``Graphics`` sections collapse to one rollup
+    row each (deduped architecture codes / board labels). When the
+    catalogs are not supplied, the rollup cells render blank — render is
+    not gated on curation per the user's Stage 10b call.
+    """
     if sections is None:
         sections = _SECTION_REGISTRY
+    cpu_catalog = cpu_catalog or {}
+    gpu_catalog = gpu_catalog or {}
     body: list[str] = []
     for section_name, fn in sections:
         if section_name == "Identity":
+            continue
+        if section_name == "CPU":
+            value, marker = cpu_view.rollup_value(product, cpu_catalog)
+            body.append(
+                _rollup_row_html(
+                    section_name,
+                    _ROLLUP_FEATURE_LABEL["CPU"],
+                    value,
+                    marker,
+                )
+            )
+            continue
+        if section_name == "Graphics":
+            value, marker = boards_view.rollup_value(product, gpu_catalog)
+            body.append(
+                _rollup_row_html(
+                    section_name,
+                    _ROLLUP_FEATURE_LABEL["Graphics"],
+                    value,
+                    marker,
+                )
+            )
             continue
         paths = fn(product)
         body.extend(_section_rows_html(section_name, paths, product))
@@ -582,6 +651,33 @@ def _cmp_value_cell_html(value: str, marker: str, diverges: bool) -> str:
     )
 
 
+def _cmp_rollup_row_html(
+    section_name: str,
+    feature_label: str,
+    rollups: list[tuple[str, str]],
+) -> str:
+    """Compare-grid ``<tr>`` carrying one rolled-up row across N products."""
+    cells_data: list[tuple[str, str]] = []
+    for value_str, marker in rollups:
+        if value_str:
+            cells_data.append((value_str, marker))
+        else:
+            cells_data.append(("—", MARKER_EMPTY))
+    values = [c[0] for c in cells_data]
+    diverges_flags = _divergence_flags(values)
+    cells_html = "".join(
+        _cmp_value_cell_html(value, marker, diverges_flags[idx])
+        for idx, (value, marker) in enumerate(cells_data)
+    )
+    return (
+        '<tr class="cd-cmp__row cd-cmp__row--last">'
+        f'<td class="cd-cmp__section" rowspan="1">{html.escape(section_name)}</td>'
+        f'<td class="cd-cmp__feature">{html.escape(feature_label)}</td>'
+        f"{cells_html}"
+        "</tr>"
+    )
+
+
 def _cmp_section_rows_html(
     section_name: str,
     paths: list[tuple[str, str]],
@@ -655,15 +751,48 @@ def _divergence_flags(values: list[str]) -> list[bool]:
 def comparison_grid_html(
     products: list[dict[str, Any]],
     sections: list[tuple[str, Any]] | None = None,
+    *,
+    cpu_catalog: dict[str, dict[str, Any]] | None = None,
+    gpu_catalog: dict[str, dict[str, Any]] | None = None,
 ) -> str:
-    """Return the full N-product side-by-side comparison grid HTML."""
+    """Return the full N-product side-by-side comparison grid HTML.
+
+    Stage 10b: ``CPU`` and ``Graphics`` sections collapse to one rollup
+    row each, divergence-marked the same way as per-cell rows.
+    """
     if sections is None:
         sections = _SECTION_REGISTRY
+    cpu_catalog = cpu_catalog or {}
+    gpu_catalog = gpu_catalog or {}
     headers = [_product_header(p) for p in products]
     n_prod = len(products)
     body: list[str] = []
     for section_name, fn in sections:
         if section_name == "Identity":
+            continue
+        if section_name == "CPU":
+            rollups = [
+                cpu_view.rollup_value(prod, cpu_catalog) for prod in products
+            ]
+            body.append(
+                _cmp_rollup_row_html(
+                    section_name,
+                    _ROLLUP_FEATURE_LABEL["CPU"],
+                    rollups,
+                )
+            )
+            continue
+        if section_name == "Graphics":
+            rollups = [
+                boards_view.rollup_value(prod, gpu_catalog) for prod in products
+            ]
+            body.append(
+                _cmp_rollup_row_html(
+                    section_name,
+                    _ROLLUP_FEATURE_LABEL["Graphics"],
+                    rollups,
+                )
+            )
             continue
         # Union of paths across all products preserves first-appearance
         # order so deeper offerings on later columns still surface rows.

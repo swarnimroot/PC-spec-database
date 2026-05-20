@@ -181,7 +181,7 @@ def test_manual_edit_rejects_catalog_path(tmp_path):
     args = argparse.Namespace(
         product="alienware-m18",
         year=2026,
-        field="cpu_catalog.X.architecture",
+        field="cpu_catalog.X.architecture_code",
         value="Lunar Lake",
         value_json=None,
         note=None,

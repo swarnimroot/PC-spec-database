@@ -1,9 +1,20 @@
-"""Boards section: GPU + power configuration(s).
+"""Graphics section (Stage 10b rollup).
 
-Each board offering has a label, TGP/TPP caps, and a list of GPU options
-(``gpus``). Each GPU model keys into ``gpu_catalog`` for catalog enrichment
-mirroring the CPU view: catalog spec columns are plain text, brand is a
-bundle, and the row-level ``catalog_status`` is shown alongside.
+The product carries one or more motherboard variants in ``boards``, each
+holding a ``gpus`` list referencing ``gpu_catalog`` by model name.
+Curated ``gpu_catalog`` columns ``series`` and ``board`` hold the
+human-readable rollup labels (NVIDIA only — for AMD / Intel discrete
+GPUs we surface the brand name instead).
+
+Browse / Compare / Find render ONE deduped, comma-joined string per
+product: each GPU contributes either its ``board`` value (when the
+catalog ``brand`` is NVIDIA) or its brand name (when AMD or Intel). The
+section header is ``Graphics`` (renamed from ``Boards``). TGP / TPP /
+per-board detail are hidden for now.
+
+``field_paths`` still enumerates per-board bundle paths (label
+excluded — synthesized at render time elsewhere) so Edit and
+``find-empty`` keep working unchanged.
 """
 
 from __future__ import annotations
@@ -13,9 +24,9 @@ from typing import Any
 from .formatting import (
     MARKER_EMPTY,
     display_value,
-    format_leaf,
     marker_for_bundle,
     section_heading,
+    worst_marker,
 )
 
 
@@ -25,29 +36,9 @@ _BOARD_SCALAR_LEAVES: list[tuple[str, str]] = [
     ("TPP max (W)", "tpp_max"),
     # arch_marker is a plain string leaf (e.g. "intel-rtx" / "amd-radeon"),
     # not a provenance bundle. User Decision 2 keeps it hand-editable via
-    # manual-edit, so it lives in this list for field_paths(); render()
-    # special-cases it (like ``label``) since it isn't bundle-shaped.
+    # manual-edit, so it lives in this list for field_paths().
     ("Architecture marker", "arch_marker"),
 ]
-
-
-_GPU_CATALOG_PLAIN_LEAVES: list[tuple[str, str]] = [
-    ("architecture", "architecture"),
-    ("CUDA cores", "cuda_cores"),
-    ("VRAM base (GB)", "vram_base"),
-    ("base clock (GHz)", "base_clock"),
-    ("boost clock (GHz)", "boost_clock"),
-]
-
-
-def _label_tier_sort_key(offering: dict[str, Any]) -> tuple[int, str]:
-    # Sort tier-ascending (MB1 < MB2 < MB3) with unmapped (label.value
-    # is null) last. The bridge's _merge_boards preserves tile-iteration
-    # order across candidates, which isn't guaranteed tier-ascending; we
-    # sort here so per-product ordinals always follow tier order.
-    bundle = offering.get("label")
-    val = bundle.get("value") if isinstance(bundle, dict) else None
-    return (1, "") if val is None else (0, str(val))
 
 
 def field_paths(product: dict[str, Any]) -> list[tuple[str, str]]:
@@ -56,8 +47,8 @@ def field_paths(product: dict[str, Any]) -> list[tuple[str, str]]:
     ``manual-edit`` and are populated via ``refresh``).
 
     ``label`` is excluded: the view layer synthesizes per-product
-    ordinals (``MB{n}``) at render time (T7.0c), so any manual edit
-    would be silently masked. The bridge owns the underlying tier label.
+    ordinals (``MB{n}``) at render time, so any manual edit would be
+    silently masked. The bridge owns the underlying tier label.
     """
     out: list[tuple[str, str]] = []
     for idx, _ in enumerate(product.get("boards") or []):
@@ -68,73 +59,80 @@ def field_paths(product: dict[str, Any]) -> list[tuple[str, str]]:
     return out
 
 
-def render(product: dict[str, Any], gpu_catalog: dict[str, dict[str, Any]]) -> str:
-    offerings = product.get("boards") or []
-    if not offerings:
-        return section_heading("Boards", MARKER_EMPTY)
+def _bundle_value(bundle: Any) -> Any:
+    return bundle.get("value") if isinstance(bundle, dict) else None
 
-    # Display order: tier-ascending with unmapped entries last. Per-product
-    # ordinals (MB1, MB2, ...) are synthesized from this order; the bridge's
-    # underlying MB1/MB2/MB3 tier labels stay intact for cross-tile merge.
-    offerings_sorted = sorted(offerings, key=_label_tier_sort_key)
 
-    out = [section_heading("Boards")]
-    total = len(offerings_sorted)
-    ordinal = 0
-    for idx, offering in enumerate(offerings_sorted, 1):
-        if total > 1:
-            out.append(f"  Board {idx}")
-            indent = "    "
-        else:
-            indent = "  "
+def rollup_value(
+    product: dict[str, Any],
+    gpu_catalog: dict[str, dict[str, Any]],
+) -> tuple[str, str]:
+    """Return ``(display_string, marker_token)`` for the Graphics rollup cell.
 
-        for label, key in _BOARD_SCALAR_LEAVES:
-            bundle = offering.get(key)
-            if key == "label" and isinstance(bundle, dict) and bundle.get("value") is not None:
-                ordinal += 1
-                out.append(f"{indent}label: MB{ordinal} {marker_for_bundle(bundle)}")
-                continue
-            if key == "arch_marker":
-                # Plain string leaf, not a bundle. Omit the line entirely
-                # when absent (non-Lenovo or unparseable) so the rendered
-                # output stays uncluttered for the common case.
-                if isinstance(bundle, str) and bundle:
-                    out.append(f"{indent}arch: {bundle}")
-                continue
-            out.append(f"{indent}{format_leaf(label, bundle)}")
+    For every GPU on every board: look up the catalog row, branch on
+    ``brand``:
 
-        gpus = offering.get("gpus") or []
-        if not gpus:
-            out.append(f"{indent}GPUs: {MARKER_EMPTY}")
-            continue
-        out.append(f"{indent}GPUs:")
-        gpu_indent = indent + "  "
+    * Brand ``"NVIDIA"`` → contribute the catalog ``board`` value
+      (``MB1`` / ``MB2`` / ``MB3``).
+    * Brand ``"AMD"`` or ``"Intel"`` → contribute the brand string.
+    * Brand NULL / unknown / catalog row missing → contribute nothing
+      (cell renders blank for that GPU; render is not gated on
+      curation).
+
+    Dedupe first-occurrence-ordered, comma-join. The marker is the worst
+    status across the *per-GPU offering* bundles (NOT the catalog).
+    """
+    boards = product.get("boards") or []
+    if not boards:
+        return "", MARKER_EMPTY
+
+    parts: list[str] = []
+    gpu_markers: list[str] = []
+    for board in boards:
+        gpus = board.get("gpus") or []
         for gpu_bundle in gpus:
-            gpu_name = display_value(gpu_bundle)
-            marker = marker_for_bundle(gpu_bundle)
-            if marker == MARKER_EMPTY:
-                out.append(f"{gpu_indent}{MARKER_EMPTY}")
+            gpu_markers.append(marker_for_bundle(gpu_bundle))
+            model_value = _bundle_value(gpu_bundle)
+            if not model_value:
                 continue
-            out.append(f"{gpu_indent}{gpu_name} {marker}")
-
-            value = gpu_bundle.get("value") if gpu_bundle else None
-            catalog_row = gpu_catalog.get(value) if value else None
+            catalog_row = gpu_catalog.get(model_value)
             if catalog_row is None:
-                out.append(f"{gpu_indent}  (not in gpu_catalog)")
                 continue
-
-            cs = catalog_row.get("catalog_status") or "needs-review"
-            out.append(f"{gpu_indent}  catalog status: {cs}")
+            # Integrated GPUs (curated via gpu_class=integrated) are
+            # dropped from the displayed rollup but still contribute to
+            # the worst-status marker via the per-GPU offering bundle
+            # collected above. NULL gpu_class is treated as discrete so
+            # existing uncurated rows keep rendering.
+            gpu_class_value = _bundle_value(catalog_row.get("gpu_class"))
+            if gpu_class_value == "integrated":
+                continue
             brand_bundle = catalog_row.get("brand")
-            if brand_bundle is not None:
-                out.append(
-                    f"{gpu_indent}  brand: {display_value(brand_bundle)} "
-                    f"{marker_for_bundle(brand_bundle)}"
-                )
-            for label, key in _GPU_CATALOG_PLAIN_LEAVES:
-                val = catalog_row.get(key)
-                if val is None or val == "":
-                    continue
-                out.append(f"{gpu_indent}  {label}: {val}")
+            brand_value = _bundle_value(brand_bundle)
+            if brand_value == "NVIDIA":
+                board_bundle = catalog_row.get("board")
+                board_value = _bundle_value(board_bundle)
+                if board_value and board_value not in parts:
+                    parts.append(str(board_value))
+            elif brand_value in ("AMD", "Intel"):
+                if brand_value not in parts:
+                    parts.append(str(brand_value))
 
-    return "\n".join(out)
+    if not gpu_markers:
+        return "", MARKER_EMPTY
+    return ", ".join(parts), worst_marker(gpu_markers)
+
+
+def render(
+    product: dict[str, Any],
+    gpu_catalog: dict[str, dict[str, Any]],
+) -> str:
+    """Single-line text render for ``inspect-product`` CLI.
+
+    Stage 10b: just the Graphics rollup (board values for NVIDIA, brand
+    name for AMD / Intel). Section header is ``Graphics`` (renamed from
+    ``Boards``).
+    """
+    value, marker = rollup_value(product, gpu_catalog)
+    if not value:
+        return section_heading("Graphics", marker)
+    return f"Graphics: {value} {marker}"

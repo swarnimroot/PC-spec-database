@@ -834,8 +834,11 @@ def _build_cpu_chip_specs(
             specs["boost_clock"] = attrs["max frequency"]
         if "process technology" in attrs:
             specs["process_node"] = attrs["process technology"]
-        if "processor family" in attrs:
-            specs["architecture"] = attrs["processor family"]
+        # Stage 10b: architecture-family fields (architecture_code /
+        # architecture_name / generation) are user-curated, not scraped.
+        # The Lenovo PSREF "processor family" attribute is left
+        # unmapped on purpose — it would collide with the curated short
+        # codes (ARL-H / RPL-HX / etc.) the views read from.
         if specs and model not in out:
             out[model] = specs
     return out

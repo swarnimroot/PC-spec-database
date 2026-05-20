@@ -76,12 +76,14 @@ class CandidateProduct:
 
     # --- CPU chip specs (vendor-published, seeds cpu_catalog) ---------
     # Map of CPU model name → {column_name: value}. Column names match
-    # ``cpu_catalog`` columns (``cores``, ``npu_tops``, ``architecture``,
+    # bridge-seedable ``cpu_catalog`` columns (``cores``, ``npu_tops``,
     # ``base_clock``, ``boost_clock``, ``process_node``, ``nominal_tdp``).
-    # Values are stored as strings (matching the column type), or ``None``
-    # to indicate "vendor doesn't publish this for this chip". Parsers
-    # only populate fields the vendor actually publishes — catalog seed
-    # rules live in ``ingest/catalog_resolve.py``.
+    # The Stage 10b curated columns (``architecture_code`` /
+    # ``architecture_name`` / ``generation``) are user-curated and NOT
+    # seedable from scrapers. Values are stored as strings (matching the
+    # column type), or ``None`` to indicate "vendor doesn't publish this
+    # for this chip". Parsers only populate fields the vendor actually
+    # publishes — catalog seed rules live in ``ingest/catalog_resolve.py``.
     cpu_chip_specs: dict[str, dict[str, Optional[str]]] = field(
         default_factory=dict
     )

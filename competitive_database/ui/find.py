@@ -24,6 +24,8 @@ from competitive_database.ui._components import (
     friendly_leaf_label as _friendly_leaf_label,
 )
 from competitive_database.ui._markers import resolve_path
+from competitive_database.views import boards as boards_view
+from competitive_database.views import cpu as cpu_view
 from competitive_database.views import load, orchestrator
 from competitive_database.views.formatting import (
     MARKER_EMPTY,
@@ -257,25 +259,19 @@ def _year_of(prod: dict[str, Any]) -> int | None:
         return None
 
 
-def _context_specs(prod: dict[str, Any]) -> str:
-    """First CPU model + first board GPU model, joined with ``·``."""
+def _context_specs(
+    prod: dict[str, Any],
+    cpu_catalog: dict[str, dict[str, Any]],
+    gpu_catalog: dict[str, dict[str, Any]],
+) -> str:
+    """Stage 10b: CPU architecture-code rollup · Graphics board/brand rollup."""
     parts: list[str] = []
-    cpus = prod.get("cpu_offerings") or []
-    if cpus:
-        cpu_bundle = cpus[0].get("model") if isinstance(cpus[0], dict) else None
-        if isinstance(cpu_bundle, dict):
-            v = display_value(cpu_bundle)
-            if v:
-                parts.append(v)
-    boards = prod.get("boards") or []
-    if boards:
-        gpus = boards[0].get("gpus") if isinstance(boards[0], dict) else None
-        if isinstance(gpus, list) and gpus:
-            gpu_bundle = gpus[0]
-            if isinstance(gpu_bundle, dict):
-                v = display_value(gpu_bundle)
-                if v:
-                    parts.append(v)
+    cpu_str, _cpu_marker = cpu_view.rollup_value(prod, cpu_catalog)
+    if cpu_str:
+        parts.append(cpu_str)
+    gpu_str, _gpu_marker = boards_view.rollup_value(prod, gpu_catalog)
+    if gpu_str:
+        parts.append(gpu_str)
     return " · ".join(parts)
 
 
@@ -320,11 +316,13 @@ def _render_card(
     spec_label: str,
     value_str: str,
     marker: str,
+    cpu_catalog: dict[str, dict[str, Any]],
+    gpu_catalog: dict[str, dict[str, Any]],
 ) -> None:
     """Render one result card; wire the ``Open →`` button to jump to Browse."""
     name_year = _label_for_product(prod)
     brand_sub = _brand_subbrand(prod)
-    context = _context_specs(prod)
+    context = _context_specs(prod, cpu_catalog, gpu_catalog)
 
     body_lines: list[str] = []
     body_lines.append(
@@ -599,8 +597,10 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
     feature_label = _friendly_leaf_label(template.split(".")[-1], section)
     spec_card_label = f"{section} {feature_label.lower()}"
 
+    cpu_catalog = load.load_cpu_catalog(conn)
+    gpu_catalog = load.load_gpu_catalog(conn)
     for prod, vstr, marker in matches:
-        _render_card(prod, spec_card_label, vstr, marker)
+        _render_card(prod, spec_card_label, vstr, marker, cpu_catalog, gpu_catalog)
 
 
 def _render_narrow_by(

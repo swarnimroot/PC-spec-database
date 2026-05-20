@@ -1,10 +1,16 @@
-"""CPU section: one or more CPU offerings + product-level TDP cap.
+"""CPU section (Stage 10b rollup).
 
-Each offering is a dict containing a ``model`` leaf bundle. The model
-name keys into ``cpu_catalog`` for chip-level enrichment (cores, NPU TOPS,
-clocks, etc.). Catalog spec columns are plain text, so the chip-level
-lines render without per-leaf markers; the row-level ``catalog_status``
-is shown alongside the model.
+The product carries one or more CPU SKU offerings (``cpu_offerings``).
+Each offering's ``model`` value keys into ``cpu_catalog``, where curated
+columns ``architecture_code`` / ``architecture_name`` / ``generation``
+hold the human-readable rollup labels. Browse / Compare / Find render
+ONLY a deduped, comma-joined list of ``architecture_code`` values; the
+per-SKU detail is preserved in the DB for the Edit screen but no longer
+surfaces on the visual tables. The cell's dot color uses the worst
+status across the underlying SKU offerings (see ``worst_marker``).
+
+``field_paths`` still enumerates per-SKU bundle paths so Edit and
+``find-empty`` keep working unchanged.
 """
 
 from __future__ import annotations
@@ -14,26 +20,16 @@ from typing import Any
 from .formatting import (
     MARKER_EMPTY,
     display_value,
-    format_leaf,
     marker_for_bundle,
     section_heading,
+    worst_marker,
 )
-
-
-_CATALOG_PLAIN_LEAVES: list[tuple[str, str]] = [
-    ("architecture", "architecture"),
-    ("cores", "cores"),
-    ("NPU TOPS", "npu_tops"),
-    ("base clock (GHz)", "base_clock"),
-    ("boost clock (GHz)", "boost_clock"),
-    ("process node", "process_node"),
-    ("nominal TDP (W)", "nominal_tdp"),
-]
 
 
 def field_paths(product: dict[str, Any]) -> list[tuple[str, str]]:
     """Fillable bundle paths on the product (excludes catalog leaves —
-    those live in ``cpu_catalog`` and are surfaced via ``refresh``)."""
+    those live in ``cpu_catalog`` and are surfaced via ``refresh`` /
+    ``manual-edit``)."""
     out: list[tuple[str, str]] = []
     for idx, _ in enumerate(product.get("cpu_offerings") or []):
         out.append((f"cpu_offerings.{idx}.model", f"offering {idx} - model"))
@@ -41,48 +37,66 @@ def field_paths(product: dict[str, Any]) -> list[tuple[str, str]]:
     return out
 
 
-def render(product: dict[str, Any], cpu_catalog: dict[str, dict[str, Any]]) -> str:
+def rollup_value(
+    product: dict[str, Any],
+    cpu_catalog: dict[str, dict[str, Any]],
+) -> tuple[str, str]:
+    """Return ``(display_string, marker_token)`` for the CPU rollup cell.
+
+    Joins ``cpu_offerings`` to ``cpu_catalog`` by model name, extracts
+    each row's ``architecture_code`` bundle value, dedupes
+    first-occurrence-ordered, comma-joins. The marker is the worst
+    status across the *per-SKU offering* bundles (NOT the catalog row's
+    bundle status) — what surfaces on the cell is how trustworthy the
+    underlying offering data is, not how vouched the curation is.
+
+    When no offerings exist → ``('', MARKER_EMPTY)``.
+    When every offering's catalog row is missing / has a NULL
+    architecture_code → ``('', <worst-offering-marker>)``. The empty
+    string is intentional: render is not gated on catalog population
+    (Stage 10b user call). Cells fill in as curation lands.
+    """
     offerings = product.get("cpu_offerings") or []
-    tdp_max = product.get("cpu_tdp_max")
-
-    if not offerings and tdp_max is None:
-        return section_heading("CPU", MARKER_EMPTY)
-
-    out = [section_heading("CPU")]
-
     if not offerings:
-        out.append(f"  Offerings: {MARKER_EMPTY}")
-    else:
-        total = len(offerings)
-        for idx, offering in enumerate(offerings, 1):
-            model_bundle = offering.get("model")
-            cpu_name = display_value(model_bundle)
-            marker = marker_for_bundle(model_bundle)
-            prefix = f"Offering {idx}: " if total > 1 else ""
-            if marker == MARKER_EMPTY:
-                out.append(f"  {prefix}{MARKER_EMPTY}")
-                continue
-            out.append(f"  {prefix}{cpu_name} {marker}")
+        return "", MARKER_EMPTY
 
-            value = model_bundle.get("value") if model_bundle else None
-            catalog_row = cpu_catalog.get(value) if value else None
-            if catalog_row is None:
-                out.append("    (not in cpu_catalog)")
-                continue
+    arch_codes: list[str] = []
+    offering_markers: list[str] = []
+    for offering in offerings:
+        model_bundle = offering.get("model")
+        offering_markers.append(marker_for_bundle(model_bundle))
+        model_value = (
+            model_bundle.get("value") if isinstance(model_bundle, dict) else None
+        )
+        if not model_value:
+            continue
+        catalog_row = cpu_catalog.get(model_value)
+        if catalog_row is None:
+            continue
+        arch_bundle = catalog_row.get("architecture_code")
+        if not isinstance(arch_bundle, dict):
+            continue
+        arch_value = arch_bundle.get("value")
+        if not arch_value:
+            continue
+        if arch_value not in arch_codes:
+            arch_codes.append(arch_value)
 
-            cs = catalog_row.get("catalog_status") or "needs-review"
-            out.append(f"    catalog status: {cs}")
-            brand_bundle = catalog_row.get("brand")
-            if brand_bundle is not None:
-                out.append(
-                    f"    brand: {display_value(brand_bundle)} "
-                    f"{marker_for_bundle(brand_bundle)}"
-                )
-            for label, key in _CATALOG_PLAIN_LEAVES:
-                val = catalog_row.get(key)
-                if val is None or val == "":
-                    continue
-                out.append(f"    {label}: {val}")
+    marker = worst_marker(offering_markers)
+    return ", ".join(arch_codes), marker
 
-    out.append(f"  {format_leaf('TDP max (W)', tdp_max)}")
-    return "\n".join(out)
+
+def render(
+    product: dict[str, Any],
+    cpu_catalog: dict[str, dict[str, Any]],
+) -> str:
+    """Single-line text render for ``inspect-product`` CLI.
+
+    Stage 10b: just the architecture-code rollup. No per-SKU lines, no
+    catalog sub-fields, no ``cpu_tdp_max`` row. Mirrors what the visual
+    tables show.
+    """
+    value, marker = rollup_value(product, cpu_catalog)
+    if not value:
+        return section_heading("CPU", marker)
+    return f"CPU: {value} {marker}"

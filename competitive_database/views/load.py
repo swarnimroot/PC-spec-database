@@ -36,9 +36,26 @@ _PLAIN_PRODUCT_FIELDS = frozenset(
 )
 _JSON_LIST_PRODUCT_FIELDS = frozenset({"source_model_codes"})
 
-# In ``cpu_catalog`` / ``gpu_catalog`` only ``brand`` is a JSON-bundled
-# column. Every other spec column is plain text (or NULL).
-_CATALOG_BUNDLED_COLUMNS = frozenset({"brand"})
+# In ``cpu_catalog`` / ``gpu_catalog`` JSON-bundled columns. The other
+# spec columns (cores, clocks, etc.) are plain text seeded by the
+# bridge layer; the columns below are curated and carry full provenance
+# bundles (status + source_url + entered_by, etc.).
+_CATALOG_BUNDLED_COLUMNS = frozenset(
+    {
+        "brand",
+        # Stage 10b CPU catalog rollup fields (curated).
+        "architecture_code",
+        "architecture_name",
+        "generation",
+        # Stage 10b GPU catalog rollup fields (curated). ``architecture``
+        # stays bundled for symmetry with the CPU side; ``brand`` was
+        # already in the set.
+        "architecture",
+        "series",
+        "board",
+        "gpu_class",
+    }
+)
 
 
 def resolve_year(conn: sqlite3.Connection, model_code: str) -> int:

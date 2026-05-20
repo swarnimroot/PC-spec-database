@@ -41,9 +41,9 @@ from ..db.helpers import make_scraped_bundle
 
 # CPU catalog spec columns the bridge layer can seed. Lifted into a
 # constant so the cell-update walker doesn't accidentally touch
-# ``model`` / ``catalog_status`` / ``brand``.
+# ``model`` / ``catalog_status`` / ``brand`` or the Stage 10b curated
+# columns (``architecture_code`` / ``architecture_name`` / ``generation``).
 _CPU_CATALOG_SPEC_COLUMNS: frozenset[str] = frozenset({
-    "architecture",
     "cores",
     "npu_tops",
     "base_clock",

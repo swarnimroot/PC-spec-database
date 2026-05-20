@@ -99,6 +99,34 @@ def aggregate_markers(markers: Iterable[str]) -> str:
     return MARKER_PARTIAL
 
 
+# Worst-status precedence for rollup cells (Stage 10b CPU / Graphics).
+# Order: lowest-confidence first. ``MARKER_EMPTY`` ranks above
+# needs-review so a partially-populated rollup still surfaces the worst
+# real status on the offerings that exist.
+_WORST_MARKER_ORDER: tuple[str, ...] = (
+    MARKER_NEEDS_REVIEW,
+    MARKER_VENDOR_NO_PUB,
+    MARKER_MANUAL,
+    MARKER_VERIFIED,
+)
+
+
+def worst_marker(markers: Iterable[str]) -> str:
+    """Return the worst (lowest-confidence) marker among ``markers``.
+
+    Used by rollup cells (CPU architecture codes, Graphics boards) so a
+    single dot color reflects the riskiest underlying SKU offering.
+    Unknown markers are treated as needs-review. Empty input → ``[empty]``.
+    """
+    materialized = list(markers)
+    if not materialized:
+        return MARKER_EMPTY
+    for token in _WORST_MARKER_ORDER:
+        if token in materialized:
+            return token
+    return MARKER_NEEDS_REVIEW
+
+
 def display_value(bundle: dict | None, *, field_path: str | None = None) -> str:
     """Stringify a bundle's value for display.
 

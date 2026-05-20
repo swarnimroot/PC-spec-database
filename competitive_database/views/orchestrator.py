@@ -50,7 +50,7 @@ def _identity_field_paths(product: dict[str, Any]) -> list[tuple[str, str]]:
 _SECTION_REGISTRY: list[tuple[str, Any]] = [
     ("Identity", _identity_field_paths),
     ("CPU", cpu.field_paths),
-    ("Boards", boards.field_paths),
+    ("Graphics", boards.field_paths),
     ("Memory", memory.field_paths),
     ("Storage", storage.field_paths),
     ("Display", display.field_paths),

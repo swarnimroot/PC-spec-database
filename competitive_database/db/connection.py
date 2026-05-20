@@ -46,6 +46,8 @@ def apply_schema(conn: sqlite3.Connection) -> None:
     sql = _SCHEMA_PATH.read_text(encoding="utf-8")
     conn.executescript(sql)
     _migrate_products_add_lenovo_merge_columns(conn)
+    _migrate_cpu_catalog_architecture_split(conn)
+    _migrate_gpu_catalog_add_series_board(conn)
 
 
 def _migrate_products_add_lenovo_merge_columns(conn: sqlite3.Connection) -> None:
@@ -57,3 +59,37 @@ def _migrate_products_add_lenovo_merge_columns(conn: sqlite3.Connection) -> None
         conn.execute("ALTER TABLE products ADD COLUMN family_code TEXT")
     if "source_model_codes" not in existing:
         conn.execute("ALTER TABLE products ADD COLUMN source_model_codes TEXT")
+
+
+def _migrate_cpu_catalog_architecture_split(conn: sqlite3.Connection) -> None:
+    """Stage 10b: rename ``cpu_catalog.architecture`` to ``architecture_code``
+    and add ``architecture_name`` + ``generation``. All three are JSON
+    bundles (curated; populated via manual-edit).
+    """
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(cpu_catalog)")}
+    if "architecture" in existing and "architecture_code" not in existing:
+        conn.execute(
+            "ALTER TABLE cpu_catalog RENAME COLUMN architecture TO architecture_code"
+        )
+        existing.add("architecture_code")
+        existing.discard("architecture")
+    if "architecture_name" not in existing:
+        conn.execute("ALTER TABLE cpu_catalog ADD COLUMN architecture_name TEXT")
+    if "generation" not in existing:
+        conn.execute("ALTER TABLE cpu_catalog ADD COLUMN generation TEXT")
+
+
+def _migrate_gpu_catalog_add_series_board(conn: sqlite3.Connection) -> None:
+    """Stage 10b: add ``series``, ``board``, and ``gpu_class`` to
+    ``gpu_catalog``. Existing ``architecture`` column kept as-is (will
+    hold Blackwell / RDNA 4 / etc.). All four are JSON bundles;
+    ``gpu_class`` values are ``"discrete"`` / ``"integrated"`` and gate
+    whether the GPU contributes to the Graphics rollup.
+    """
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(gpu_catalog)")}
+    if "series" not in existing:
+        conn.execute("ALTER TABLE gpu_catalog ADD COLUMN series TEXT")
+    if "board" not in existing:
+        conn.execute("ALTER TABLE gpu_catalog ADD COLUMN board TEXT")
+    if "gpu_class" not in existing:
+        conn.execute("ALTER TABLE gpu_catalog ADD COLUMN gpu_class TEXT")

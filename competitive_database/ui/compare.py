@@ -13,6 +13,7 @@ from competitive_database.ui._components import (
     comparison_grid_html,
 )
 from competitive_database.ui.theme import PALETTE
+from competitive_database.views import load as views_load
 from competitive_database.views.formatting import (
     MARKER_EMPTY,
     MARKER_VENDOR_NO_PUB,
@@ -131,7 +132,13 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
         st.info("Pick at least two products to compare.")
         return
 
+    cpu_catalog = views_load.load_cpu_catalog(conn)
+    gpu_catalog = views_load.load_gpu_catalog(conn)
     st.markdown(
-        comparison_grid_html(picked_products),
+        comparison_grid_html(
+            picked_products,
+            cpu_catalog=cpu_catalog,
+            gpu_catalog=gpu_catalog,
+        ),
         unsafe_allow_html=True,
     )

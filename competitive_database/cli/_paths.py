@@ -9,7 +9,7 @@ four forms:
                                list replacement; emitted by the ingest
                                runner for offering value_disagreement
                                conflicts, which are list-level by design)
-  - Catalog scalar (text):     ``cpu_catalog.<model>.architecture``
+  - Catalog scalar (text):     ``cpu_catalog.<model>.architecture_code``
                                ``gpu_catalog.<model>.architecture``
 
 PK columns (``model_code``, ``year`` on products; ``model`` on catalogs)

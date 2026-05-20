@@ -4,16 +4,18 @@
 -- JSON provenance bundle (or a JSON array of dicts of bundles).
 
 CREATE TABLE IF NOT EXISTS cpu_catalog (
-    model           TEXT PRIMARY KEY,
-    catalog_status  TEXT NOT NULL DEFAULT 'needs-review',
-    brand           TEXT,
-    architecture    TEXT,
-    cores           TEXT,
-    npu_tops        TEXT,
-    base_clock      TEXT,
-    boost_clock     TEXT,
-    process_node    TEXT,
-    nominal_tdp     TEXT
+    model              TEXT PRIMARY KEY,
+    catalog_status     TEXT NOT NULL DEFAULT 'needs-review',
+    brand              TEXT,
+    architecture_code  TEXT,
+    architecture_name  TEXT,
+    generation         TEXT,
+    cores              TEXT,
+    npu_tops           TEXT,
+    base_clock         TEXT,
+    boost_clock        TEXT,
+    process_node       TEXT,
+    nominal_tdp        TEXT
 );
 
 CREATE TABLE IF NOT EXISTS gpu_catalog (
@@ -21,6 +23,9 @@ CREATE TABLE IF NOT EXISTS gpu_catalog (
     catalog_status  TEXT NOT NULL DEFAULT 'needs-review',
     brand           TEXT,
     architecture    TEXT,
+    series          TEXT,
+    board           TEXT,
+    gpu_class       TEXT,
     cuda_cores      TEXT,
     vram_base       TEXT,
     base_clock      TEXT,
