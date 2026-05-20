@@ -1,8 +1,10 @@
 """Compose per-category renders into the full inspect-product dump.
 
-Section order is fixed: identity, then the 16 categories grouped roughly
-by user concern (compute → memory/storage → display → input/output →
-power → physical/design).
+Section order is fixed: identity, then the 16 categories. The visible
+order (Stage 10b batch 2) groups compute (Processor, Graphics) → screen
+(Display) → memory/storage → input (Keyboard, Camera) → audio →
+connectivity (Network, I/O) → power (Battery, Adapter) → physical
+(Thermals, Dimensions, Weight, Design).
 """
 
 from __future__ import annotations
@@ -47,13 +49,15 @@ def _identity_field_paths(product: dict[str, Any]) -> list[tuple[str, str]]:
 
 # (section_name, callable returning [(field_path, display_label), ...])
 # Order mirrors ``render_product`` so find-empty groups match inspect-product.
+# Stage 10b batch 2: CPU heading renamed to "Processor" and section order
+# regrouped (see module docstring).
 _SECTION_REGISTRY: list[tuple[str, Any]] = [
     ("Identity", _identity_field_paths),
-    ("CPU", cpu.field_paths),
+    ("Processor", cpu.field_paths),
     ("Graphics", boards.field_paths),
+    ("Display", display.field_paths),
     ("Memory", memory.field_paths),
     ("Storage", storage.field_paths),
-    ("Display", display.field_paths),
     ("Keyboard", keyboard.field_paths),
     ("Camera", camera.field_paths),
     ("Audio", audio.field_paths),
@@ -66,6 +70,29 @@ _SECTION_REGISTRY: list[tuple[str, Any]] = [
     ("Weight", weight.field_paths),
     ("Design", design.field_paths),
 ]
+
+
+# Stage 10b batch 2: sections that surface as a single rollup row (or
+# row-set, for I/O) on the visual tables. Keyboard and Thermals are
+# intentionally hidden from the rollup but still surface their per-leaf
+# bundles on the Edit screen (``_SECTION_REGISTRY`` is unchanged for
+# them, so Edit / find-empty keep working).
+_VISUAL_SECTIONS: tuple[str, ...] = (
+    "Processor",
+    "Graphics",
+    "Display",
+    "Memory",
+    "Storage",
+    "Camera",
+    "Audio",
+    "Network",
+    "I/O",
+    "Battery",
+    "Adapter",
+    "Dimensions",
+    "Weight",
+    "Design",
+)
 
 
 def all_field_paths(product: dict[str, Any]) -> list[tuple[str, str, str]]:
@@ -90,9 +117,9 @@ def render_product(
         _render_identity(product),
         cpu.render(product, cpu_catalog),
         boards.render(product, gpu_catalog),
+        display.render(product),
         memory.render(product),
         storage.render(product),
-        display.render(product),
         keyboard.render(product),
         camera.render(product),
         audio.render(product),

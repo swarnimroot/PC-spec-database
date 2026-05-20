@@ -94,9 +94,10 @@ def render(
 
     Stage 10b: just the architecture-code rollup. No per-SKU lines, no
     catalog sub-fields, no ``cpu_tdp_max`` row. Mirrors what the visual
-    tables show.
+    tables show. Section heading is ``Processor`` (renamed from ``CPU``
+    in the second Stage 10b batch).
     """
     value, marker = rollup_value(product, cpu_catalog)
     if not value:
-        return section_heading("CPU", marker)
-    return f"CPU: {value} {marker}"
+        return section_heading("Processor", marker)
+    return f"Processor: {value} {marker}"

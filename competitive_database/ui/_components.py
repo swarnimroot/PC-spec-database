@@ -12,9 +12,23 @@ import streamlit as st
 
 from competitive_database.ui._markers import MARKER_COLORS, resolve_path
 from competitive_database.ui.theme import PALETTE
-from competitive_database.views import boards as boards_view
-from competitive_database.views import cpu as cpu_view
-from competitive_database.views import load
+from competitive_database.views import (
+    adapter as adapter_view,
+    audio as audio_view,
+    battery as battery_view,
+    boards as boards_view,
+    camera as camera_view,
+    cpu as cpu_view,
+    design as design_view,
+    dimensions as dimensions_view,
+    display as display_view,
+    io as io_view,
+    load,
+    memory as memory_view,
+    network as network_view,
+    storage as storage_view,
+    weight as weight_view,
+)
 from competitive_database.views.formatting import (
     MARKER_EMPTY,
     MARKER_MANUAL,
@@ -25,15 +39,34 @@ from competitive_database.views.formatting import (
     display_value,
     marker_for_bundle,
 )
-from competitive_database.views.orchestrator import _SECTION_REGISTRY
+from competitive_database.views.orchestrator import (
+    _SECTION_REGISTRY,
+    _VISUAL_SECTIONS,
+)
 
 # Stage 10b: per-section row label for the rollup cells. Section names
 # are matched verbatim against ``_SECTION_REGISTRY`` so they stay in
-# sync.
+# sync. Sections whose label matches the section heading itself (most of
+# the batch-2 rollups) inherit the section name as the feature label.
 _ROLLUP_FEATURE_LABEL: dict[str, str] = {
-    "CPU": "Architecture",
+    "Processor": "Architecture",
     "Graphics": "Boards",
+    "Display": "Panel",
+    "Memory": "RAM",
+    "Storage": "Slots",
+    "Camera": "Webcam",
+    "Audio": "Speakers",
+    "Network": "Wi-Fi",
+    "Battery": "Battery",
+    "Adapter": "Adapter",
+    "Dimensions": "Size",
+    "Weight": "Weight",
+    "Design": "Covers",
 }
+
+# Per-section feature labels for the multi-row I/O rollup. Each sub-row
+# carries its own (label, value, marker) tuple — see ``io.rollup_rows``.
+_IO_SECTION = "I/O"
 
 
 _MARKERS = PALETTE["markers"]  # type: ignore[index]
@@ -157,7 +190,7 @@ _LEAF_LABEL_OVERRIDES: dict[str, str] = {
 def friendly_leaf_label(leaf: str, section: str) -> str:
     """Map a path leaf segment to a human-friendly noun."""
     if leaf == "model":
-        if section == "CPU":
+        if section == "Processor":
             return "Processor"
         if section == "Graphics":
             return "Chip"
@@ -221,22 +254,29 @@ def _product_name(vfn: str | None, model_code: str, year: int) -> str:
 
 def _list_products(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
-        "SELECT model_code, year, brand, vendor_full_name FROM products "
-        "ORDER BY model_code, year"
+        "SELECT model_code, year, brand, vendor_full_name, sub_brand, series "
+        "FROM products ORDER BY model_code, year"
     ).fetchall()
     out: list[dict[str, Any]] = []
-    for mc, yr, brand_raw, vfn_raw in rows:
+    for mc, yr, brand_raw, vfn_raw, sub_raw, series_raw in rows:
         brand = _bundle_value(brand_raw) or "Unknown"
         vfn = _bundle_value(vfn_raw)
+        sub = _bundle_value(sub_raw)
+        series = _bundle_value(series_raw)
         out.append(
             {
                 "model_code": mc,
                 "year": int(yr),
                 "brand": brand,
+                "sub_brand": sub,
+                "series": series,
                 "product_name": _product_name(vfn, mc, int(yr)),
             }
         )
     return out
+
+
+_PLACEHOLDER = "—"
 
 
 def cascading_picker(
@@ -244,20 +284,72 @@ def cascading_picker(
     key_prefix: str,
     want_year: bool = True,
     vertical: bool = False,
+    strict_cascade: bool = False,
+    rung_mode: str = "product",
 ) -> Optional[dict]:
-    """Render Company / Product / Year selectboxes; return the picked row.
+    """Render the cascading product picker; return the picked row.
 
-    Returns ``{"company", "product", "year", "row"}`` (``row`` = full
-    product dict loaded by ``views.load.load_product``), or ``None`` when
-    the DB has no products. Session keys are namespaced under
-    ``key_prefix`` so multiple pickers can coexist on one page. Set
-    ``vertical=True`` to render the three selectboxes stacked (used by
-    Compare's per-column pickers).
+    Two rung modes:
+      * ``"product"`` (default, legacy) — Company → Product → Year.
+      * ``"series"`` — Company → Sub-brand → Series → Year. Each tuple
+        ``(brand, sub_brand, series, year)`` resolves to one product.
+
+    ``strict_cascade=False`` (default) preserves the existing auto-default
+    behavior — every selectbox renders at first paint with its first
+    option pre-selected. ``strict_cascade=True`` hides downstream
+    selectboxes until the upstream rung has been explicitly picked by
+    the user; a placeholder ``"—"`` is prepended to every rung so first
+    paint carries no auto-selection.
+
+    Returns ``{"company", "product", "year", "row", ...}`` with
+    ``"sub_brand"`` and ``"series"`` populated when ``rung_mode='series'``,
+    or ``None`` when the DB has no products / the cascade isn't complete.
+    Session keys are namespaced under ``key_prefix`` so multiple pickers
+    can coexist on one page. Set ``vertical=True`` to render the rungs
+    stacked (used by Compare's per-column pickers).
     """
     products = _list_products(conn)
     if not products:
         return None
 
+    if rung_mode == "series":
+        return _series_cascade(
+            products, conn, key_prefix, want_year, vertical, strict_cascade
+        )
+    return _product_cascade(
+        products, conn, key_prefix, want_year, vertical, strict_cascade
+    )
+
+
+def _is_picked(value: Any) -> bool:
+    return value is not None and value != _PLACEHOLDER
+
+
+def _selectbox(
+    label: str,
+    options: list,
+    key: str,
+    on_change=None,
+    *,
+    strict: bool,
+) -> Any:
+    """Render one rung; when strict, prepend a placeholder + return-None gate."""
+    if strict:
+        opts = [_PLACEHOLDER] + list(options)
+        chosen = st.selectbox(label, opts, key=key, on_change=on_change)
+        return chosen
+    chosen = st.selectbox(label, options, key=key, on_change=on_change)
+    return chosen
+
+
+def _product_cascade(
+    products: list[dict[str, Any]],
+    conn: sqlite3.Connection,
+    key_prefix: str,
+    want_year: bool,
+    vertical: bool,
+    strict: bool,
+) -> Optional[dict]:
     k_company = f"{key_prefix}.company"
     k_product = f"{key_prefix}.product"
     k_year = f"{key_prefix}.year"
@@ -271,57 +363,65 @@ def cascading_picker(
 
     companies = sorted({p["brand"] for p in products}, key=str.lower)
     if vertical:
-        company = st.selectbox(
-            "Company",
-            companies,
-            key=k_company,
-            on_change=_reset_product_year,
+        company = _selectbox(
+            "Company", companies, k_company, _reset_product_year, strict=strict
         )
+        if strict and not _is_picked(company):
+            return None
         company_products = [p for p in products if p["brand"] == company]
         product_names = sorted(
             {p["product_name"] for p in company_products}, key=str.lower
         )
-        product_name = st.selectbox(
-            "Product",
-            product_names,
-            key=k_product,
-            on_change=_reset_year,
+        if strict and not product_names:
+            return None
+        product_name = _selectbox(
+            "Product", product_names, k_product, _reset_year, strict=strict
         )
+        if strict and not _is_picked(product_name):
+            return None
         matches = [
             p for p in company_products if p["product_name"] == product_name
         ]
         years = sorted({p["year"] for p in matches}, reverse=True)
         if want_year:
-            year = st.selectbox("Year", years, key=k_year)
+            if strict and not years:
+                return None
+            year = _selectbox("Year", years, k_year, None, strict=strict)
+            if strict and not _is_picked(year):
+                return None
         else:
             year = years[0] if years else None
     else:
         cols = st.columns([1, 2, 1] if want_year else [1, 2])
         with cols[0]:
-            company = st.selectbox(
-                "Company",
-                companies,
-                key=k_company,
-                on_change=_reset_product_year,
+            company = _selectbox(
+                "Company", companies, k_company, _reset_product_year, strict=strict
             )
+        if strict and not _is_picked(company):
+            return None
         company_products = [p for p in products if p["brand"] == company]
         product_names = sorted(
             {p["product_name"] for p in company_products}, key=str.lower
         )
+        if strict and not product_names:
+            return None
         with cols[1]:
-            product_name = st.selectbox(
-                "Product",
-                product_names,
-                key=k_product,
-                on_change=_reset_year,
+            product_name = _selectbox(
+                "Product", product_names, k_product, _reset_year, strict=strict
             )
+        if strict and not _is_picked(product_name):
+            return None
         matches = [
             p for p in company_products if p["product_name"] == product_name
         ]
         years = sorted({p["year"] for p in matches}, reverse=True)
         if want_year:
+            if strict and not years:
+                return None
             with cols[2]:
-                year = st.selectbox("Year", years, key=k_year)
+                year = _selectbox("Year", years, k_year, None, strict=strict)
+            if strict and not _is_picked(year):
+                return None
         else:
             year = years[0] if years else None
 
@@ -336,6 +436,139 @@ def cascading_picker(
     return {
         "company": company,
         "product": product_name,
+        "year": year,
+        "row": row,
+    }
+
+
+def _series_cascade(
+    products: list[dict[str, Any]],
+    conn: sqlite3.Connection,
+    key_prefix: str,
+    want_year: bool,
+    vertical: bool,
+    strict: bool,
+) -> Optional[dict]:
+    """Company → Sub-brand → Series → Year rung mode."""
+    k_company = f"{key_prefix}.company"
+    k_sub = f"{key_prefix}.sub_brand"
+    k_series = f"{key_prefix}.series"
+    k_year = f"{key_prefix}.year"
+
+    def _reset_below_company() -> None:
+        for k in (k_sub, k_series, k_year):
+            st.session_state.pop(k, None)
+
+    def _reset_below_sub() -> None:
+        for k in (k_series, k_year):
+            st.session_state.pop(k, None)
+
+    def _reset_year() -> None:
+        st.session_state.pop(k_year, None)
+
+    companies = sorted({p["brand"] for p in products}, key=str.lower)
+
+    def render_company() -> Any:
+        return _selectbox(
+            "Company", companies, k_company, _reset_below_company, strict=strict
+        )
+
+    def render_sub(opts: list[str]) -> Any:
+        return _selectbox(
+            "Sub-brand", opts, k_sub, _reset_below_sub, strict=strict
+        )
+
+    def render_series(opts: list[str]) -> Any:
+        return _selectbox(
+            "Series", opts, k_series, _reset_year, strict=strict
+        )
+
+    def render_year(opts: list[int]) -> Any:
+        return _selectbox("Year", opts, k_year, None, strict=strict)
+
+    if vertical:
+        company = render_company()
+        if strict and not _is_picked(company):
+            return None
+        co_prods = [p for p in products if p["brand"] == company]
+        sub_opts = sorted(
+            {p["sub_brand"] or "—" for p in co_prods}, key=str.lower
+        )
+        if strict and not sub_opts:
+            return None
+        sub = render_sub(sub_opts)
+        if strict and not _is_picked(sub):
+            return None
+        sub_prods = [p for p in co_prods if (p["sub_brand"] or "—") == sub]
+        series_opts = sorted(
+            {p["series"] or "—" for p in sub_prods}, key=str.lower
+        )
+        if strict and not series_opts:
+            return None
+        series = render_series(series_opts)
+        if strict and not _is_picked(series):
+            return None
+        series_prods = [p for p in sub_prods if (p["series"] or "—") == series]
+        years = sorted({p["year"] for p in series_prods}, reverse=True)
+        if want_year:
+            if strict and not years:
+                return None
+            year = render_year(years)
+            if strict and not _is_picked(year):
+                return None
+        else:
+            year = years[0] if years else None
+    else:
+        cols = st.columns([1, 1, 1, 1] if want_year else [1, 1, 1])
+        with cols[0]:
+            company = render_company()
+        if strict and not _is_picked(company):
+            return None
+        co_prods = [p for p in products if p["brand"] == company]
+        sub_opts = sorted(
+            {p["sub_brand"] or "—" for p in co_prods}, key=str.lower
+        )
+        if strict and not sub_opts:
+            return None
+        with cols[1]:
+            sub = render_sub(sub_opts)
+        if strict and not _is_picked(sub):
+            return None
+        sub_prods = [p for p in co_prods if (p["sub_brand"] or "—") == sub]
+        series_opts = sorted(
+            {p["series"] or "—" for p in sub_prods}, key=str.lower
+        )
+        if strict and not series_opts:
+            return None
+        with cols[2]:
+            series = render_series(series_opts)
+        if strict and not _is_picked(series):
+            return None
+        series_prods = [p for p in sub_prods if (p["series"] or "—") == series]
+        years = sorted({p["year"] for p in series_prods}, reverse=True)
+        if want_year:
+            if strict and not years:
+                return None
+            with cols[3]:
+                year = render_year(years)
+            if strict and not _is_picked(year):
+                return None
+        else:
+            year = years[0] if years else None
+
+    if year is None:
+        return None
+
+    chosen = next((p for p in series_prods if p["year"] == year), None)
+    if chosen is None:
+        return None
+
+    row = load.load_product(conn, chosen["model_code"], year=chosen["year"])
+    return {
+        "company": company,
+        "sub_brand": sub,
+        "series": series,
+        "product": chosen["product_name"],
         "year": year,
         "row": row,
     }
@@ -449,7 +682,7 @@ def _rollup_row_html(
     value_str: str,
     marker: str,
 ) -> str:
-    """One ``<tr>`` carrying the rolled-up CPU / Graphics cell.
+    """One ``<tr>`` carrying a single-row rollup cell.
 
     Empty rollup renders ``—`` with the empty marker (consistent with
     the per-section "(no data scraped)" placeholder elsewhere).
@@ -467,6 +700,83 @@ def _rollup_row_html(
         f'<td class="cd-spec__value">{_value_cell_html(cell_value, cell_marker)}</td>'
         "</tr>"
     )
+
+
+def _rollup_rows_html(
+    section_name: str,
+    rows: list[tuple[str, str, str]],
+) -> list[str]:
+    """``<tr>`` strings for a multi-row rollup (I/O).
+
+    Renders N rows under one section header (section cell ``rowspan=N``
+    on the first sub-row only). Each tuple is ``(label, value, marker)``;
+    empty values render as ``—`` with ``MARKER_EMPTY``.
+    """
+    if not rows:
+        return [
+            _rollup_row_html(section_name, "(no data scraped)", "", MARKER_EMPTY)
+        ]
+    n = len(rows)
+    out: list[str] = []
+    for i, (label, value_str, marker) in enumerate(rows):
+        cell_value = value_str if value_str else "—"
+        cell_marker = marker if value_str else MARKER_EMPTY
+        is_last = i == n - 1
+        row_cls = "cd-spec__row cd-spec__row--last" if is_last else "cd-spec__row"
+        section_cell = (
+            f'<td class="cd-spec__section" rowspan="{n}">'
+            f"{html.escape(section_name)}</td>"
+            if i == 0
+            else ""
+        )
+        out.append(
+            f'<tr class="{row_cls}">'
+            f"{section_cell}"
+            f'<td class="cd-spec__feature">{html.escape(label)}</td>'
+            f'<td class="cd-spec__value">{_value_cell_html(cell_value, cell_marker)}</td>'
+            "</tr>"
+        )
+    return out
+
+
+def _rollup_for_section(
+    section_name: str,
+    product: dict[str, Any],
+    cpu_catalog: dict[str, dict[str, Any]],
+    gpu_catalog: dict[str, dict[str, Any]],
+) -> tuple[str, str]:
+    """Dispatch a section name to its ``rollup_value`` and return (value, marker).
+
+    I/O uses ``rollup_rows`` instead (multi-row shape); callers branch
+    on the section name before reaching this helper.
+    """
+    if section_name == "Processor":
+        return cpu_view.rollup_value(product, cpu_catalog)
+    if section_name == "Graphics":
+        return boards_view.rollup_value(product, gpu_catalog)
+    if section_name == "Display":
+        return display_view.rollup_value(product)
+    if section_name == "Memory":
+        return memory_view.rollup_value(product)
+    if section_name == "Storage":
+        return storage_view.rollup_value(product)
+    if section_name == "Camera":
+        return camera_view.rollup_value(product)
+    if section_name == "Audio":
+        return audio_view.rollup_value(product)
+    if section_name == "Network":
+        return network_view.rollup_value(product)
+    if section_name == "Battery":
+        return battery_view.rollup_value(product)
+    if section_name == "Adapter":
+        return adapter_view.rollup_value(product)
+    if section_name == "Dimensions":
+        return dimensions_view.rollup_value(product)
+    if section_name == "Weight":
+        return weight_view.rollup_value(product)
+    if section_name == "Design":
+        return design_view.rollup_value(product)
+    return "", MARKER_EMPTY
 
 
 def _section_rows_html(
@@ -515,9 +825,13 @@ def spec_table_html(
 ) -> str:
     """Return the full Section / Feature / Value spec table HTML with inline legend.
 
-    Stage 10b: ``CPU`` and ``Graphics`` sections collapse to one rollup
-    row each (deduped architecture codes / board labels). When the
-    catalogs are not supplied, the rollup cells render blank — render is
+    Stage 10b: every section in ``_VISUAL_SECTIONS`` collapses to a
+    rollup row driven by that section's ``rollup_value`` (or
+    ``rollup_rows`` for I/O — the multi-row outlier). Sections outside
+    ``_VISUAL_SECTIONS`` (Keyboard, Thermals) and ``Identity`` are
+    skipped from the visual table; their per-leaf bundles still surface
+    on the Edit screen via ``field_paths``. When the catalogs are not
+    supplied, the CPU + Graphics rollup cells render blank — render is
     not gated on curation per the user's Stage 10b call.
     """
     if sections is None:
@@ -525,33 +839,25 @@ def spec_table_html(
     cpu_catalog = cpu_catalog or {}
     gpu_catalog = gpu_catalog or {}
     body: list[str] = []
-    for section_name, fn in sections:
-        if section_name == "Identity":
+    for section_name, _fn in sections:
+        if section_name not in _VISUAL_SECTIONS:
             continue
-        if section_name == "CPU":
-            value, marker = cpu_view.rollup_value(product, cpu_catalog)
-            body.append(
-                _rollup_row_html(
-                    section_name,
-                    _ROLLUP_FEATURE_LABEL["CPU"],
-                    value,
-                    marker,
-                )
+        if section_name == _IO_SECTION:
+            body.extend(
+                _rollup_rows_html(section_name, io_view.rollup_rows(product))
             )
             continue
-        if section_name == "Graphics":
-            value, marker = boards_view.rollup_value(product, gpu_catalog)
-            body.append(
-                _rollup_row_html(
-                    section_name,
-                    _ROLLUP_FEATURE_LABEL["Graphics"],
-                    value,
-                    marker,
-                )
+        value, marker = _rollup_for_section(
+            section_name, product, cpu_catalog, gpu_catalog
+        )
+        body.append(
+            _rollup_row_html(
+                section_name,
+                _ROLLUP_FEATURE_LABEL.get(section_name, section_name),
+                value,
+                marker,
             )
-            continue
-        paths = fn(product)
-        body.extend(_section_rows_html(section_name, paths, product))
+        )
     legend = marker_legend_inline_html()
     return (
         "<style>"
@@ -678,6 +984,56 @@ def _cmp_rollup_row_html(
     )
 
 
+def _cmp_rollup_rows_html(
+    section_name: str,
+    per_product_rows: list[list[tuple[str, str, str]]],
+) -> list[str]:
+    """Compare-grid ``<tr>`` strings for a multi-row rollup (I/O).
+
+    ``per_product_rows[i]`` is the row-list for product ``i``. Each
+    product is assumed to emit the same number of sub-rows in the same
+    order (true of ``io.rollup_rows`` which always returns 4 entries).
+    Each sub-row carries its own divergence cue across products.
+    """
+    if not per_product_rows:
+        return []
+    n_sub = len(per_product_rows[0])
+    if n_sub == 0:
+        return []
+    out: list[str] = []
+    for sub_idx in range(n_sub):
+        per_prod = [rows[sub_idx] for rows in per_product_rows]
+        label = per_prod[0][0]
+        cells_data: list[tuple[str, str]] = []
+        for _label, value_str, marker in per_prod:
+            if value_str:
+                cells_data.append((value_str, marker))
+            else:
+                cells_data.append(("—", MARKER_EMPTY))
+        values = [c[0] for c in cells_data]
+        diverges_flags = _divergence_flags(values)
+        cells_html = "".join(
+            _cmp_value_cell_html(value, marker, diverges_flags[idx])
+            for idx, (value, marker) in enumerate(cells_data)
+        )
+        is_last = sub_idx == n_sub - 1
+        row_cls = "cd-cmp__row cd-cmp__row--last" if is_last else "cd-cmp__row"
+        section_cell = (
+            f'<td class="cd-cmp__section" rowspan="{n_sub}">'
+            f"{html.escape(section_name)}</td>"
+            if sub_idx == 0
+            else ""
+        )
+        out.append(
+            f'<tr class="{row_cls}">'
+            f"{section_cell}"
+            f'<td class="cd-cmp__feature">{html.escape(label)}</td>'
+            f"{cells_html}"
+            "</tr>"
+        )
+    return out
+
+
 def _cmp_section_rows_html(
     section_name: str,
     paths: list[tuple[str, str]],
@@ -767,44 +1123,24 @@ def comparison_grid_html(
     headers = [_product_header(p) for p in products]
     n_prod = len(products)
     body: list[str] = []
-    for section_name, fn in sections:
-        if section_name == "Identity":
+    for section_name, _fn in sections:
+        if section_name not in _VISUAL_SECTIONS:
             continue
-        if section_name == "CPU":
-            rollups = [
-                cpu_view.rollup_value(prod, cpu_catalog) for prod in products
-            ]
-            body.append(
-                _cmp_rollup_row_html(
-                    section_name,
-                    _ROLLUP_FEATURE_LABEL["CPU"],
-                    rollups,
-                )
+        if section_name == _IO_SECTION:
+            per_product_rows = [io_view.rollup_rows(prod) for prod in products]
+            body.extend(_cmp_rollup_rows_html(section_name, per_product_rows))
+            continue
+        rollups = [
+            _rollup_for_section(section_name, prod, cpu_catalog, gpu_catalog)
+            for prod in products
+        ]
+        body.append(
+            _cmp_rollup_row_html(
+                section_name,
+                _ROLLUP_FEATURE_LABEL.get(section_name, section_name),
+                rollups,
             )
-            continue
-        if section_name == "Graphics":
-            rollups = [
-                boards_view.rollup_value(prod, gpu_catalog) for prod in products
-            ]
-            body.append(
-                _cmp_rollup_row_html(
-                    section_name,
-                    _ROLLUP_FEATURE_LABEL["Graphics"],
-                    rollups,
-                )
-            )
-            continue
-        # Union of paths across all products preserves first-appearance
-        # order so deeper offerings on later columns still surface rows.
-        seen: set[str] = set()
-        paths: list[tuple[str, str]] = []
-        for prod in products:
-            for path, label in fn(prod):
-                if path in seen:
-                    continue
-                seen.add(path)
-                paths.append((path, label))
-        body.extend(_cmp_section_rows_html(section_name, paths, products))
+        )
     legend = marker_legend_inline_html()
     value_col_pct = max(8, int(58 / max(n_prod, 1)))
     header_cells = "".join(
@@ -887,3 +1223,184 @@ def comparison_grid_html(
         f"<tbody>{''.join(body)}</tbody>"
         "</table>"
     )
+
+
+# ---------------------------------------------------------------------------
+# Stage 10c additions: Compare ``+`` button styling + Find result cards
+# ---------------------------------------------------------------------------
+
+
+_COMPARE_STYLES_INJECTED_KEY = "__cd_compare_css_injected__"
+
+
+def inject_compare_styles() -> None:
+    """One-shot injection of Compare-screen scoped styles.
+
+    Owns the ``+`` button restyle (faint accent fill, vertically centered)
+    plus the faint horizontal connector line that runs behind the button
+    across the picker stack. The button gets ``z-index: 2`` and a solid
+    fill so the line visually passes behind it.
+    """
+    if st.session_state.get(_COMPARE_STYLES_INJECTED_KEY):
+        return
+    st.session_state[_COMPARE_STYLES_INJECTED_KEY] = True
+    css = """
+<style>
+.cd-cmp-rail {
+    position: relative;
+    height: 1px;
+    background: var(--cd-border);
+    margin: var(--cd-space-md) 0;
+}
+.cd-cmp-add-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    position: relative;
+    z-index: 2;
+}
+.cd-cmp-add-wrap [data-testid="stButton"] > button {
+    background: var(--cd-bg-accent-soft) !important;
+    color: var(--cd-accent) !important;
+    border: 1px solid var(--cd-border-strong) !important;
+    border-radius: var(--cd-radius-pill) !important;
+    width: 36px;
+    height: 36px;
+    padding: 0 !important;
+    font-size: var(--cd-size-lg);
+    font-weight: 600;
+    line-height: 1;
+    box-shadow: 0 0 0 4px var(--cd-bg-page);
+}
+.cd-cmp-add-wrap [data-testid="stButton"] > button:hover {
+    background: var(--cd-bg-accent-soft-hover) !important;
+}
+</style>
+"""
+    st.markdown(css, unsafe_allow_html=True)
+
+
+def find_rollup_for_section(
+    section_name: str,
+    product: dict[str, Any],
+    cpu_catalog: dict[str, dict[str, Any]],
+    gpu_catalog: dict[str, dict[str, Any]],
+) -> tuple[str, str]:
+    """Public re-export of the per-section rollup dispatch.
+
+    Find uses this to render the queried section's rolled-up value + marker
+    inside each result card. I/O still routes through ``io.rollup_rows``
+    upstream; callers decide whether to dispatch here or to that.
+    """
+    return _rollup_for_section(section_name, product, cpu_catalog, gpu_catalog)
+
+
+def find_result_card_html(
+    *,
+    company: str,
+    sub_brand: str | None,
+    series: str | None,
+    year: int | None,
+    section_name: str,
+    rollup_value: str,
+    marker: str,
+) -> str:
+    """Render one horizontal Find result card.
+
+    Layout: left identity strip · middle rolled-up section value · right
+    marker dot. The ``Open →`` button is rendered separately by the
+    caller in a Streamlit column so the click can hand back control to
+    Python.
+    """
+    crumbs: list[str] = [html.escape(company)]
+    if sub_brand:
+        crumbs.append(html.escape(sub_brand))
+    if series:
+        crumbs.append(html.escape(series))
+    if year is not None:
+        crumbs.append(html.escape(str(year)))
+    identity_html = (
+        '<span class="cd-findcard__crumbs">'
+        + (
+            '<span class="cd-findcard__sep"> · </span>'.join(crumbs)
+        )
+        + "</span>"
+    )
+    value_str = rollup_value if rollup_value else "—"
+    return (
+        '<div class="cd-findcard">'
+        '<div class="cd-findcard__identity">'
+        f"{identity_html}"
+        "</div>"
+        '<div class="cd-findcard__rollup">'
+        f'<span class="cd-findcard__section">{html.escape(section_name)}</span>'
+        f'<span class="cd-findcard__value">{html.escape(value_str)}</span>'
+        "</div>"
+        f'<div class="cd-findcard__marker">{dot_marker(marker)}</div>'
+        "</div>"
+    )
+
+
+_FIND_CARD_STYLES_INJECTED_KEY = "__cd_findcard_css_injected__"
+
+
+def inject_findcard_styles() -> None:
+    """One-shot injection of Find result-card layout styles."""
+    if st.session_state.get(_FIND_CARD_STYLES_INJECTED_KEY):
+        return
+    st.session_state[_FIND_CARD_STYLES_INJECTED_KEY] = True
+    css = """
+<style>
+.cd-findcard {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 2fr) auto;
+    align-items: center;
+    gap: var(--cd-space-lg);
+    background: var(--cd-bg-card);
+    border: 1px solid var(--cd-border);
+    border-radius: var(--cd-radius-md);
+    padding: var(--cd-space-md) var(--cd-space-lg);
+    margin: var(--cd-space-sm) 0;
+    font-size: var(--cd-size-sm);
+}
+.cd-findcard__identity {
+    color: var(--cd-text);
+    font-weight: 500;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.cd-findcard__sep {
+    color: var(--cd-text-faint);
+    font-weight: 400;
+    margin: 0 var(--cd-space-xs);
+}
+.cd-findcard__rollup {
+    display: flex;
+    align-items: baseline;
+    gap: var(--cd-space-md);
+    min-width: 0;
+    overflow: hidden;
+}
+.cd-findcard__section {
+    color: var(--cd-text-faint);
+    font-size: var(--cd-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+.cd-findcard__value {
+    color: var(--cd-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.cd-findcard__marker {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+</style>
+"""
+    st.markdown(css, unsafe_allow_html=True)

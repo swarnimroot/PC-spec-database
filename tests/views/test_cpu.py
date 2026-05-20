@@ -34,10 +34,11 @@ def _catalog_row(arch_code=None):
 
 
 def test_empty_offerings_renders_empty():
+    # Stage 10b batch 2 renamed the section heading "CPU" → "Processor".
     out = render({"cpu_offerings": None}, {})
-    assert out == "CPU: [empty]"
+    assert out == "Processor: [empty]"
     out = render({"cpu_offerings": []}, {})
-    assert out == "CPU: [empty]"
+    assert out == "Processor: [empty]"
     value, marker = rollup_value({"cpu_offerings": []}, {})
     assert value == ""
     assert marker == "[empty]"
@@ -121,11 +122,12 @@ def test_missing_catalog_row_falls_through():
     assert value == ""
 
 
-def test_render_emits_cpu_heading():
+def test_render_emits_processor_heading():
+    # Stage 10b batch 2 renamed the section heading "CPU" → "Processor".
     product = {"cpu_offerings": [_offering("Core Ultra 9 285H")]}
     catalog = {"Core Ultra 9 285H": _catalog_row(arch_code="ARL-H")}
     out = render(product, catalog)
-    assert out == "CPU: ARL-H [verified]"
+    assert out == "Processor: ARL-H [verified]"
 
 
 def test_field_paths_still_per_sku():
