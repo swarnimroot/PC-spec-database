@@ -45,14 +45,19 @@ def test_format_product_pk_partial_year_match_does_not_collapse():
 
 
 def _seed_db(tmp_path, rows):
-    """Build a fresh DB with the given (model_code, year) rows."""
+    """Build a fresh DB with the given (model_code, year) rows.
+
+    Stage 11: the products PK is (product, year). Tests still seed with
+    model_code as the canonical identifier; we derive a placeholder
+    ``product`` from the slug so the row passes the NOT NULL constraint.
+    """
     conn = connect(tmp_path / "pp.db")
     with transaction(conn):
         apply_schema(conn)
         for model_code, year in rows:
             conn.execute(
-                "INSERT INTO products (model_code, year) VALUES (?, ?)",
-                (model_code, year),
+                "INSERT INTO products (product, model_code, year) VALUES (?, ?, ?)",
+                (model_code, model_code, year),
             )
     return conn
 

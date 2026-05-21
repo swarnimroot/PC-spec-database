@@ -124,9 +124,9 @@ def test_welcome_modal_lists_live_vendor_names(empty_db):
         with transaction(conn):
             for code, brand in (("dell_a", "Dell"), ("asus_a", "ASUS")):
                 conn.execute(
-                    "INSERT INTO products (model_code, year, brand) "
-                    "VALUES (?, ?, ?)",
-                    (code, 2026, _json.dumps({"value": brand})),
+                    "INSERT INTO products (product, model_code, year, brand) "
+                    "VALUES (?, ?, ?, ?)",
+                    (code, code, 2026, _json.dumps({"value": brand})),
                 )
     finally:
         conn.close()
