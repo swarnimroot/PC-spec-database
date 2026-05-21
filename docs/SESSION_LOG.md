@@ -6,6 +6,96 @@ Newest sessions at the top.
 
 ---
 
+## Session 48 — 2026-05-21 (Stage 11 Phase 1+2 — schema migration + 56-row audit applied; PK swap to (product, year); tests 479 green)
+
+**Goal:** Land Stage 11 Phase 1 (schema migration) combined with Phase 2 (data recurate) in one block, per the Session 47 plan. User picked combined-phase scope at session open because the PK swap can't proceed cleanly until each row has a non-NULL `product` value — which Phase 2 is what produces.
+
+**Outcome:** Stage 11 Phase 1+2 shipped. The `products` table now has PK `(product, year)` (was `(model_code, year)`), a new `product TEXT NOT NULL` column populated on every row, and `source_model_codes` universalized across all brands. The live DB collapsed from 76 source rows → **56 product rows** (20 cross-row merges, 19 year corrections, 1 net-new product `da15260`, 1 orphan merged + deleted). Test suite holds at **479 passing** (same as the pre-Stage-11 baseline) via a transitional helpers shim.
+
+### Per-row audit — re-derived, persisted
+
+Session 47's audit subagents produced the row-by-row 77→56 mapping in their reports, but only the per-brand summary table made it into docs. To unblock Phase 2 this session, 4 parallel subagents re-ran the audit (one per brand) and the consolidated output landed in **`docs/STAGE11_AUDIT.md`** — a reviewable markdown file with one table per brand listing every target `(product, year)` row + its `sub_brand` / `series` / `source_model_codes`. Total: 22 ASUS + 5 Dell + 9 HP + 20 Lenovo = 56 products. The structured Python form lives in **`competitive_database/db/stage11_audit_data.py`**; the migration reads from there.
+
+### Migration design
+
+New function `_migrate_products_stage11_pk(conn)` in `db/connection.py`, called from `apply_schema()` after the existing Stage 7 / Stage 10b migrations. Idempotent — runs only if the `products` table lacks the `product` column. Five-step pipeline:
+
+1. `ALTER TABLE products ADD COLUMN product TEXT` — nullable initially so the audit can populate it before the PK constraint locks in.
+2. Insert net-new Dell product (`da15260`, Alienware 15, 2026) so the audit's survivor lookup finds it.
+3. Apply the per-brand audit row by row: pick survivor `source_model_codes[0]`, apply year correction if needed, stamp `product` / `sub_brand` / `series` manual bundles on the survivor, rewire any `review_queue` entries from non-survivor rows to the survivor, delete the non-survivor rows, and write the unioned + deduped `source_model_codes` list.
+4. Assert post-audit row count == 56 and zero NULL `product` rows.
+5. Rebuild the table with PK `(product, year)` — SQLite can't `ALTER PRIMARY KEY` in place, so the migration does the standard `CREATE TABLE products_new` / `INSERT … SELECT *` / `DROP` / `RENAME` dance, then recreates the four `idx_products_*` indexes.
+
+`schema.sql` updated to define the post-Stage-11 shape directly so fresh DBs init with the new PK immediately (the migration is a no-op on those).
+
+### Two judgment calls — resolved
+
+The audit re-run surfaced two genuine ambiguities:
+
+- **ASUS 2023 F+A pair merges (TUF 15 / TUF 17):** the Session 47 lock is unconditional — F (Intel) and A (AMD) variants at the same `(Product, Year)` merge regardless of year. The audit agent invented a "2023 might be a different chassis" concern; user dismissed it (same screen size, same product). Merges proceeded. Final ASUS = **22 rows**.
+- **HP Victus 15 CTO shells (`15t-fa200` / `15z-fb300`):** the row data doesn't expose silicon, so year couldn't be derived from the row alone. User picked **year=2025, separate row** (matches the Session 47 9-row target). Could revisit if hp.com confirms the CTO configures 2024-platform silicon.
+
+Both resolutions captured in `docs/STAGE11_AUDIT.md` § Resolved judgment calls.
+
+### Callsite-update strategy — compat shim over strict rename
+
+Session-47 callsite audit (run as part of this session) identified ~34 PK-lookup callsites that key on `(model_code, year)`. Rather than mechanically refactor all 34 (~10 files in ingest / UI / CLI / views, plus ~10 test files), the foundational change went into **`db/helpers.py`** as a transitional compat shim: `_normalize_products_pk(conn, pk)` translates legacy `{"model_code": …, "year": …}` pk dicts into the post-Stage-11 `{"product": …, "year": …}` shape on every `_upsert_one_field` write to the `products` table. When a caller supplies model_code instead of product, the shim looks up the existing row's product (or falls back to `product := model_code` for fresh INSERTs in tests), and additionally persists `model_code` to the row's `model_code` column on first INSERT so reads via `WHERE model_code = ?` keep working.
+
+Net effect: all 479 tests pass without touching most UI/CLI/ingest callsites; they continue to thread `model_code`-keyed pk dicts. New code can use `{"product": …, "year": …}` directly. The strict callsite rename is a follow-up.
+
+### Other code changes
+
+- **`views/load.py`** — added `product` to `_PLAIN_PRODUCT_FIELDS` so the bulk-row loader doesn't try to JSON-decode it as a bundle.
+- **`ui/hub.py`** — same exclusion-list addition for the days-since-refresh walk.
+- **`bridge/types.CandidateProduct`** — added `product: Optional[str] = None` field with the doc note that bridges don't populate it yet; the runner falls back to `model_code` as a placeholder until per-bridge product-name derivation lands.
+- **Test fixtures touched** — 3 files (`tests/db/test_lenovo_merge_schema.py`, `tests/cli/test_paths.py`, `tests/ui/test_app_smoke.py`) updated to provide `product` on raw `INSERT INTO products` SQL.
+
+### Decisions made this session
+
+1. **Combined Phase 1 + Phase 2 in one session.** The literal Phase 1 (column add + PK swap) can't succeed without Phase 2's data populating `product` first; user picked the combined scope explicitly.
+2. **Re-derive the per-row audit with 4 parallel subagents** rather than block on user-supplied data; persist the output to `docs/STAGE11_AUDIT.md` for review.
+3. **Compat shim in `db/helpers.py`** over strict callsite rename. Trade-off: code style still mostly model_code-keyed in UI/CLI; functional outcome is identical. Phase 1.5 cleanup is a follow-up.
+4. **`product` is a plain scalar (TEXT NOT NULL)**, not a bundle — follows the existing `family_code` / `source_model_codes` plain-scalar pattern. Reclassification provenance for `sub_brand` / `series` lives on those bundles via a manual override with `source_note = "Stage 11 identity-hierarchy reclassification (Session 48)"`.
+5. **`model_code` becomes nullable in DDL** (was `NOT NULL`) so the helpers shim can write a row using only `(product, year)` without also needing to know model_code on every call. Convention: bridges still populate it.
+6. **PK swap implemented via table rebuild** (SQLite ALTER PRIMARY KEY isn't supported). Indexes dropped before swap, recreated after.
+
+### Files touched this session
+
+**Code:**
+- `competitive_database/db/connection.py` — new Stage 11 migration + helpers
+- `competitive_database/db/schema.sql` — post-Stage-11 PK + new `product` column
+- `competitive_database/db/helpers.py` — `_normalize_products_pk` compat shim
+- `competitive_database/db/stage11_audit_data.py` — NEW; structured 56-row audit
+- `competitive_database/bridge/types.py` — `CandidateProduct.product` field
+- `competitive_database/views/load.py` — `product` in `_PLAIN_PRODUCT_FIELDS`
+- `competitive_database/ui/hub.py` — `product` in days-since-refresh exclusion
+
+**Tests:**
+- `tests/db/test_lenovo_merge_schema.py` — provide `product` on legacy INSERTs
+- `tests/cli/test_paths.py` — same
+- `tests/ui/test_app_smoke.py` — same
+
+**Docs:** `docs/STAGE11_AUDIT.md` (NEW; reviewable per-row audit), `docs/SESSION_LOG.md` (this entry), `docs/TASKS.md` (Stage 11 row updated), `docs/DATA_MODEL.md` (PK + new column + product field row), `README.md` (STATUS line).
+
+**DB:** live `competitive.db` migrated in place; backup at `competitive.db.stage11-backup-pre-session48` (not committed; gitignored alongside the existing DB).
+
+**Memory (outside repo):** `stage11_design.md` marked Phase 1+2 IMPLEMENTED; `project_overview.md` + `roadmap_priority.md` updated for S48 wrap.
+
+### Pickup pointers for next session
+
+- **Stage 11 Phase 3** — new picker UI on Browse (3 dropdowns Brand → Series → Product + Year toggle button block + Status toggle button block).
+- **Stage 11 Phase 4** — union spec table rendering (each section shows the UNION across selected years that match the status filter).
+- **Stage 11 Phase 5** — Compare adopts the same per-column picker + union view.
+- **Stage 11 Phase 6** — echo-parent display rule (italic-faint rendering when Sub-brand or Series is NULL).
+- **Stage 11 Phase 7** — Find narrow-by reshape + result card identity-line update.
+- **Stage 11 Phase 8** — tests + docs alignment (runs alongside the others).
+- **Phase 1.5 follow-up (optional)** — strict callsite rename to use `{"product": …, "year": …}` pk dicts everywhere; remove the helpers compat shim. ~34 mechanical callsites + a few more test fixtures.
+- **Bridges populate `product` field** — each vendor parser derives the post-Stage-11 product name (Strix G16 / Legion Pro 7 16 / OMEN 16 / etc.) so refresh/ingest stops falling back to model_code. Belongs in Phase 1.5 / Phase 8.
+- **Status curation** — still 0/56 populated; fill in batch after picker plumbing lands.
+- **Stage 10c (review queue triage redesign)** and **small UI polish brainstorm** remain queued behind Stage 11.
+
+---
+
 ## Session 47 — 2026-05-21 (Stage 11 brainstorm — 5-level identity hierarchy locked; per-brand audit 77 → 56 rows; Browse + Compare picker reshape with union view; 8-phase implementation plan approved; pure-brainstorm session, no code changes)
 
 **Goal:** Work through the "small UI polish + data labeling" brainstorm queued at S46 close. Reality: the data-labeling thread eclipsed the polish thread and grew into a full Stage 11 (database hierarchy layer) brainstorm — the long-deferred TASKS §Deferred item finally landed design.

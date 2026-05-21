@@ -64,22 +64,23 @@ One row per distinct GPU model (e.g., RTX 5070 Ti, Radeon RX 9070M). Populated d
 
 ## Products Table — Field Categories
 
-Each product identified by `(model_code, year)`.
+Each product identified by `(product, year)` (post-Stage-11, Session 48). Previously `(model_code, year)` through Stage 10b.
 
 ### Identity
 
 | Field | Type | Notes |
 |---|---|---|
+| `product` | string | **Part of identity (PK).** Canonical readable product name set by the Stage 11 audit (e.g. "Strix G16", "Legion Pro 7 16", "OMEN Max 16", "Victus 15"). Plain scalar — no bundle. Anchors on the closest populated Sub-brand / Series parent + size / tier differentiator; never repeats the parent name. See `STAGE11_AUDIT.md` for the full 56-row mapping. |
+| `year` | number | Mechanically derived where in name; manual where not. **Part of identity (PK).** Product GENERATION year (not scrape year). |
 | `vendor_full_name` | string | Scraped as-is (e.g., "ASUS ROG Strix G16 (2025)"). |
 | `brand` | string | Mechanically derived (Dell / HP / Lenovo / ASUS / Acer / MSI). |
-| `sub_brand` | string | Mechanically derived (e.g., Alienware, ROG, Legion). |
-| `series` | string | Mechanically derived (e.g., Strix, Aurora). |
-| `model_code` | string | Mechanically derived (e.g., G16, m18). **Part of identity.** For Lenovo rows that came through the T7.0a merge ingest, `model_code` is set equal to `family_code` (e.g. `legion-pro-5-16-gen-10`) so the row PK is family-level, not per-architecture-cousin. |
-| `year` | number | Mechanically derived where in name; manual where not. **Part of identity.** |
+| `sub_brand` | string, nullable | Marketed-distinct premium gaming sub-brand only (ROG / Alienware / OMEN / HyperX / Legion / Predator). NULL for products that live directly under the brand (TUF, Victus, LOQ, V). |
+| `series` | string, nullable | Populated when the parent has multiple named sub-lines (Strix / Zephyrus / Flow under ROG; Legion 5 / 7 / 9 under Legion; Area-51 / Aurora under Alienware) OR when the brand-level line has a name (Victus, LOQ, TUF, V). NULL otherwise. |
+| `model_code` | string, nullable | Non-PK identity column. Vendor-slug identifier of the survivor row of each (Product, Year) merge group (e.g. `legion-pro-5-16-gen-10`, `rog-strix-g16-2025`, `15-gb0261nr`). Conventionally always set by bridges; nullable in DDL so the per-cell `db/helpers.py` upsert helpers can write rows using only the (product, year) PK. |
 | `status` | string | Manual. `active` / `discontinued`. |
 | `segment` | string | Manual. `entry` / `premium` / `flagship`. |
 | `family_code` | string, nullable | Plain scalar — no bundle. Canonical family identifier (e.g. `legion-pro-5-16-gen-10`). Populated only on Lenovo rows that came through the T7.0a merge ingest (or were filled by `backfill-lenovo-families`); NULL on every other vendor's rows. |
-| `source_model_codes` | list of strings, nullable | Plain scalar (JSON-array-as-TEXT) — no bundle. The per-vendor machine codes that merged into this product (e.g. `["16IRX10H", "16AHP10"]`). Populated alongside `family_code` for Lenovo merge rows; NULL otherwise. |
+| `source_model_codes` | list of strings, nullable | Plain scalar (JSON-array-as-TEXT) — no bundle. **Universalized in Stage 11** across all brands: every row carries the per-vendor SKU identifiers that collapsed into this (product, year). For Lenovo this is the inner platform codes (e.g. `["16IRX10", "16AHP10"]`); for ASUS / HP / Dell this is the pre-Stage-11 model_code slugs (e.g. `["rog-strix-g16-2025", "rog-strix-g16-2025-g614"]`). |
 
 ### CPU
 

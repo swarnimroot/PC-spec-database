@@ -6,13 +6,15 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 
 ## Active
 - T9.2 Display canonicalizer in `views/formatting.py` — per-field rule lookup + opt-in via `field_path` kwarg on `display_value`; one rule today (`panel_type` "IPS-level"→"IPS"); wired into `ui/find.py` dropdown + cell-match — Session 37
-- Stage 11 — Database hierarchy layer — 5-level Brand|Sub-brand|Series|Product|Year locked; per-brand audit 77 source → 56 product rows; echo-parent display rule; universal (Product, Year) PK; HP HyperX rebrand cohorts; Browse + Compare picker reshape with year/status toggle buttons + union view; 8-phase implementation plan approved — Session 47
+- Stage 11 — Database hierarchy layer — **Phase 1+2 shipped Session 48** (schema migration + 76→56 row audit applied; PK swapped to (product, year); helpers compat shim keeps 479 tests green). Phases 3–8 pending: picker UI on Browse, union spec table, Compare reshape, echo-parent display, Find narrow-by reshape, tests + docs alignment — Session 48
 
 ## Next
+- Stage 11 Phase 3 — Browse picker reshape (3 dropdowns Brand → Series → Product + Year toggle buttons + Status toggle buttons + union spec view) — Session 48
 - Stage 10c — Review queue triage redesign — filter / sort / grouping for the 229 unresolved Lenovo rows + friendly labels (no `value_dis` / `low_conf` abbreviations); gated behind Stage 11 implementation — Session 43
 - Small UI polish brainstorm — user-flagged at S46 close; eclipsed by Stage 11 brainstorm in S47; still pending; surface after Stage 11 wraps — Session 46
 
 ## Deferred
+- Stage 11 Phase 1.5 (optional cleanup) — strict callsite rename to `{"product": ..., "year": ...}` pk dicts everywhere; remove the `_normalize_products_pk` compat shim in `db/helpers.py`. ~34 mechanical callsites + bridges populating `product` per the new naming convention. Tests stay green throughout — Session 48
 - T9.4 Dell `snapshot.options` consumption — bridge to surface scrapers-lib v1.5.0 configurator options (CPU/GPU/RAM/Storage/Display/Keyboard/Battery/Adapter/OS) as additional offering rows; fetcher flag wired Session 39 but bridge doesn't read the field yet
 - ASUS GPU regex over-matching — `bridge/asus.py` (or upstream `scrapers-lib`) captures clock-speed / wattage / VRAM strings as GPU model values (e.g. `"6GB GDDR6"`, `"1595 MHz* at 115W (...)"`). Cleaned out of 6 affected products on 2026-05-20; will re-pollute on next refresh until the GPU regex is tightened — Session 44
 - ASUS TUF URL template in `cli/refresh.py` — `refresh --from-db` on `asus-tuf-gaming-*` model_codes won't auto-build URLs (no `www.asus.com/.../tuf-gaming/{slug}/techspec/` template); gated on user adding first TUF product to DB — Session 42
