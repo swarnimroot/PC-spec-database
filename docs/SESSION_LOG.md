@@ -6,6 +6,124 @@ Newest sessions at the top.
 
 ---
 
+## Session 47 — 2026-05-21 (Stage 11 brainstorm — 5-level identity hierarchy locked; per-brand audit 77 → 56 rows; Browse + Compare picker reshape with union view; 8-phase implementation plan approved; pure-brainstorm session, no code changes)
+
+**Goal:** Work through the "small UI polish + data labeling" brainstorm queued at S46 close. Reality: the data-labeling thread eclipsed the polish thread and grew into a full Stage 11 (database hierarchy layer) brainstorm — the long-deferred TASKS §Deferred item finally landed design.
+
+**Outcome:** **Stage 11 design LOCKED end-to-end.** 5-level identity hierarchy (`Brand | Sub-brand | Series | Product | Year`); echo-parent display rule; universal `(Product, Year)` PK extending Lenovo's Stage-7 merge to all brands; HP HyperX 2026 rebrand handling; per-brand audit at **77 source rows → 56 product rows** (20 cross-row merges, 19 year corrections); Browse + Compare picker reshape with year/status toggle buttons + unified-sections union view; **8-phase implementation plan approved** for next session. No code touched. One new product added to the catalog scope (`da15260` — Alienware 15, 2026).
+
+### Identity hierarchy — 5 levels
+
+```
+Brand → Sub-brand → Series → Product → Year
+```
+
+- **Brand**: ASUS, Dell, HP, Lenovo (Acer/MSI future).
+- **Sub-brand** (OPTIONAL): the marketed-distinct premium gaming sub-brand only. Locked list: `ROG`, `Alienware`, `OMEN` (legacy pre-2026 HP), `HyperX` (HP 2026+), `Legion`, `Predator` (Acer future). NULL for products that live directly under the brand (TUF, Victus, LOQ, V-series).
+- **Series** (OPTIONAL): populated when the parent has multiple named sub-lines (ROG→Strix/Zephyrus/Flow; Alienware→Area-51/Aurora; Legion→Legion 5/7/9), or when the brand-level line has a name (Victus, LOQ, TUF, V). NULL when the parent has only one un-named line (HyperX→OMEN-only currently).
+- **Product**: readable product name. Anchors on closest populated parent + differentiator. Tier modifiers ride here (Pro, Essential, Max, Slim, Transcend, Scar, X). Sub-brand NEVER repeats in Product (`Strix G16` not `ROG Strix G16`; `OMEN 15` not `HyperX OMEN 15`).
+- **Year**: product GENERATION year — not the scrape year.
+
+### Echo-parent display rule
+
+When Sub-brand OR Series is empty, the cell does NOT show NULL or `—`. It echoes the **brand name itself** in italic-faint smaller font:
+- Sub-brand empty → echoes Brand (TUF rows show italic `ASUS`, Victus rows show italic `HP`, LOQ rows show italic `Lenovo`).
+- Series empty → echoes Sub-brand (HyperX OMEN rows show italic `OMEN`; legacy OMEN rows show italic `OMEN` in series cell).
+
+Locked over `(brand-level)`, `(parent)`, `(direct)` because echo-brand introduces zero new vocabulary.
+
+### (Product, Year) PK rule
+
+Extends Lenovo's Stage-7 merge pattern universally. Multiple per-vendor SKUs collapse into one `(Product, Year)` row; underlying source model codes preserved in a `source_model_codes` array column (already exists for Lenovo). 20 cross-row merges across the catalog: 5 ASUS (Intel/AMD chassis-letter collapses), 14 HP (retail+CTO+platform collapses), 1 Lenovo orphan.
+
+### HP HyperX rebrand handling
+
+CES 2026 (January 2026): HP merged OMEN under HyperX umbrella. Forward-looking only — pre-2026 products keep legacy OMEN naming. Both classifications coexist in the catalog:
+
+- Pre-2026 generation: Brand=HP, Sub-brand=OMEN, Series=∅.
+- 2026+ generation: Brand=HP, Sub-brand=HyperX, Series=OMEN.
+
+Classification signal: vendor marketing name (does `vendor_full_name` carry "HyperX"). Sources researched: HP press release, Tom's Hardware, Wikipedia, Windows Central.
+
+### Per-brand audit lock — 77 source → 56 product rows
+
+| Brand | Source | Product rows | Merges | Year corrections |
+|---|---|---|---|---|
+| ASUS | 28 | 22 | 5 | 0 |
+| Dell | 5 (incl. new `da15260` Alienware 15 2026) | 5 | 0 | 0 |
+| HP | 23 | 9 | 14 | 18 |
+| Lenovo | 21 | 20 | 1 | 1 |
+| **TOTAL** | **77** | **56** | **20** | **19** |
+
+Audit produced by 4 parallel subagents (one per brand, all general-purpose, run in background). Notable items:
+
+- **Lenovo orphan `16AFR10H`** (currently `brand=NULL`) merges into `legion-pro-7-16-gen-10` (Legion Pro 7 16, 2025); year corrects 2026 → 2025.
+- **HP `15-fa2047nr` + `15-fb3025nr`** correct to year=2024 (13th-gen Intel + Ryzen 7445HS + RTX 4050 silicon platform).
+- **13 other HP OMEN-only rows** correct from year=2026 to year=2025 (RTX 50-series + Core Ultra 200 / Ryzen AI silicon = 2025 platform).
+- **5 HP HyperX OMEN rows** stay at year=2026 (CES 2026 launches confirmed).
+- **ASUS Strix G16 2025** merges `rog-strix-g16-2025` + `rog-strix-g16-2025-g614` (Intel + AMD chassis variants).
+- **ASUS TUF** rows collapse A-prefix (AMD) and F-prefix (Intel) variants per Product+Year.
+- HP year corrections rely on inferred evidence (hp.com fetches were bot-blocked; agent cross-referenced silicon generations + LaptopMedia / Best Buy retail tags). User accepted the agent's reasoning.
+
+### Browse + Compare picker reshape
+
+- **Dropdowns (3 rungs):** Brand → Series → Product. Sub-brand dropped from picker (display-only on identity strip).
+- **Year button block:** independent toggle button per year (multi-select). Default on first open: latest year (2026) toggled on, others off.
+- **Status button block:** independent toggles for `Active` and `Discontinued`. No "both" button — that's just both toggled on. Default on first open: `Active` toggled on, `Discontinued` off.
+- **Spec rendering:** unified-sections union view (shopper view). Each spec section shows the UNION of values across selected years that match the status filter. NO per-year columns.
+- **Status granularity:** row-level (today's `status` column on `products`, 0/76 populated today; fill via curation pass after the plumbing lands).
+- **Compare model:** each column adopts the same union pattern as Browse. N columns side-by-side; each is its own product-union.
+
+### Decisions made this session
+
+1. **Five-level identity hierarchy** with optional Sub-brand and Series — neither is required; both echo the closest populated parent when empty.
+2. **Universal `(Product, Year)` PK** — Lenovo's Stage-7 chassis-merge pattern applies to every brand.
+3. **Tier modifiers ride on Product, not Series** (`Pro 5` becomes a product modifier under `Legion 5`; `Scar 18` is a product modifier under `Strix`).
+4. **Product name anchors on closest populated parent** (Series when set, else Sub-brand, else Brand). Sub-brand never repeats in Product.
+5. **Echo-parent over alternatives** — `(brand-level)` / `(parent)` / `(direct)` all rejected in favor of italic-faint brand-name echo.
+6. **HP rebrand cohorts coexist** — pre-2026 = legacy OMEN; 2026+ = HyperX umbrella. Classification by vendor marketing name, not DB year column.
+7. **Browse picker reshape** — 3 dropdowns + Year toggle buttons + Status toggle buttons + union spec view.
+8. **Compare adopts the same union per column** rather than single-(Product, Year) per column. Maximum flexibility, larger UI footprint per column.
+9. **Default filter state** = latest year + Active toggled (shopping view).
+10. **Status granularity** = row-level, deferred curation.
+11. **`da15260` (Alienware 15, 2026)** added to the catalog scope; canonical URL is the SPD slug (drop trailing `/useda...wcto01#customization-anchor`).
+12. **Naming corrections this session** — this work is **Stage 11**, not Stage 10c. Stage 10c (review queue triage redesign) remains separately queued.
+
+### 8-phase implementation plan (approved)
+
+1. Schema migration — add `product` column, change PK from `(model_code, year)` → `(product, year)`, universalize `source_model_codes`.
+2. Data recurate — apply the locked audit (sub_brand / series / product per row, 19 year corrections, 20 merges, delete orphan after merge).
+3. New picker UI on Browse — 3 dropdowns + 2 button blocks.
+4. Union spec table rendering.
+5. Compare adopts the new picker.
+6. Echo-parent display rule (italic-faint).
+7. Find narrow-by reshape + result card identity-line update.
+8. Tests + docs alignment.
+
+Sizing: ~4–5 sessions total.
+
+### Files touched this session
+
+**Code:** none.
+
+**Docs:** `docs/SESSION_LOG.md` (this entry), `docs/TASKS.md` (Stage 11 moves to Active), `README.md` (STATUS line update).
+
+**Memory (outside repo):** new `stage11_design.md` (full design + plan); `MEMORY.md` pointer added; `project_overview.md` + `roadmap_priority.md` updated for S47 wrap.
+
+### Pickup pointers for next session
+
+- **Stage 11 implementation Phase 1** — schema migration. Add `product` column, change PK, universalize `source_model_codes`. Should be a single-session block.
+- **Stage 11 Phase 2** — data recurate per the locked audit. Lenovo orphan merge + 19 HP year corrections + 20 cross-row merges + delete orphan brand=NULL row. Likely same session as Phase 1 if it lands cleanly.
+- **Stage 11 Phases 3–7** — picker UI, union spec table, Compare reshape, echo-parent, Find. Multi-session.
+- **Stage 11 Phase 8** — tests + docs alignment, runs alongside the others.
+- **Status curation** — 0/76 populated today; fill in batch after picker plumbing lands.
+- **Stage 10c (review queue triage redesign)** remains queued behind Stage 11.
+- **Small UI polish brainstorm** — the originally-queued S47 item that got eclipsed by Stage 11. Still pending. Surface when Stage 11 wraps.
+- **DB state unchanged this session:** 76 products / 4 vendors / 229 unresolved review_queue rows (Lenovo backlog, still parked).
+- **Working tree at session close:** only docs changes + memory updates. One untracked file (`competitive_database.db`) at session start, still untracked, not committed.
+
+---
+
 ## Session 46 — 2026-05-20 (Stage 10b batch 2 — 14 remaining sections rolled up; Browse / Compare / Find redesigns — Series rung + strict cascade + Find result cards; 364 → 479 tests green)
 
 **Goal:** Close out Stage 10b — apply the rollup-row display treatment to every remaining visible section beyond CPU + Graphics (the Session 44 batch). Then act on the user's session-44-close ask for "some UI changes after the section work" — redesign Browse / Compare / Find around the new rolled-up tables.

@@ -6,16 +6,16 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 
 ## Active
 - T9.2 Display canonicalizer in `views/formatting.py` — per-field rule lookup + opt-in via `field_path` kwarg on `display_value`; one rule today (`panel_type` "IPS-level"→"IPS"); wired into `ui/find.py` dropdown + cell-match — Session 37
-- Stage 10c — Review queue triage redesign — filter / sort / grouping for the 229 unresolved Lenovo rows + friendly labels (no `value_dis` / `low_conf` abbreviations); gated on 10a + 10b closing — Session 43
+- Stage 11 — Database hierarchy layer — 5-level Brand|Sub-brand|Series|Product|Year locked; per-brand audit 77 source → 56 product rows; echo-parent display rule; universal (Product, Year) PK; HP HyperX rebrand cohorts; Browse + Compare picker reshape with year/status toggle buttons + union view; 8-phase implementation plan approved — Session 47
 
 ## Next
-- Small UI polish brainstorm — user-flagged at S46 close; to be enumerated Session 47; Stage 10c triage redesign gated on this — Session 46
+- Stage 10c — Review queue triage redesign — filter / sort / grouping for the 229 unresolved Lenovo rows + friendly labels (no `value_dis` / `low_conf` abbreviations); gated behind Stage 11 implementation — Session 43
+- Small UI polish brainstorm — user-flagged at S46 close; eclipsed by Stage 11 brainstorm in S47; still pending; surface after Stage 11 wraps — Session 46
 
 ## Deferred
 - T9.4 Dell `snapshot.options` consumption — bridge to surface scrapers-lib v1.5.0 configurator options (CPU/GPU/RAM/Storage/Display/Keyboard/Battery/Adapter/OS) as additional offering rows; fetcher flag wired Session 39 but bridge doesn't read the field yet
 - ASUS GPU regex over-matching — `bridge/asus.py` (or upstream `scrapers-lib`) captures clock-speed / wattage / VRAM strings as GPU model values (e.g. `"6GB GDDR6"`, `"1595 MHz* at 115W (...)"`). Cleaned out of 6 affected products on 2026-05-20; will re-pollute on next refresh until the GPU regex is tightened — Session 44
 - ASUS TUF URL template in `cli/refresh.py` — `refresh --from-db` on `asus-tuf-gaming-*` model_codes won't auto-build URLs (no `www.asus.com/.../tuf-gaming/{slug}/techspec/` template); gated on user adding first TUF product to DB — Session 42
-- Stage 11 — Database hierarchy layer — user wants to add another product-hierarchy layer; not fully thought through, brainstorm-first; surface proactively when Stage 10 closes — Session 42
 - T7.0d Keyboard structured offerings split — Session 19
 - T8.8 (c) Refresh-targets enumeration dedup (`ui/refresh.py` ↔ `cli/refresh.py` near-duplicate planning loops) — gated on a third caller surfacing per Session 33 Decision #8 (rule-of-three convention) — Session 35
 - T8.8 (d) Cross-product URL dedup in refresh `--all` (`cli/refresh.py::collect_source_urls_from_product` dedups per-call only) — gated on a shared URL pattern emerging across products — Session 35
