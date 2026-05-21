@@ -32,7 +32,7 @@ _OFFERINGS_FIELDS = frozenset(
 # special-case arm rather than left as raw JSON, so callers don't have
 # to ``json.loads`` it themselves.
 _PLAIN_PRODUCT_FIELDS = frozenset(
-    {"model_code", "year", "family_code", "source_model_codes"}
+    {"product", "model_code", "year", "family_code", "source_model_codes"}
 )
 _JSON_LIST_PRODUCT_FIELDS = frozenset({"source_model_codes"})
 

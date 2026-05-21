@@ -2,7 +2,9 @@
 
 A :class:`CandidateProduct` is a plain dataclass that mirrors the
 ``products`` row in :mod:`competitive_database.db.schema` plus the
-two-column primary key ``(model_code, year)``.
+two-column primary key ``(product, year)`` (Stage 11). ``model_code``
+remains a non-PK identity column carrying the vendor-slug for the
+survivor row of each (Product, Year) merge group.
 
 Every populated cell carries a provenance bundle (or, for list-of-offerings
 columns, a list of dicts whose leaves carry their own bundles). Cells the
@@ -30,17 +32,26 @@ OfferingsList = list[dict[str, Bundle]]
 class CandidateProduct:
     """All fields the bridge layer can populate for one product.
 
-    The two PK fields (``model_code`` and ``year``) are plain scalars: the
-    schema stores them as plain SQL columns. The provenance for the
-    derivation lives on ``vendor_full_name``.
+    The PK fields (``product`` and ``year``, Stage 11) and the row-identity
+    column ``model_code`` are plain scalars: the schema stores them as plain
+    SQL columns. The provenance for the derivation lives on
+    ``vendor_full_name``.
 
     Every other attribute is optional. ``None`` means "the parser did not
     attempt this field"; the runner will simply not write that cell.
     """
 
-    # --- Identity (PK columns are plain values) -------------------------
+    # --- Identity (PK columns are plain values, Stage 11) ---------------
+    # ``model_code`` stays as a non-PK identity column carrying the vendor-
+    # slug identifier of the survivor row of each (Product, Year) merge
+    # group. ``year`` is the product GENERATION year. ``product`` is the
+    # canonical readable product name (e.g. "Strix G16", "Legion Pro 7 16")
+    # and is part of the post-Stage-11 PK; today bridges leave it as
+    # ``None`` and the runner falls back to ``model_code`` as a placeholder
+    # until per-bridge name derivation lands in a follow-up.
     model_code: str
     year: int
+    product: Optional[str] = None
 
     # --- Identity flags (NOT written to the DB) ------------------------
     # ``year_was_inferred`` is True when the parser had to fall back to

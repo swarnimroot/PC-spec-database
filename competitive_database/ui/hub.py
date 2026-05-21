@@ -113,7 +113,7 @@ def _walk_captured_at(node: object, out: list[str]) -> None:
 def _days_since_last_refresh(conn: sqlite3.Connection) -> int | None:
     """Days since the most recent ``captured_at`` across all products."""
     cols = [r[1] for r in conn.execute("PRAGMA table_info(products)")]
-    bundled = [c for c in cols if c not in {"model_code", "year", "family_code", "source_model_codes"}]
+    bundled = [c for c in cols if c not in {"product", "model_code", "year", "family_code", "source_model_codes"}]
     if not bundled:
         return None
     select = ", ".join(bundled)

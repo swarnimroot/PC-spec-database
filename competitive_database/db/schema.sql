@@ -33,15 +33,30 @@ CREATE TABLE IF NOT EXISTS gpu_catalog (
 );
 
 CREATE TABLE IF NOT EXISTS products (
-    -- Identity (PK columns are plain scalars)
-    model_code      TEXT NOT NULL,
+    -- Identity (PK columns are plain scalars). Stage 11 (Session 48) swapped
+    -- the PK from (model_code, year) to (product, year): ``product`` is the
+    -- canonical readable product name (e.g. "Strix G16", "Legion Pro 7 16").
+    -- ``model_code`` stays as a queryable non-PK column carrying the
+    -- vendor-slug identifier of the survivor row of each (Product, Year)
+    -- merge group.
+    product         TEXT NOT NULL,
     year            INTEGER NOT NULL,
+    -- model_code is conventionally always set (every bridge populates it),
+    -- but is nullable in DDL so the per-cell upsert helpers in db/helpers.py
+    -- can write to a row using only the (product, year) PK without also
+    -- needing to know model_code on every call.
+    model_code      TEXT,
 
     -- Lenovo Intel/AMD merge (Stage 7 T7.0a M1) — plain scalars, not bundles.
-    -- family_code is a canonical family identifier (e.g.
-    -- "legion-pro-5-16-gen-10"). source_model_codes is a JSON array of strings
-    -- (the per-vendor machine codes that merged into this product). Both NULL
-    -- for non-Lenovo rows and for legacy Lenovo rows until backfilled.
+    -- Stage 11 universalized ``source_model_codes`` across all brands: every
+    -- row has a JSON array of the per-vendor SKU identifiers that collapsed
+    -- into this (product, year). For Lenovo this is the inner platform codes
+    -- (e.g. ``["16IRX10", "16AHP10"]``); for ASUS/HP/Dell this is the
+    -- pre-Stage-11 model_code slugs (e.g.
+    -- ``["rog-strix-g16-2025", "rog-strix-g16-2025-g614"]``).
+    --
+    -- ``family_code`` remains a canonical family identifier (Lenovo-only
+    -- today; NULL on other brands).
     family_code         TEXT,
     source_model_codes  TEXT,
 
@@ -133,7 +148,7 @@ CREATE TABLE IF NOT EXISTS products (
     thermal_shelf    TEXT,
     lighting         TEXT,
 
-    PRIMARY KEY (model_code, year)
+    PRIMARY KEY (product, year)
 );
 
 CREATE TABLE IF NOT EXISTS review_queue (
