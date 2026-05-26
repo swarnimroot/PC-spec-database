@@ -6,14 +6,12 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 
 ## Active
 - T9.2 Display canonicalizer in `views/formatting.py` — per-field rule lookup + opt-in via `field_path` kwarg on `display_value`; one rule today (`panel_type` "IPS-level"→"IPS"); wired into `ui/find.py` dropdown + cell-match — Session 37
-- Stage 11 — Database hierarchy layer — **Phase 1+2+3 shipped** (S48: schema migration + 76→56 row audit + helpers compat shim; S49: Browse picker reshape — 3-rung Brand→Series→Product + Year/Status toggles + union spec view; Policy B `·`-join union format locked; NULL-status-as-Active locked; tests 479 → 505 green). Phases 4–8 pending — Session 49
+- Stage 11 — Database hierarchy layer — **Phase 1+2+3+4+5 shipped** (S48: schema migration + 76→56 row audit + helpers compat shim; S49: Browse picker reshape — 3-rung Brand→Series→Product + Year/Status toggles + union spec table primitive; S50: Compare adopts per-column picker + multi-column union grid at ≥1 column; Policy B `·`-join union format locked; NULL-status-as-Active locked; tests 479 → 508 green). Phases 6–8 pending — Session 50
 
 ## Next
-- Stage 11 Phase 4 — Union spec table on Compare (per-column picker + union view; reuse `_union_rollup_for_section` from Phase 3) — Session 49
-- Stage 11 Phase 5 — Compare adopts the same per-column picker shape (Brand → Series → Product + Year/Status toggles per column) — Session 49
-- Stage 11 Phase 6 — Echo-parent display rule (italic-faint rendering when Sub-brand or Series is NULL; applies across Browse + Compare + Find) — Session 49
-- Stage 11 Phase 7 — Find narrow-by reshape + result card identity-line update on top of the new hierarchy — Session 49
-- Stage 11 Phase 8 — Tests + docs alignment + status curation across the 56 products — Session 49
+- Stage 11 Phase 6 — Echo-parent display rule (italic-faint rendering when Sub-brand or Series is NULL; applies across Browse + Compare + Find) — Session 50
+- Stage 11 Phase 7 — Find narrow-by reshape + result card identity-line update on top of the new hierarchy (Find→Browse handoff done S49; picker side still on legacy `cascading_picker`) — Session 50
+- Stage 11 Phase 8 — Tests + docs alignment + status curation across the 56 products — Session 50
 - Stage 10c — Review queue triage redesign — filter / sort / grouping for the 229 unresolved Lenovo rows + friendly labels (no `value_dis` / `low_conf` abbreviations); gated behind Stage 11 implementation — Session 43
 - Small UI polish brainstorm — user-flagged at S46 close; eclipsed by Stage 11 brainstorm in S47; still pending; surface after Stage 11 wraps — Session 46
 

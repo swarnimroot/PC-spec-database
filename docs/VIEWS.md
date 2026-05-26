@@ -40,13 +40,19 @@ under the section heading. Multi-offering categories keep the numbered
 sub-headers (`Offering 1` / `Offering 2`) and indent leaves one level
 deeper for clarity.
 
-### Identity block always shows all six fields
+### Identity block always shows every identity field
 
-`vendor`, `brand`, `sub-brand`, `series`, `status`, `segment` are
-always printed, even when `[empty]`. This was a deliberate trade-off
+`vendor`, `brand`, `sub-brand`, `series`, `product`, `status`, `segment`
+are always printed, even when `[empty]`. This was a deliberate trade-off
 against header noise: the user wanted to spot which identity fields a
 vendor doesn't expose at a glance. (Body-category empties already work
 this way; consistency wins.)
+
+Stage 11 (Session 48) added `product` as the new curated PK column
+alongside `year`; `model_code` is retained as a non-PK survivor slug
+and is no longer part of the identity row. The Phase 6 echo-parent
+display rule (italic-faint NULL `sub_brand` / `series`) is planned but
+not yet shipped — empties currently still render as `[empty]`.
 
 ### Catalog spec lines render without per-line markers
 
@@ -128,8 +134,10 @@ from a different grouping.
 
 Stage 5 added a `field_paths(product) -> list[(field_path, display_label)]`
 helper to every per-category view module, plus an `_identity_field_paths`
-in `orchestrator.py`. Each helper returns the dotted paths to every
-fillable bundle the section currently exposes on the loaded product:
+in `orchestrator.py`. Under the Stage 11 PK swap (Session 48), the registry
+is keyed by `product` (the new curated PK column) rather than `model_code`.
+Each helper returns the dotted paths to every fillable bundle the section
+currently exposes on the loaded product:
 
 - Scalar columns emit one entry per column: `(audio_jack, audio_jack)`.
 - Offerings columns walk the product's existing offerings list and emit

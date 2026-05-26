@@ -6,6 +6,66 @@ Newest sessions at the top.
 
 ---
 
+## Session 50 — 2026-05-26 (Stage 11 Phase 5 — Compare adopts per-column picker + multi-column union grid; tests 505 → 508 green)
+
+**Goal:** Land Stage 11 Phase 5 (Compare adopts the new picker) per the original Session 47 plan. Replace the existing Compare picker (Company → Sub-brand → Series → Year per column) with the new per-column Brand → Series → Product + Year toggle + Status toggle shape from Phase 3, and render the comparison body as a multi-column UNION grid that reuses the `_union_rollup_for_section` primitive that shipped in Phase 4 (Session 49, alongside Browse).
+
+**Outcome:** Stage 11 Phase 5 shipped. `ui/compare.py` rewritten end-to-end against the Phase 3/4 components. Each column owns its own picker + year toggle + status toggle and resolves to a `load_product_rows` row list independently; the comparison body renders via a new `comparison_union_grid_html` helper in `ui/_components.py` that reuses the section rollup primitive per (section, column) cell. Render threshold dropped from ≥2 populated columns to **≥1** (user decision — a single column gives a meaningful union view across years). Test suite **505 → 508** (+3 net: 8 new compare tests, 5 legacy tests dropped); no regressions.
+
+### Phase 4 / Phase 5 numbering — reconciled
+
+The Session 49 wrap pickup pointer reframed Phase 4 as "union spec table on Compare", which collapsed P4 and P5 in language. Under the original Session 47 plan: **Phase 4 = the union table render primitive** (which landed in S49 alongside Browse — `union_spec_table_html` + `_union_rollup_for_section` + `union_identity_strip_html`); **Phase 5 = Compare adopts the picker** (this session). The original numbering is now the canonical sequence going forward; the S49 retcon is rejected.
+
+### Per-column picker + toggles
+
+`ui/compare.py` rewritten so every column hosts its own `brand_series_product_picker(conn, key_prefix=f"compare.col{cid}", strict=True)` plus its own `year_toggle_block` (latest-year default) and `status_toggle_block` (Active default; NULL status included per the Phase 3 lock). Each column calls `load_product_rows` independently and resolves to its own row list. Columns are fully isolated — picking a different brand in column 2 does not perturb column 1's state.
+
+`_remove_column(cid)` now pops 5 keys per column: `compare.col{cid}.brand`, `.series`, `.product`, `.years`, `.status`. Legacy keys (`company`, `sub_brand`, `year`) intentionally dropped from the cleanup list.
+
+### Multi-column union grid
+
+New helper `comparison_union_grid_html(columns: list[list[dict]], cpu_catalog, gpu_catalog) -> str` in `competitive_database/ui/_components.py`. Reuses `_union_rollup_for_section` per (section, column) cell — same primitive Browse uses for its single-column union table. Three internal helpers added alongside: `_union_column_header` (per-column heading reads `"<Product> · <year-set>"`), `_cmp_union_section_cells`, `_cmp_union_io_rows`. CSS shell mirrors the existing `comparison_grid_html` for visual continuity.
+
+Render threshold dropped from ≥2 populated columns to ≥1 (user decision). A single fully-cascaded column with multiple years selected now renders a useful union view immediately, without forcing the user to add a second column first.
+
+### Files touched this session
+
+**Code:**
+- `competitive_database/ui/compare.py` — full rewrite on the Phase 3/4 components; per-column picker + toggles + row load; multi-column union grid render at ≥1 column
+- `competitive_database/ui/_components.py` — new `comparison_union_grid_html` export + 3 internal helpers (`_union_column_header`, `_cmp_union_section_cells`, `_cmp_union_io_rows`)
+
+**Tests:**
+- `tests/ui/test_compare.py` — full rewrite; 8 tests (was 5) covering empty-DB info banner, Brand-only cascade first paint, add/remove CTAs, cascade-complete toggle defaults, 1-column union render, 2-column state isolation, year-toggle union merge, and the 5-key cleanup on remove-column. Local seed helpers `_seed_two_years_same_product` + `_seed_two_products` added.
+
+**Docs:** `docs/SESSION_LOG.md` (this entry), `docs/TASKS.md` (Phases 4 + 5 closed; P6–P8 still active), `docs/STAGE11_AUDIT.md` (Phase 4 + Phase 5 SHIPPED annotations).
+
+**End-of-session doc audit:** Two parallel read-only audit subagents mapped drift across 9 docs and flagged 12 points in README, 7 in ARCHITECTURE, 4 in DATA_MODEL, 3 in PRD, 2 in VIEWS, 1 in POPULATION_QUEUE, plus the process-doc updates being applied alongside this entry. Full sweep applied this session.
+
+### Decisions made this session
+
+1. **Phase 4 / Phase 5 numbering reverts to the Session 47 plan.** P4 = union table primitive (shipped S49); P5 = Compare adopts the picker (this session). S49 wrap's retcon is rejected.
+2. **Union grid renders at ≥1 populated column** (was ≥2 on the legacy Compare). A single column with multiple years is a valid union view.
+3. **5-key cleanup on remove-column.** `_remove_column` pops the 5 new picker/toggle keys; legacy `company` / `sub_brand` / `year` keys intentionally dropped from the cleanup set.
+4. **Per-column state isolation** — each column threads its own `key_prefix=f"compare.col{cid}"`; no cross-column leakage on cascade.
+
+### Legacy code preserved (Phase 1.5 territory)
+
+Now zero-caller after this rewrite but left in place: `comparison_grid_html`, `_product_header`, `_segment_line_html`. `cascading_picker` retained — still used by Find pending the Phase 7 reshape. Removal folds into the Phase 1.5 cleanup pass.
+
+### Out-of-scope flags worth recording
+
+- `_components.py` now ~1,873 lines — split candidate for future cleanup.
+- Test seed helpers duplicated across `tests/ui/test_browse.py` and `tests/ui/test_compare.py` — promote-to-`conftest` candidate if Phase 6/7 adds a third screen with the same shape.
+
+### Pickup pointers for next session
+
+- **Stage 11 Phase 6** — echo-parent display rule (italic-faint rendering when `sub_brand` or `series` is NULL; applies across Browse + Compare + Find).
+- **Stage 11 Phase 7** — Find narrow-by chips reshape + result card identity-line update. Find→Browse handoff already done in S49; the picker side of Find is still on the legacy `cascading_picker`.
+- **Stage 11 Phase 8** — tests grow per phase (508 today); status curation still 0/56; final docs alignment pass.
+- **Phase 1.5 follow-up** — strict callsite rename + drop the helpers compat shim + remove the zero-caller legacy components listed above.
+
+---
+
 ## Session 49 — 2026-05-26 (Stage 11 Phase 3 — Browse picker reshape; 3-rung Brand → Series → Product + Year/Status toggles + union spec view; tests 479 → 505 green)
 
 **Goal:** Land Stage 11 Phase 3 (Browse picker reshape) per the Session 47 plan. Replace the existing 3-level cascading picker (Company → Product → Year) with the new 3-rung identity picker (Brand → Series → Product) plus a Year toggle block (multi-select, default 2026) and a Status toggle block (Active / Discontinued, default Active), and render the spec table as a UNION across selected `(product, year)` rows.

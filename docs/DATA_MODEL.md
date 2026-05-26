@@ -8,7 +8,7 @@ Full schema reference for the competitive gaming-laptop spec database. For proje
 
 1. **`cpu_catalog`** — one row per CPU model.
 2. **`gpu_catalog`** — one row per GPU model.
-3. **`products`** — one row per gaming-laptop product, identified by **(model code, year)**.
+3. **`products`** — one row per gaming-laptop product, identified by **(product, year)** (Stage 11 PK swap, Session 48 — see §Products Table for the rationale).
 
 Plus per-cell metadata — see [Provenance and status](#provenance-and-status).
 
@@ -64,7 +64,7 @@ One row per distinct GPU model (e.g., RTX 5070 Ti, Radeon RX 9070M). Populated d
 
 ## Products Table — Field Categories
 
-Each product identified by `(product, year)` (post-Stage-11, Session 48). Previously `(model_code, year)` through Stage 10b.
+Each product identified by `(product, year)` (post-Stage-11, Session 48). Previously `(model_code, year)` through Stage 10b. The swap generalizes Lenovo's Stage 7 chassis-merge pattern — where one logical product spans multiple vendor-published `model_code`s — to every brand: `model_code` is demoted to a non-PK survivor-row slug, and `source_model_codes` is universalized as the JSON array of vendor-published codes per product.
 
 ### Identity
 
@@ -79,7 +79,7 @@ Each product identified by `(product, year)` (post-Stage-11, Session 48). Previo
 | `model_code` | string, nullable | Non-PK identity column. Vendor-slug identifier of the survivor row of each (Product, Year) merge group (e.g. `legion-pro-5-16-gen-10`, `rog-strix-g16-2025`, `15-gb0261nr`). Conventionally always set by bridges; nullable in DDL so the per-cell `db/helpers.py` upsert helpers can write rows using only the (product, year) PK. |
 | `status` | string | Manual. `active` / `discontinued`. |
 | `segment` | string | Manual. `entry` / `premium` / `flagship`. |
-| `family_code` | string, nullable | Plain scalar — no bundle. Canonical family identifier (e.g. `legion-pro-5-16-gen-10`). Populated only on Lenovo rows that came through the T7.0a merge ingest (or were filled by `backfill-lenovo-families`); NULL on every other vendor's rows. |
+| `family_code` | string, nullable | Plain scalar — no bundle. Canonical family identifier (e.g. `legion-pro-5-16-gen-10`). Populated only on Lenovo rows that came through the T7.0a merge ingest (or were filled by `backfill-lenovo-families`); NULL on every other vendor's rows. **Legacy from Stage 7**; under Stage 11 the universal `product` column subsumes its identity role for non-Lenovo rows, but the Lenovo-specific column is kept as-is. |
 | `source_model_codes` | list of strings, nullable | Plain scalar (JSON-array-as-TEXT) — no bundle. **Universalized in Stage 11** across all brands: every row carries the per-vendor SKU identifiers that collapsed into this (product, year). For Lenovo this is the inner platform codes (e.g. `["16IRX10", "16AHP10"]`); for ASUS / HP / Dell this is the pre-Stage-11 model_code slugs (e.g. `["rog-strix-g16-2025", "rog-strix-g16-2025-g614"]`). |
 
 ### CPU

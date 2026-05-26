@@ -6,6 +6,10 @@
 
 **Phase 3 SHIPPED 2026-05-26 (Session 49):** Browse picker reshape — 3-rung Brand → Series → Product + Year/Status toggle blocks + union spec view; Policy B `·`-join union format and NULL-status-as-Active rule locked; tests 479 → 505 green.
 
+**Phase 4 SHIPPED 2026-05-26 (Session 49):** Union spec table render primitive — `union_spec_table_html` + `_union_rollup_for_section` + `union_identity_strip_html` in `ui/_components.py`; N=1 byte-identical to legacy `spec_table_html`; landed alongside Browse Phase 3.
+
+**Phase 5 SHIPPED 2026-05-26 (Session 50):** Compare adopts per-column picker + multi-column union grid — `ui/compare.py` rewritten on Phase 3/4 components; new `comparison_union_grid_html` helper reuses `_union_rollup_for_section` per (section, column) cell; render threshold ≥1 populated column; tests 505 → 508 green.
+
 This file is the source of truth for the Phase 2 data-recurate step. The migration script reads it row-by-row.
 
 ---

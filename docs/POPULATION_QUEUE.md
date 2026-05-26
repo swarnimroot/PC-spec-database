@@ -65,7 +65,7 @@ Scalar fields (dimensions, weight, identity, etc.) that **disagree** between two
 
 **Vendor slug must be one of `dell`, `hp`, `lenovo`, `asus`, `acer`, `msi`** — these are the recognized `--brand` values. Acer and MSI have no scraper yet (Tier 2, waiting on `scrapers-lib` upstream); their URLs sit here as parking-lot provenance for manual entry until the scraper lands.
 
-`model_code` is the unique key per (model, year). It's user-chosen — usually the URL slug or a vendor-published identifier. Match the convention already used for that vendor when possible.
+`model_code` is the unique key per (model, year). It's user-chosen — usually the URL slug or a vendor-published identifier. Match the convention already used for that vendor when possible. Under the Stage 11 PK swap (Session 48), `(product, year)` is the actual unique key on the `products` table; `model_code` is now the operational vendor slug used during ingestion. The format spec above still works as-is — the `_normalize_products_pk` compat shim in `db/helpers.py` translates legacy `model_code` callsite keys to the new PK.
 
 ---
 

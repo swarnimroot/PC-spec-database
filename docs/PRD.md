@@ -112,7 +112,7 @@ Multi-field aggregation (e.g., *"rank products by total Thunderbolt + USB-C port
 | Phase | Status |
 |---|---|
 | 1 — Data layer (this PRD) | In progress, schema-ready |
-| 2 — UI / dashboard | Stage 8 functional UI complete (Session 35); Stage 10a visual redesign complete (Session 43); Stage 10b (per-field data display cleanup) next — see [Phase 2 — UI](#phase-2--ui-stage-8) below |
+| 2 — UI / dashboard | Stage 8 functional UI complete (Session 35); Stage 10a visual redesign complete (Session 43); Stage 10b (per-field data display cleanup) closed Session 46; Stage 11 (database hierarchy layer) P1–P5 shipped Sessions 48–50; P6–P8 pending — see [Phase 2 — UI](#phase-2--ui-stage-8) below |
 | 3 — Chatbot | Deferred |
 | 4 — History / audit layer | Deferred |
 
@@ -120,7 +120,7 @@ Multi-field aggregation (e.g., *"rank products by total Thunderbolt + USB-C port
 
 ## Phase 2 — UI (Stage 8)
 
-The data layer is at a zero-issue baseline (314/314 tests, `review_queue` unresolved = 0, both catalog tables `needs-review` = 0). Phase 2 turns the DB into a tool the owner and team can drive without CLI fluency.
+The data layer is at a zero-issue baseline (508/508 tests, `review_queue` unresolved = 0, both catalog tables `needs-review` = 0). Phase 2 turns the DB into a tool the owner and team can drive without CLI fluency.
 
 ### Why a UI now
 
@@ -132,9 +132,9 @@ The data layer is at a zero-issue baseline (314/314 tests, `review_queue` unreso
 
 A dashboard hub as the landing screen, with four destinations:
 
-1. **Browse one product** — the `inspect-product` output rendered as a webpage; same marker scheme and section order as `VIEWS.md`. Stage 10a (Session 43): Company → Product → Year cascading picker over a light identity strip + Section / Feature / Value spec table; colored `●` dot markers in place of bracketed text tokens; inline marker legend.
-2. **Compare side-by-side** — Stage 10a (Session 43): N vertical picker columns (1–4 max) with `+` / `×`; per-column segment auto-shown read-only; comparison grid with a `▌` strict-majority (`max_count * 2 > N`) left-edge divergence cue on cells that disagree.
-3. **Find products where…** — single-field filter playground covering the queries enumerated in §Use cases. Value input is a dropdown of distinct DB values for the chosen (section, field) since T9.1 (Session 36) — picking a filter guarantees a match against what's actually stored, no need to know the exact stored form. T9.2 (Session 37) adds per-field display canonicalization so duplicate-meaning string variants (today: `panel_type` "IPS-level" → "IPS") collapse to one dropdown entry, and picking the canonical form matches every stored variant. Stage 10a (Session 43): three-box query bar (Spec field / Match / Value) with plain-English ops + optional Company / Year narrow-by; rounded result cards with `Open →` cross-nav to Browse.
+1. **Browse one product** — the `inspect-product` output rendered as a webpage; same marker scheme and section order as `VIEWS.md`. Stage 10a (Session 43): Company → Product → Year cascading picker over a light identity strip + Section / Feature / Value spec table; colored `●` dot markers in place of bracketed text tokens; inline marker legend. Stage 11 Phase 3 (Session 49): 3-rung Brand → Series → Product picker over a curated `product` identity column + Year toggle block (multi-select, default latest) + Status toggle block (Active / Discontinued, default Active) + union spec view that collapses every selected (product, year) row into one column with ` · ` middle-dot dedupe joins (Policy B).
+2. **Compare side-by-side** — Stage 10a (Session 43): N vertical picker columns (1–4 max) with `+` / `×`; per-column segment auto-shown read-only; comparison grid with a `▌` strict-majority (`max_count * 2 > N`) left-edge divergence cue on cells that disagree. Stage 11 Phase 5 (Session 50): each column uses the same 3-rung Brand → Series → Product picker as Browse, with the new multi-column union grid (`comparison_union_grid_html`) replacing the legacy single-product Compare grid.
+3. **Find products where…** — single-field filter playground covering the queries enumerated in §Use cases. Value input is a dropdown of distinct DB values for the chosen (section, field) since T9.1 (Session 36) — picking a filter guarantees a match against what's actually stored, no need to know the exact stored form. T9.2 (Session 37) adds per-field display canonicalization so duplicate-meaning string variants (today: `panel_type` "IPS-level" → "IPS") collapse to one dropdown entry, and picking the canonical form matches every stored variant. Stage 10a (Session 43): three-box query bar (Spec field / Match / Value) with plain-English ops + optional Company / Year narrow-by; rounded result cards with `Open →` cross-nav to Browse. Stage 11 Phase 7 (partial): Find → Browse handoff aligned to the new Phase 3 picker keys (Session 49); narrow-by chips reshape + result-card identity line pending.
 4. **Review queue triage** — existing-vs-candidate diff per row, action buttons matching the `resolve` CLI's verbs (`accept_candidate` / `kept_existing` / `dropped` / `manual_override`). Stage 10c (deferred) will redesign filter / sort / grouping for the 229 unresolved Lenovo rows; Stage 10a delivered only a chrome-cleanup carve-out on this screen.
 
 Hub also surfaces top-line health. Stage 10a (Session 43): the editorial hub shows three metric tiles (products / vendors / days since refresh) over three rounded CTA cards (Browse / Compare / Find) with primary `Open →` buttons. Edit + Refresh live under a `···` overflow in the top-bar nav. Triage is reachable via CLI today; UI surfaces it via the existing route until 10c.
