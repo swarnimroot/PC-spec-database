@@ -2,11 +2,12 @@
 
 Stage 10c rewrite of the Find screen. The behavioral core —
 ``_cell_matches``, ``_expand_template``, ``_distinct_values_for_template``,
-``_union_templates`` — is preserved unchanged from Phase E. What
-changes is the query shape (now a strict Section → Feature → Match →
-Value cascade, with optional Company / Series / Year narrow-by chips)
-and the result rendering (horizontal cards driven by the per-section
-rollup dispatch, with a marker dot + ``Open →`` jump to Browse).
+``_union_templates`` — is preserved unchanged from Phase E. The query
+shape is a strict Section → Feature → Match → Value cascade with a
+Stage 11 Phase 7 narrow-by section (Brand → Series → Product picker +
+Year + Status pill toggles). Result rendering uses horizontal cards
+driven by the per-section rollup dispatch, with a marker dot + ``Open →``
+jump to Browse.
 """
 
 from __future__ import annotations
@@ -17,10 +18,13 @@ from typing import Any
 import streamlit as st
 
 from competitive_database.ui._components import (
+    brand_series_product_picker,
     find_result_card_html,
     find_rollup_for_section,
     friendly_leaf_label as _friendly_leaf_label,
     inject_findcard_styles,
+    status_toggle_block,
+    year_toggle_block,
 )
 from competitive_database.ui._markers import resolve_path
 from competitive_database.views import load, orchestrator
@@ -56,11 +60,6 @@ _OP_LABEL: dict[str, str] = {
 }
 _LABEL_TO_OP: dict[str, str] = {label: op for op, label in _OP_LABEL.items()}
 _OP_LABELS_ORDERED: list[str] = [_OP_LABEL[op] for op in _OPS_ALL]
-
-# Narrow-by ``"all of axis"`` sentinel — keeps the dropdowns truthy and
-# distinguishes "user picked nothing" from "user picked some literal".
-_ANY = "(any)"
-
 
 # Sections that surface as a single rolled-up line in result cards. This
 # tracks ``orchestrator._VISUAL_SECTIONS`` minus I/O — I/O renders as a
@@ -246,6 +245,10 @@ def _year_of(prod: dict[str, Any]) -> int | None:
         return int(yr_raw) if yr_raw is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _status_of(prod: dict[str, Any]) -> str | None:
+    return _scalar_bundle_str(prod.get("status"))
 
 
 def _format_match(
@@ -510,7 +513,7 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
                 value = ""
 
     if inline_empty:
-        _render_narrow_by(products, template, op, value)
+        _render_narrow_by(conn, [])
         st.markdown(
             '<div class="cd-find__count cd-find__count--empty">'
             "No products match this query.</div>",
@@ -518,21 +521,30 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
         )
         return
 
-    # ---- Narrow-by chips, scoped to products consistent with the query ----
-    # Match-eligible product universe (before narrow-by) is what the
-    # narrow-by dropdowns expose, so each axis only lists values that
-    # would actually narrow the matches.
+    # ---- Narrow-by, scoped to products consistent with the query ----
+    # Year/status pill options are scoped to ``base_matches`` (products
+    # matching the Section/Feature/Match/Value query) so each axis only
+    # surfaces values that would actually narrow the result set.
     matches = _find_matches(products, template, op, value)
-    company_filter, series_filter, year_filter = _render_narrow_by(
-        products, template, op, value, base_matches=matches
+    brand_pick, series_pick, product_pick, active_years, active_statuses = (
+        _render_narrow_by(conn, [m[0] for m in matches])
     )
 
-    if company_filter != _ANY:
-        matches = [m for m in matches if _company_of(m[0]) == company_filter]
-    if series_filter != _ANY:
-        matches = [m for m in matches if (_series_of(m[0]) or "—") == series_filter]
-    if year_filter != _ANY:
-        matches = [m for m in matches if _year_of(m[0]) == year_filter]
+    if brand_pick is not None:
+        matches = [m for m in matches if _company_of(m[0]) == brand_pick]
+    if series_pick is not None:
+        matches = [m for m in matches if _series_of(m[0]) == series_pick]
+    if product_pick is not None:
+        matches = [m for m in matches if m[0].get("product") == product_pick]
+    if active_years:
+        year_set = set(active_years)
+        matches = [m for m in matches if _year_of(m[0]) in year_set]
+    if active_statuses:
+        status_set = set(active_statuses)
+        matches = [
+            m for m in matches
+            if (_status_of(m[0]) or "Active") in status_set
+        ]
 
     n = len(matches)
     if n == 0:
@@ -555,62 +567,47 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
 
 
 def _render_narrow_by(
-    products: list[dict[str, Any]],
-    template: str,
-    op: str,
-    value: str,
-    *,
-    base_matches: list[tuple[dict[str, Any], str, str]] | None = None,
-) -> tuple[str, str, Any]:
-    """Render the optional Company / Series / Year narrow-by chips.
+    conn: sqlite3.Connection,
+    base_prods: list[dict[str, Any]],
+) -> tuple[str | None, str | None, str | None, list[int], list[str]]:
+    """Render the Stage 11 Phase 7 narrow-by block.
 
-    The dropdown options are scoped to ``base_matches`` (the products
-    consistent with the Section/Feature/Match/Value query) so each
-    narrow-by axis lists only values that would actually filter the
-    result set. Returns ``(company, series, year)`` — ``_ANY`` for
-    untouched axes.
+    Renders the strict 3-rung Brand → Series → Product picker plus Year
+    + Status pill toggles. Partial picks narrow: e.g. Brand="Razer" with
+    Series/Product unset narrows to all Razer products. Year/Status
+    default to empty (no filter). The Year pill row is scoped to
+    ``base_prods`` (products matching the Section/Feature/Match/Value
+    query) so only useful years surface.
+
+    Returns ``(brand, series, product, active_years, active_statuses)``.
+    Each picker rung is ``None`` until actively chosen; the ``"—"``
+    placeholder (and NULL-series sentinel emitted by the picker — the
+    two are not distinguishable here) is treated as not-picked, matching
+    the picker's own ``_is_picked`` contract.
     """
     st.markdown(
         '<div class="cd-find__narrow-label">Narrow by</div>',
         unsafe_allow_html=True,
     )
-    if base_matches is None:
-        base_matches = _find_matches(products, template, op, value)
-    base_prods = [m[0] for m in base_matches]
-    if not base_prods:
-        base_prods = products  # nothing to narrow to; show full axes
-    companies = sorted({_company_of(p) for p in base_prods}, key=str.lower)
-    series_vals = sorted(
-        {(_series_of(p) or "—") for p in base_prods}, key=str.lower
+    picked = brand_series_product_picker(conn, key_prefix="find", strict=True)
+    brand_raw = st.session_state.get("find.brand")
+    series_raw = st.session_state.get("find.series")
+    product_raw = st.session_state.get("find.product")
+    brand_pick = brand_raw if (brand_raw is not None and brand_raw != "—") else None
+    series_pick = (
+        series_raw if (series_raw is not None and series_raw != "—") else None
     )
+    product_pick = (
+        product_raw if (product_raw is not None and product_raw != "—") else None
+    )
+    del picked  # session keys carry the partial-pick state we need
+
     years_int = sorted(
         {_year_of(p) for p in base_prods if _year_of(p) is not None},
         reverse=True,
     )
-    company_opts = [_ANY] + companies
-    series_opts = [_ANY] + series_vals
-    year_opts: list[Any] = [_ANY] + years_int
-
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c1:
-        company = st.selectbox(
-            "Company",
-            company_opts,
-            key="find.narrow.company",
-            label_visibility="visible",
-        )
-    with c2:
-        series_pick = st.selectbox(
-            "Series",
-            series_opts,
-            key="find.narrow.series",
-            label_visibility="visible",
-        )
-    with c3:
-        year = st.selectbox(
-            "Year",
-            year_opts,
-            key="find.narrow.year",
-            label_visibility="visible",
-        )
-    return company, series_pick, year
+    active_years = year_toggle_block(
+        years_int, key_prefix="find", default_latest=False
+    )
+    active_statuses = status_toggle_block(key_prefix="find", default=())
+    return brand_pick, series_pick, product_pick, active_years, active_statuses

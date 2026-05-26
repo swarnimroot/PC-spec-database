@@ -1,17 +1,23 @@
 """AppTest coverage for the Find-products screen.
 
-Stage 10c rewrite: the Find screen now exposes a strict cascade
-Section → Feature → Match → Value, with optional Company / Series / Year
-narrow-by chips. The behavioral core (``_distinct_values_for_template``
-and ``_cell_matches``) is unchanged; these tests drive the new
-presentation but cover the same outcomes.
+Stage 10c rewrite: the Find screen exposes a strict cascade
+Section → Feature → Match → Value. Stage 11 Phase 7 replaced the
+3-selectbox narrow-by chips (Company / Series / Year) with the strict
+Brand → Series → Product picker plus Year + Status pill toggles. The
+behavioral core (``_distinct_values_for_template`` and
+``_cell_matches``) is unchanged; these tests drive the new presentation
+but cover the same outcomes.
 
 Selectbox keys on this screen:
   - ``find.section``  — Section (orchestrator render order)
   - ``find.feature``  — Feature (friendly leaf labels for that section)
   - ``find.op_label`` — Match operator (plain-English label)
   - ``find.value_select`` — Value picker (only when op needs a value)
-  - ``find.narrow.company`` / ``find.narrow.series`` / ``find.narrow.year``
+  - ``find.brand`` / ``find.series`` / ``find.product`` — Phase 7 picker rungs
+
+Pill-button key prefixes:
+  - ``find.year_btn.<yr>``     — year toggle pills
+  - ``find.status_btn.<name>`` — status toggle pills
 """
 
 from __future__ import annotations
@@ -319,7 +325,13 @@ def test_cascade_order_section_then_feature_then_match_then_value(empty_db):
     )
 
 
-def test_narrow_by_renders_company_series_year(empty_db):
+def test_narrow_by_renders_picker_and_toggles(empty_db):
+    """Phase 7: narrow-by exposes the strict Brand → Series → Product
+    picker (``find.brand`` rendered first; Series + Product gated until
+    Brand is picked) plus year and status pill toggle blocks. Default
+    state seeds neither year nor status, so both pill sets exist but
+    don't filter.
+    """
     _seed_two_full_identity(empty_db)
     at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
     at.session_state["view"] = "find"
@@ -329,9 +341,19 @@ def test_narrow_by_renders_company_series_year(empty_db):
     assert not at.exception, [str(e) for e in at.exception]
 
     keys = {s.key for s in at.selectbox}
-    assert "find.narrow.company" in keys
-    assert "find.narrow.series" in keys
-    assert "find.narrow.year" in keys
+    # Brand renders unconditionally; Series + Product gated behind picks.
+    assert "find.brand" in keys
+    assert "find.series" not in keys
+    assert "find.product" not in keys
+    # Year + status pill blocks render (two seeded products share year 2026,
+    # so one year pill; status block always renders Active + Discontinued).
+    year_buttons = [b for b in at.button if b.key and b.key.startswith("find.year_btn.")]
+    status_buttons = [b for b in at.button if b.key and b.key.startswith("find.status_btn.")]
+    assert len(year_buttons) == 1
+    assert len(status_buttons) == 2
+    # Phase 7 defaults: no year or status pre-toggled → empty filter sets.
+    assert at.session_state["find.years"] == set()
+    assert at.session_state["find.status"] == set()
 
 
 def test_result_card_renders_identity_and_open_button(empty_db):
@@ -356,15 +378,19 @@ def test_result_card_renders_identity_and_open_button(empty_db):
 def test_open_button_sets_browse_session_state(empty_db):
     """Clicking ``Open →`` on a result card primes Browse's strict-cascade
     keys and switches the view to ``browse``.
+
+    Phase 7 narrow-by uses session-state directly, so we seed
+    ``find.brand`` to filter to the Dell row instead of poking a now-gone
+    ``find.narrow.company`` selectbox.
     """
     _seed_two_full_identity(empty_db)
     at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
     at.session_state["view"] = "find"
+    # Narrow to the Dell row so we click a deterministic card.
+    at.session_state["find.brand"] = "Dell"
     at.run()
     _section_box(at).set_value("Display").run()
     _feature_box(at).set_value("Panel").run()
-    # Filter to the Dell row via the narrow-by so we click a deterministic card.
-    [s for s in at.selectbox if s.key == "find.narrow.company"][0].set_value("Dell").run()
     assert not at.exception, [str(e) for e in at.exception]
 
     open_buttons = [b for b in at.button if b.label.startswith("Open")]
@@ -376,3 +402,164 @@ def test_open_button_sets_browse_session_state(empty_db):
     assert at.session_state["browse.series"] == "m18"
     assert at.session_state["browse.product"] == "dell-x"
     assert at.session_state["browse.years"] == {2026}
+
+
+# ---------------------------------------------------------------------------
+# Stage 11 Phase 7 — narrow-by reshape (picker + year + status toggles)
+# ---------------------------------------------------------------------------
+
+
+def _seed_dell_two_years_and_hp(db_path):
+    """Three rows: Dell m18 in 2025 + 2026, HP Transcend in 2026.
+
+    Mirrors the Browse/Compare seed helpers' shape so the picker's
+    Brand → Series → Product resolution works against the same row
+    geometry. Lets year/brand narrow-by axes each isolate a unique
+    subset of the base result set.
+    """
+    conn = connect(db_path)
+    try:
+        with transaction(conn):
+            for mc, year, brand, sub, series, panel in [
+                ("dell-x-2025", 2025, "Dell", "Alienware", "m18", "IPS"),
+                ("dell-x-2026", 2026, "Dell", "Alienware", "m18", "IPS"),
+                ("hp-y-2026", 2026, "HP", "OMEN", "Transcend", "OLED"),
+            ]:
+                pk = {"model_code": mc, "year": year}
+                write_scalar(conn, "products", pk, "brand", _bundle(brand))
+                write_scalar(conn, "products", pk, "sub_brand", _bundle(sub))
+                write_scalar(conn, "products", pk, "series", _bundle(series))
+                write_scalar(
+                    conn, "products", pk, "vendor_full_name",
+                    _bundle(f"{brand} {series} {year}"),
+                )
+                write_offerings(
+                    conn, "products", pk,
+                    "display_offerings",
+                    [{"panel_type": _bundle(panel)}],
+                )
+    finally:
+        conn.close()
+
+
+def _seed_active_and_discontinued(db_path):
+    """Two Dell rows differing only in status + sub_brand.
+
+    The sub_brand divergence gives each card a distinguishable identity
+    crumb (cards don't surface the status string directly), so the test
+    can assert which row passed the status filter.
+    """
+    conn = connect(db_path)
+    try:
+        with transaction(conn):
+            for mc, sub, status in [
+                ("dell-active", "Alienware", "Active"),
+                ("dell-disc", "Inspiron", "Discontinued"),
+            ]:
+                pk = {"model_code": mc, "year": 2026}
+                write_scalar(conn, "products", pk, "brand", _bundle("Dell"))
+                write_scalar(conn, "products", pk, "sub_brand", _bundle(sub))
+                write_scalar(conn, "products", pk, "series", _bundle("m18"))
+                write_scalar(conn, "products", pk, "status", _bundle(status))
+                write_scalar(
+                    conn, "products", pk, "vendor_full_name",
+                    _bundle(f"Dell {sub} m18"),
+                )
+                write_offerings(
+                    conn, "products", pk,
+                    "display_offerings",
+                    [{"panel_type": _bundle("IPS")}],
+                )
+    finally:
+        conn.close()
+
+
+def test_narrow_by_partial_brand_only_filters_to_that_brand(empty_db):
+    """Partial pick: setting Brand alone (no Series, no Product) narrows
+    results to that brand. Proves the Phase 7 partial-pick contract.
+    """
+    _seed_dell_two_years_and_hp(empty_db)
+    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
+    at.session_state["view"] = "find"
+    at.session_state["find.brand"] = "Dell"
+    at.run()
+    _section_box(at).set_value("Display").run()
+    _feature_box(at).set_value("Panel").run()
+    assert not at.exception, [str(e) for e in at.exception]
+
+    markdown_blob = "\n".join(m.value for m in at.markdown)
+    # Two Dell rows match; HP row filtered out.
+    assert "2 products match" in markdown_blob, (
+        f"expected '2 products match'; got {markdown_blob!r}"
+    )
+    assert "Dell" in markdown_blob
+    assert "OMEN" not in markdown_blob
+
+
+def test_narrow_by_year_pill_filters_to_selected_years(empty_db):
+    """Toggling a year pill narrows results to that year's rows."""
+    _seed_dell_two_years_and_hp(empty_db)
+    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
+    at.session_state["view"] = "find"
+    at.session_state["find.years"] = {2025}
+    at.run()
+    _section_box(at).set_value("Display").run()
+    _feature_box(at).set_value("Panel").run()
+    assert not at.exception, [str(e) for e in at.exception]
+
+    markdown_blob = "\n".join(m.value for m in at.markdown)
+    # Only the 2025 Dell row matches.
+    assert "1 product match" in markdown_blob, (
+        f"expected '1 product match'; got {markdown_blob!r}"
+    )
+    assert "Dell" in markdown_blob
+    assert "OMEN" not in markdown_blob
+
+
+def test_narrow_by_status_pill_filters_to_selected_statuses(empty_db):
+    """Toggling a status pill narrows results to that status. NULL status
+    is treated as ``"Active"`` per the Phase 7 fallback in
+    ``_render_narrow_by``.
+    """
+    _seed_active_and_discontinued(empty_db)
+    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
+    at.session_state["view"] = "find"
+    at.session_state["find.status"] = {"Discontinued"}
+    at.run()
+    _section_box(at).set_value("Display").run()
+    _feature_box(at).set_value("Panel").run()
+    assert not at.exception, [str(e) for e in at.exception]
+
+    markdown_blob = "\n".join(m.value for m in at.markdown)
+    # Only the Discontinued row matches; identifiable by its sub_brand crumb.
+    assert "1 product match" in markdown_blob, (
+        f"expected '1 product match'; got {markdown_blob!r}"
+    )
+    assert "Inspiron" in markdown_blob
+    assert "Alienware" not in markdown_blob
+
+
+def test_narrow_by_empty_picker_and_pills_matches_all_query_results(empty_db):
+    """Default state — picker unpicked, year/status pill sets empty —
+    applies no narrow-by filter. The result count matches the unfiltered
+    Section/Feature/Match/Value query.
+    """
+    _seed_dell_two_years_and_hp(empty_db)
+    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
+    at.session_state["view"] = "find"
+    at.run()
+    _section_box(at).set_value("Display").run()
+    _feature_box(at).set_value("Panel").run()
+    assert not at.exception, [str(e) for e in at.exception]
+
+    # No picker rung set, no year/status pills toggled — all 3 seeded rows
+    # match the default Display/Panel = IPS query (HP's OLED panel falls
+    # out by the value match, not by narrow-by). IPS canonical collapse
+    # means 2 Dell rows match; HP's OLED does not.
+    markdown_blob = "\n".join(m.value for m in at.markdown)
+    assert "2 products match" in markdown_blob, (
+        f"expected '2 products match'; got {markdown_blob!r}"
+    )
+    # Default Phase 7 filter axes are inert.
+    assert at.session_state["find.years"] == set()
+    assert at.session_state["find.status"] == set()
