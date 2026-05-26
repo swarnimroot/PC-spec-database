@@ -108,6 +108,54 @@ _HEADER_IDENTITY_LEAVES: list[tuple[str, str]] = [
     ("segment", "segment"),
 ]
 
+# Stage 11 Phase 6: echo-parent chain. Each identity leaf maps to its
+# nearest ancestor; when the leaf is null we fall back up this chain so
+# the cell never goes empty for an identity rung that has a populated
+# parent. ``brand`` itself has no parent — it surfaces as ``—`` if null.
+_ECHO_PARENT_CHAIN: dict[str, str] = {
+    "sub_brand": "brand",
+    "series": "sub_brand",
+}
+
+
+def _bundle_scalar(bundle: Any) -> str | None:
+    """Return ``bundle["value"]`` when it's a non-empty string, else ``None``.
+
+    Shared by the echo-parent helper and the identity ``_*_of`` accessors
+    above (they each inline this same shape check).
+    """
+    if not isinstance(bundle, dict):
+        return None
+    v = bundle.get("value")
+    if isinstance(v, str) and v:
+        return v
+    return None
+
+
+def _echo_parent_for_leaf(
+    key: str, product: dict[str, Any]
+) -> tuple[str | None, bool]:
+    """Resolve the echo-parent display value for one identity leaf.
+
+    Returns ``(own_value, False)`` when ``product[key]`` carries a real
+    string value; ``(echoed_parent, True)`` when the leaf is null and a
+    non-null ancestor exists; ``(None, False)`` only when the entire
+    chain up to ``brand`` is also empty. Only handles ``sub_brand`` and
+    ``series`` — passing any other key returns the own-value result so
+    callers can use this uniformly per leaf without branching.
+    """
+    own = _bundle_scalar(product.get(key))
+    if own is not None:
+        return own, False
+    parent = _ECHO_PARENT_CHAIN.get(key)
+    while parent is not None:
+        candidate = _bundle_scalar(product.get(parent))
+        if candidate is not None:
+            return candidate, True
+        parent = _ECHO_PARENT_CHAIN.get(parent)
+    return None, False
+
+
 _YEAR_TOKEN = re.compile(r"\s*[\(\[]?\s*\b(?P<year>20\d{2})\b\s*[\)\]]?\s*")
 
 
@@ -596,6 +644,21 @@ def _identity_cell_html(label: str, key: str, product: dict[str, Any]) -> str:
     else:
         marker = MARKER_EMPTY
         value_str = "—"
+    # Stage 11 Phase 6: when sub_brand or series is null, echo the nearest
+    # populated ancestor in italic-faint instead of rendering "—". The
+    # echoed cell skips the marker dot so it doesn't claim its own
+    # provenance.
+    if value_str == "—" and key in _ECHO_PARENT_CHAIN:
+        echoed, is_echo = _echo_parent_for_leaf(key, product)
+        if is_echo and echoed is not None:
+            return (
+                '<div class="cd-identity__cell">'
+                f'<div class="cd-identity__label">{html.escape(label.upper())}</div>'
+                '<div class="cd-identity__value cd-identity__value--echo">'
+                f"{html.escape(echoed)}"
+                "</div>"
+                "</div>"
+            )
     value_color = (
         "var(--cd-text-muted)"
         if marker in (MARKER_EMPTY, MARKER_VENDOR_NO_PUB)
@@ -638,6 +701,11 @@ def identity_strip_html(product: dict[str, Any]) -> str:
         "}"
         ".cd-identity__value {"
         "color:var(--cd-text);"
+        "font-size:var(--cd-size-sm);"
+        "}"
+        ".cd-identity__value--echo {"
+        "font-style:italic;"
+        "color:var(--cd-text-faint);"
         "font-size:var(--cd-size-sm);"
         "}"
         "</style>"
@@ -1185,6 +1253,11 @@ def union_identity_strip_html(rows: list[dict[str, Any]]) -> str:
         "color:var(--cd-text);"
         "font-size:var(--cd-size-sm);"
         "}"
+        ".cd-identity__value--echo {"
+        "font-style:italic;"
+        "color:var(--cd-text-faint);"
+        "font-size:var(--cd-size-sm);"
+        "}"
         "</style>"
         f'<div class="cd-identity">{"".join(cells)}</div>'
     )
@@ -1200,9 +1273,19 @@ def _union_identity_cell_html(
     doesn't surface as ``—`` in the union) and joins with `` · ``.
     Marker = worst across every per-row bundle's marker (empty / n/p
     rows still count toward confidence, matching the rollup rule).
+
+    Stage 11 Phase 6: for sub_brand/series, resolve per-row echo-parent
+    BEFORE dedup. If every row's value is an echo, the cell renders the
+    echoed chain in italic-faint (skipping the marker dot). If the rows
+    mix populated + null leaves, we render PLAIN — only the populated
+    value(s), no echo — because mixing echo styling with a real value in
+    the same cell would mislead the eye about which row(s) own the data.
     """
     parts: list[str] = []
     markers: list[str] = []
+    echo_parts: list[str] = []
+    any_real = False
+    can_echo = key in _ECHO_PARENT_CHAIN
     for row in rows:
         bundle = row.get(key)
         if isinstance(bundle, dict):
@@ -1215,9 +1298,28 @@ def _union_identity_cell_html(
             marker = MARKER_EMPTY
             value_str = ""
         markers.append(marker)
-        if value_str and value_str not in parts:
-            parts.append(value_str)
+        if value_str:
+            any_real = True
+            if value_str not in parts:
+                parts.append(value_str)
+        elif can_echo:
+            echoed, is_echo = _echo_parent_for_leaf(key, row)
+            if is_echo and echoed is not None and echoed not in echo_parts:
+                echo_parts.append(echoed)
     final_marker = worst_marker(markers)
+    # All rows null + echo chain populated → render the echo set in italic.
+    # Mixed (some populated, some null) → fall through to plain rendering
+    # of only the populated parts; this is the locked product decision.
+    if not any_real and echo_parts:
+        joined_echo = " · ".join(echo_parts)
+        return (
+            '<div class="cd-identity__cell">'
+            f'<div class="cd-identity__label">{html.escape(label.upper())}</div>'
+            '<div class="cd-identity__value cd-identity__value--echo">'
+            f"{html.escape(joined_echo)}"
+            "</div>"
+            "</div>"
+        )
     if parts:
         joined = " · ".join(parts)
         value_color = "var(--cd-text)"
@@ -1987,12 +2089,22 @@ def find_result_card_html(
     marker dot. The ``Open →`` button is rendered separately by the
     caller in a Streamlit column so the click can hand back control to
     Python.
+
+    Stage 11 Phase 6: the card always renders three identity crumbs
+    (brand, sub_brand-or-echo, series-or-echo) plus an optional year.
+    When a leaf is null its crumb echoes the nearest populated ancestor
+    in italic-faint via ``cd-findcard__crumb--echo``.
     """
     crumbs: list[str] = [html.escape(company)]
-    if sub_brand:
-        crumbs.append(html.escape(sub_brand))
-    if series:
-        crumbs.append(html.escape(series))
+    for own, parent in ((sub_brand, company), (series, sub_brand or company)):
+        if own:
+            crumbs.append(html.escape(own))
+        elif parent:
+            crumbs.append(
+                '<span class="cd-findcard__crumb--echo">'
+                f"{html.escape(parent)}"
+                "</span>"
+            )
     if year is not None:
         crumbs.append(html.escape(str(year)))
     identity_html = (
@@ -2051,6 +2163,11 @@ def inject_findcard_styles() -> None:
     color: var(--cd-text-faint);
     font-weight: 400;
     margin: 0 var(--cd-space-xs);
+}
+.cd-findcard__crumb--echo {
+    font-style: italic;
+    color: var(--cd-text-faint);
+    font-weight: 400;
 }
 .cd-findcard__rollup {
     display: flex;

@@ -248,3 +248,213 @@ def test_series_sentinel_to_none_passes_through_real_series():
 
     assert _series_sentinel_to_none("Legion Pro") == "Legion Pro"
     assert _series_sentinel_to_none("ROG Strix") == "ROG Strix"
+
+
+# ---------------------------------------------------------------------------
+# Stage 11 Phase 6 — Echo-parent display rule
+# ---------------------------------------------------------------------------
+
+
+def _echo_row(
+    *,
+    brand: str | None = "ASUS",
+    sub_brand: str | None = "ROG",
+    series: str | None = "Strix",
+    status: str = "active",
+    segment: str = "gaming",
+) -> dict:
+    """Minimal product shape for echo-parent tests.
+
+    Each identity leaf is either a real ``_bundle(value)`` or ``None``
+    so the helper sees the same shape it would on a row loaded from the
+    DB with NULL identity columns.
+    """
+    return {
+        "brand": _bundle(brand) if brand is not None else None,
+        "sub_brand": _bundle(sub_brand) if sub_brand is not None else None,
+        "series": _bundle(series) if series is not None else None,
+        "status": _bundle(status),
+        "segment": _bundle(segment),
+    }
+
+
+def test_echo_parent_helper_sub_brand_null_returns_brand_italic():
+    from competitive_database.ui._components import _echo_parent_for_leaf
+
+    row = _echo_row(sub_brand=None)
+    value, is_echo = _echo_parent_for_leaf("sub_brand", row)
+    assert value == "ASUS"
+    assert is_echo is True
+
+
+def test_echo_parent_helper_series_null_with_sub_brand_returns_sub_brand():
+    from competitive_database.ui._components import _echo_parent_for_leaf
+
+    row = _echo_row(series=None)
+    value, is_echo = _echo_parent_for_leaf("series", row)
+    assert value == "ROG"
+    assert is_echo is True
+
+
+def test_echo_parent_helper_series_null_no_sub_brand_returns_brand():
+    from competitive_database.ui._components import _echo_parent_for_leaf
+
+    # Defensive: current DB has zero rows with sub_brand null + series
+    # null, but the chain must still walk to brand if it ever happens.
+    row = _echo_row(sub_brand=None, series=None)
+    value, is_echo = _echo_parent_for_leaf("series", row)
+    assert value == "ASUS"
+    assert is_echo is True
+
+
+def test_echo_parent_helper_populated_returns_own_value_no_echo():
+    from competitive_database.ui._components import _echo_parent_for_leaf
+
+    row = _echo_row()
+    value, is_echo = _echo_parent_for_leaf("series", row)
+    assert value == "Strix"
+    assert is_echo is False
+
+
+def test_echo_parent_helper_empty_chain_returns_none():
+    from competitive_database.ui._components import _echo_parent_for_leaf
+
+    row = _echo_row(brand=None, sub_brand=None, series=None)
+    value, is_echo = _echo_parent_for_leaf("series", row)
+    assert value is None
+    assert is_echo is False
+
+
+def test_picker_placeholder_sentinel_never_routes_through_echo_helper():
+    # The "—" picker sentinel (from list_series_options) maps back to
+    # None via _series_sentinel_to_none BEFORE any echo logic runs.
+    # _echo_parent_for_leaf operates on bundle dicts, not raw strings,
+    # so passing the sentinel cannot accidentally be interpreted as a
+    # bundle value. This test locks that boundary.
+    from competitive_database.ui._components import (
+        _PLACEHOLDER,
+        _echo_parent_for_leaf,
+        _series_sentinel_to_none,
+    )
+
+    assert _series_sentinel_to_none(_PLACEHOLDER) is None
+    # If a caller ever did pass {"value": "—"} as a bundle, the helper
+    # would treat it as a real string — but the contract is that the
+    # sentinel is stripped upstream. Confirm the helper signature reads
+    # bundle["value"], not raw strings, by passing a non-dict and
+    # getting the "no own value" path.
+    row = {"sub_brand": _PLACEHOLDER, "brand": _bundle("ASUS")}
+    value, is_echo = _echo_parent_for_leaf("sub_brand", row)
+    # The string "—" is not a dict, so own resolves to None and the
+    # helper echoes the brand.
+    assert value == "ASUS"
+    assert is_echo is True
+
+
+def test_identity_strip_renders_echo_class_for_null_sub_brand():
+    row = _echo_row(sub_brand=None)
+    out = identity_strip_html(row)
+    # The --echo class lives in the CSS block too, so anchor on the
+    # full cell element to verify the class is actually applied.
+    assert '<div class="cd-identity__value cd-identity__value--echo">' in out
+    # The brand's value should appear as the echo content in the
+    # sub-brand cell.
+    assert "ASUS" in out
+
+
+def test_identity_strip_no_echo_when_sub_brand_populated():
+    row = _echo_row()
+    out = identity_strip_html(row)
+    # The --echo class always appears in the <style> block. What must
+    # NOT appear is a cell that uses it. Anchor on the full element
+    # signature so a CSS hit doesn't false-positive.
+    assert '<div class="cd-identity__value cd-identity__value--echo">' not in out
+
+
+def test_union_identity_strip_all_echo_rows_render_echo_class():
+    a = _union_stub_row(year=2025, panel_hz="240", panel_type="IPS")
+    b = _union_stub_row(year=2026, panel_hz="240", panel_type="OLED")
+    # Both rows null their sub_brand → all-echo cell, must render with
+    # the echo class.
+    a["sub_brand"] = None
+    a["brand"] = _bundle("ASUS")
+    b["sub_brand"] = None
+    b["brand"] = _bundle("ASUS")
+    out = union_identity_strip_html([a, b])
+    # Anchor on the full cell element so a CSS-block hit doesn't
+    # false-positive.
+    assert '<div class="cd-identity__value cd-identity__value--echo">' in out
+    assert "ASUS" in out
+
+
+def test_union_identity_strip_mixed_echo_and_real_renders_plain():
+    # Locked product decision: mixed cells render PLAIN — only the
+    # populated value(s), no echo styling. Mixing italic+real in one
+    # cell would mislead which row(s) own the data.
+    a = _union_stub_row(year=2025, panel_hz="240", panel_type="IPS")
+    b = _union_stub_row(year=2026, panel_hz="240", panel_type="OLED")
+    a["sub_brand"] = _bundle("ROG")
+    a["brand"] = _bundle("ASUS")
+    b["sub_brand"] = None
+    b["brand"] = _bundle("ASUS")
+    out = union_identity_strip_html([a, b])
+    # The sub-brand cell carries only "ROG" — no echo styling on it
+    # even though row b's sub_brand is null.
+    assert "ROG" in out
+    # We can't simply assert no --echo anywhere on the strip (other
+    # leaves may legitimately echo). Instead: confirm the sub-brand
+    # cell's joined value does NOT include "ASUS" echoed alongside ROG.
+    assert "ROG · ASUS" not in out
+    assert "ASUS · ROG" not in out
+
+
+def test_find_result_card_renders_echo_crumb_for_null_sub_brand():
+    from competitive_database.ui._components import find_result_card_html
+
+    out = find_result_card_html(
+        company="ASUS",
+        sub_brand=None,
+        series="Strix",
+        year=2026,
+        section_name="Display",
+        rollup_value="QHD+ 240Hz",
+        marker=MARKER_VERIFIED,
+    )
+    assert "cd-findcard__crumb--echo" in out
+    # The echoed crumb wraps the brand ("ASUS") since sub_brand is null.
+    assert "ASUS" in out
+    # Series populated → plain crumb, no echo wrapper around "Strix".
+    assert '<span class="cd-findcard__crumb--echo">Strix</span>' not in out
+
+
+def test_find_result_card_renders_echo_crumb_for_null_series():
+    from competitive_database.ui._components import find_result_card_html
+
+    out = find_result_card_html(
+        company="ASUS",
+        sub_brand="ROG",
+        series=None,
+        year=2026,
+        section_name="Display",
+        rollup_value="QHD+ 240Hz",
+        marker=MARKER_VERIFIED,
+    )
+    # Series null → echoes sub_brand ("ROG") in italic-faint.
+    assert "cd-findcard__crumb--echo" in out
+    assert "ROG" in out
+
+
+def test_find_result_card_no_echo_when_both_populated():
+    from competitive_database.ui._components import find_result_card_html
+
+    out = find_result_card_html(
+        company="ASUS",
+        sub_brand="ROG",
+        series="Strix",
+        year=2026,
+        section_name="Display",
+        rollup_value="QHD+ 240Hz",
+        marker=MARKER_VERIFIED,
+    )
+    # All identity leaves populated → no echo wrapper in the card.
+    assert "cd-findcard__crumb--echo" not in out
