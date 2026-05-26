@@ -6,6 +6,53 @@ Newest sessions at the top.
 
 ---
 
+## Session 51 — 2026-05-26 (Stage 11 Phase 6 — echo-parent display rule across Browse + Compare + Find; tests 508 → 521 green)
+
+**Goal:** Land Stage 11 Phase 6 per the Session 47 plan and the Session 50 pickup pointer. When a product's `sub_brand` is NULL (e.g. TUF, Victus, LOQ, V), the identity strip / comparison column header / Find result card should still show a value at that rung — the nearest non-null ancestor rendered in italic-faint. Same rule for `series`. Pure rendering layer; no schema, no data, no CLI surface changes.
+
+**Outcome:** Stage 11 Phase 6 shipped. New private helper `_echo_parent_for_leaf(key, product)` in `competitive_database/ui/_components.py` resolves the echo for one identity leaf. New CSS class `cd-identity__value--echo` consumes the existing `--cd-text-faint` token across Browse and Compare; Find result cards use the parallel `cd-findcard__crumb--echo`. Test suite **508 → 521** (+13 net); no regressions.
+
+### Rendering rule
+
+For each identity leaf (`sub_brand`, `series`) on a rendered product:
+
+- If the leaf has a real string value → render it plain.
+- If the leaf is NULL but a parent in the chain (`series → sub_brand → brand`) is populated → render the nearest non-null ancestor in italic-faint at the leaf's slot.
+- If the entire chain up to `brand` is also empty → render nothing for that slot.
+
+The helper returns `(own_value, False)` / `(echoed_parent, True)` / `(None, False)` so every call site uses one uniform branch.
+
+### Mixed-case stays plain — locked
+
+In a union strip (Browse or Compare with multiple rows selected), the leaf may be NULL on some rows and populated on others. Locked behavior: render the populated value **plain**. Echo only fills total-absence at that rung across the union — it never appears alongside a real value. Rationale: the echo is a "this is intentionally empty, here's the parent for context" cue; mixing italic-faint and plain at the same slot would muddle the signal.
+
+### Find card always emits 3 crumbs — locked
+
+The Find result card previously omitted null identity crumbs, so a Victus 15 row read as `HP · Victus · 2025`. Under the new rule it reads `HP · Victus (echo from brand at sub_brand slot) · Victus · 2025` — three identity crumbs (brand + sub_brand-or-echo + series-or-echo) plus year, every time. Same shape across every product regardless of which rungs are populated.
+
+### Files touched this session
+
+**Code:**
+- `competitive_database/ui/_components.py` — new private helper `_echo_parent_for_leaf(key, product)`; threaded into `identity_strip_html` (Browse single-product), `union_identity_strip_html` (Browse + Compare union), `_union_column_header` (Compare per-column header), and `find_result_card_html` (Find result card crumbs); new CSS classes `cd-identity__value--echo` and `cd-findcard__crumb--echo` consuming the existing `--cd-text-faint` token
+
+**Tests:** +13 net across the existing UI test files covering the own-value path, the echo path, the all-null path, the mixed-case union lock, and the Find card always-3-crumbs lock.
+
+**Docs:** `docs/SESSION_LOG.md` (this entry), `docs/TASKS.md` (Phase 6 marked DONE), `docs/STAGE11_AUDIT.md` (Phase 6 SHIPPED annotation), `README.md` (status line bumped + test count 508 → 521), `docs/ARCHITECTURE.md` (echo helper folded into the `_components.py` line and the Stage 11 paragraph).
+
+### Decisions made this session
+
+1. **Mixed-case stays plain.** Union strips with some populated + some NULL at the same rung render the real value, never an italic-faint echo. Echo only fills total-absence.
+2. **Find card always emits 3 identity crumbs.** Previously omitted null crumbs; now every card reads `brand · sub_brand-or-echo · series-or-echo · year` regardless of which rungs are populated on the underlying row.
+3. **Existing `--cd-text-faint` token reused.** No new color in the palette; both `cd-identity__value--echo` and `cd-findcard__crumb--echo` consume the same token already used for de-emphasized text elsewhere.
+
+### Pickup pointers for next session
+
+- **Stage 11 Phase 7** — Find narrow-by reshape + result card identity-line update on top of the new hierarchy. Find → Browse handoff already done S49; the picker side of Find is still on the legacy `cascading_picker`. Result-card identity line is now correct (3 crumbs + echo) but the narrow-by chips above the results still mirror the old shape.
+- **Stage 11 Phase 8** — tests grow per phase (521 today); status curation still 0/56; final docs alignment pass.
+- **Phase 1.5 follow-up** — strict callsite rename + drop the helpers compat shim + remove the zero-caller legacy components (`comparison_grid_html`, `_product_header`, `_segment_line_html`).
+
+---
+
 ## Session 50 — 2026-05-26 (Stage 11 Phase 5 — Compare adopts per-column picker + multi-column union grid; tests 505 → 508 green)
 
 **Goal:** Land Stage 11 Phase 5 (Compare adopts the new picker) per the original Session 47 plan. Replace the existing Compare picker (Company → Sub-brand → Series → Year per column) with the new per-column Brand → Series → Product + Year toggle + Status toggle shape from Phase 3, and render the comparison body as a multi-column UNION grid that reuses the `_union_rollup_for_section` primitive that shipped in Phase 4 (Session 49, alongside Browse).

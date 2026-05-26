@@ -10,6 +10,8 @@
 
 **Phase 5 SHIPPED 2026-05-26 (Session 50):** Compare adopts per-column picker + multi-column union grid — `ui/compare.py` rewritten on Phase 3/4 components; new `comparison_union_grid_html` helper reuses `_union_rollup_for_section` per (section, column) cell; render threshold ≥1 populated column; tests 505 → 508 green.
 
+**Phase 6 SHIPPED 2026-05-26 (Session 51):** Echo-parent display rule — when a product's `sub_brand` is NULL, the nearest non-null ancestor (brand) renders in italic-faint in its slot; when `series` is NULL, the nearest non-null ancestor (sub_brand if populated, else brand) renders the same way. Pure rendering layer — no schema, no data, no CLI changes. New helper `_echo_parent_for_leaf(key, product) -> tuple[str | None, bool]` in `competitive_database/ui/_components.py` returns `(own_value, False)` / `(echoed_parent, True)` / `(None, False)` based on the leaf + parent chain. New CSS class `cd-identity__value--echo` (Browse + Compare identity strips) and `cd-findcard__crumb--echo` (Find result cards) both consume the existing `--cd-text-faint` token. **Mixed-case stays plain (locked):** in a union strip, if some rows have a real `sub_brand` and others are NULL, the cell renders the real value plain — echo only fills total-absence, never appears alongside a real value at the same rung. **Find card always emits 3 crumbs (locked):** brand + sub_brand-or-echo + series-or-echo + year; previously omitted null crumbs. Surfaces affected: Browse identity strip, Compare union grid, Find result card. Tests 508 → 521 green (+13).
+
 This file is the source of truth for the Phase 2 data-recurate step. The migration script reads it row-by-row.
 
 ---
