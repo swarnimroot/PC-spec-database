@@ -4,6 +4,8 @@
 
 **Status:** Locked. Both judgment calls resolved in Session 48 (see "Resolved judgment calls" at the bottom).
 
+**Phase 3 SHIPPED 2026-05-26 (Session 49):** Browse picker reshape — 3-rung Brand → Series → Product + Year/Status toggle blocks + union spec view; Policy B `·`-join union format and NULL-status-as-Active rule locked; tests 479 → 505 green.
+
 This file is the source of truth for the Phase 2 data-recurate step. The migration script reads it row-by-row.
 
 ---

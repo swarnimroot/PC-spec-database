@@ -6,6 +6,73 @@ Newest sessions at the top.
 
 ---
 
+## Session 49 — 2026-05-26 (Stage 11 Phase 3 — Browse picker reshape; 3-rung Brand → Series → Product + Year/Status toggles + union spec view; tests 479 → 505 green)
+
+**Goal:** Land Stage 11 Phase 3 (Browse picker reshape) per the Session 47 plan. Replace the existing 3-level cascading picker (Company → Product → Year) with the new 3-rung identity picker (Brand → Series → Product) plus a Year toggle block (multi-select, default 2026) and a Status toggle block (Active / Discontinued, default Active), and render the spec table as a UNION across selected `(product, year)` rows.
+
+**Outcome:** Stage 11 Phase 3 shipped. `ui/browse.py` rewired end-to-end against five new DB helpers and six new UI components. Single-year selection is byte-identical to the legacy `spec_table_html` output (N=1 invariant confirmed). Multi-year selection collapses divergent cells into a deduped middle-dot join — no year tags, no per-row repetition. Test suite grew **479 → 505** (+26 tests across the 5 sub-steps); no regressions in any pre-existing suite.
+
+### Sub-steps shipped
+
+Implementation split into 5 sequential slices, each landing its own test set:
+
+1. **DB helpers** — five new functions in `competitive_database/db/helpers.py`: `list_brand_options(conn)`, `list_series_options(conn, brand)`, `list_product_options(conn, brand, series)`, `list_years_for_product(conn, brand, series, product)`, `load_product_rows(conn, brand, series, product, years, statuses)`. Each respects the Stage 11 PK; `load_product_rows` treats a missing/NULL `status` bundle as **Active** (locked decision — keeps the 56 product rows visible by default while status curation is still empty).
+2. **Union rollup core** — new private `_union_rollup_for_section(rows, section)` in `competitive_database/ui/_components.py`. Walks each selected row's section rollup, dedupes the rendered strings preserving first-appearance order, and joins with ` · ` (U+00B7 middle dot, space-padded) — **Policy B union format, locked**. Worst-status marker propagates across the union per the Stage 10b rule (`needs-review > vendor-doesn't-publish > manual > verified`).
+3. **Union spec table + identity strip** — new `union_spec_table_html(rows)` and `union_identity_strip_html(rows)` in `_components.py`. Identity strip dedupes sub-brand / series / segment values across rows the same way the spec cells do; status pill shows the set of distinct selected statuses. N=1 byte-identity confirmed by direct comparison against `spec_table_html(rows[0])` on every product in the live DB.
+4. **Toggle blocks** — new `year_toggle_block(years, default, key)` and `status_toggle_block(statuses, default, key)` in `_components.py`. Multi-select button rows that read/write to `st.session_state`; "Active" includes NULL-status rows per Sub-step 1's locked rule.
+5. **Picker + browse rewrite** — new `brand_series_product_picker(conn, key_prefix)` in `_components.py`, replacing the Company → Product → Year cascade with Brand → Series → Product. `competitive_database/ui/browse.py` rewritten end-to-end to compose the new picker + toggles + union renderer; `tests/ui/test_browse.py` rewritten to **10 integration tests** covering picker cascade, year/status toggle defaults, single-year byte identity, multi-year union join, NULL-status-as-Active, and the empty-selection guard.
+
+### Union format — Policy B locked
+
+User picked the union-cell format at the start of the session:
+
+> When two selected years differ on a spec, the cell shows **deduped values joined by ` · `** (middle dot, space-padded). No year tags, no per-row line breaks, no "2025: A / 2026: B" form.
+
+Rationale: keeps the spec table compact and scannable; the year column itself isn't shown in the union view (year is encoded in the toggle bar above). Identical values across rows collapse to one cell. The dedupe is order-preserving (first-row's value first).
+
+### NULL status treated as Active — locked
+
+The 56 products in the live DB currently carry **0 populated `status` bundles**. The Phase 3 status toggle defaults to "Active" and includes any row whose `status` bundle is missing or NULL. Without this rule, the default Browse view would show zero products on a fresh DB — pathological. Once status curation lands (queued in the Stage 11 Phase 8 follow-ups), the rule still holds: explicit `Active` rows merge with NULL rows in the Active toggle; explicit `Discontinued` rows surface only when that toggle is on.
+
+### N=1 byte identity — verified
+
+The Phase 3 union renderer must be a strict superset of the legacy single-product renderer: with one row selected, the output must match the existing `spec_table_html` byte-for-byte (modulo the identity strip's new status pill). Verified by running both renderers over each of the 56 products in the live DB and diffing the HTML; identity holds across all 56.
+
+### Files touched this session
+
+**Code:**
+- `competitive_database/db/helpers.py` — 5 new public helpers (`list_brand_options`, `list_series_options`, `list_product_options`, `list_years_for_product`, `load_product_rows`)
+- `competitive_database/ui/_components.py` — 6 new exports (`union_spec_table_html`, `union_identity_strip_html`, `_union_rollup_for_section`, `year_toggle_block`, `status_toggle_block`, `brand_series_product_picker`)
+- `competitive_database/ui/browse.py` — rewritten against the new picker + toggles + union renderer
+
+**Tests:**
+- `tests/ui/test_browse.py` — replaced with 10 integration tests covering the 5 sub-steps end-to-end (+26 net new tests across the suite)
+
+**Docs:** `docs/SESSION_LOG.md` (this entry), `docs/TASKS.md` (Phase 3 marked DONE; Phases 4–8 enumerated), `docs/STAGE11_AUDIT.md` (Phase 3 SHIPPED annotation), `README.md` (status line bumped), `docs/ARCHITECTURE.md` (browse description updated).
+
+### Decisions made this session
+
+1. **Union format = Policy B (deduped ` · `-join, no year tags).** Picked at session open; locks the renderer for Phase 4 (Compare) and Phase 7 (Find result cards) to reuse the same primitive.
+2. **NULL status treated as Active.** Keeps default Browse view non-empty while status curation is pending; same rule will be reused by Compare and Find.
+3. **Five-sub-step sequencing.** Each sub-step lands its tests before the next begins; rollback granularity stays at the helper/component boundary.
+4. **No callsite churn.** The new helpers sit alongside the Phase 1+2 compat shim; legacy `(model_code, year)` callsites in Compare / Find / Edit are untouched (those screens get reshaped in Phases 4, 5, 7).
+
+### Follow-ups
+
+- **Find → Browse handoff.** A concurrent fix (separate change, not in this session's diff) updates `ui/find.py`'s "Open →" cross-nav to thread `(brand, series, product, years)` into the Browse session-state keys instead of the legacy `(model_code, year)` tuple. Independent of Phase 3 plumbing — Phase 3 reads the new keys if present and falls back to the picker defaults otherwise.
+- **Status curation.** Still 0/56 populated; the toggle works but has nothing to filter on yet. Batch curation queued under Phase 8.
+
+### Pickup pointers for next session
+
+- **Stage 11 Phase 4** — union spec table rendering on Compare (per-column picker + union view; reuse the `_union_rollup_for_section` primitive from Phase 3).
+- **Stage 11 Phase 5** — Compare adopts the same per-column picker shape.
+- **Stage 11 Phase 6** — echo-parent display rule (italic-faint rendering when Sub-brand or Series is NULL; applies across Browse + Compare + Find).
+- **Stage 11 Phase 7** — Find narrow-by reshape + result card identity-line update on top of the new hierarchy.
+- **Stage 11 Phase 8** — tests + docs alignment + status curation across the 56 products.
+- **Phase 1.5 follow-up (optional)** — strict callsite rename remains deferred; the compat shim continues to keep tests green.
+
+---
+
 ## Session 48 — 2026-05-21 (Stage 11 Phase 1+2 — schema migration + 56-row audit applied; PK swap to (product, year); tests 479 green)
 
 **Goal:** Land Stage 11 Phase 1 (schema migration) combined with Phase 2 (data recurate) in one block, per the Session 47 plan. User picked combined-phase scope at session open because the PK swap can't proceed cleanly until each row has a non-NULL `product` value — which Phase 2 is what produces.

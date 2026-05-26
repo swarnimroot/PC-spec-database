@@ -438,10 +438,10 @@ competitive_database/
     ├── app.py                 # Streamlit entry script (run by `streamlit run`); wires chrome + page title
     ├── theme.py               # Stage 10a — design tokens (PALETTE/SPACE/RADIUS/TYPE) + `inject_global_css()`
     ├── _chrome.py             # Stage 10a — `render_header(active)` top-bar nav + `render_footer()` thin divider
-    ├── _components.py         # Stage 10a — cross-screen helpers: `cascading_picker`, `identity_strip_html`, `spec_table_html`, `comparison_grid_html`, `marker_legend_inline_html`, `dot_marker`, `MARKER_LABELS`, `friendly_field_label`, `friendly_leaf_label`
+    ├── _components.py         # Stage 10a — cross-screen helpers: `cascading_picker`, `identity_strip_html`, `spec_table_html`, `comparison_grid_html`, `marker_legend_inline_html`, `dot_marker`, `MARKER_LABELS`, `friendly_field_label`, `friendly_leaf_label`; Stage 11 Phase 3 (S49) added `brand_series_product_picker`, `year_toggle_block`, `status_toggle_block`, `union_spec_table_html`, `union_identity_strip_html`, `_union_rollup_for_section`
     ├── _markers.py            # shared marker palette + path resolver — T8.4 (rule-of-three extraction); shrunk Stage 10a Phase H (dead `colorize_text` / `colorize_marker` / `render_cell` deleted); marker colors now sourced from `theme.PALETTE["markers"]` with back-compat re-exports
     ├── hub.py                 # dashboard landing — Stage 10a rewrite: hero line + 3 metric tiles + 3 rounded CTA cards (Browse / Compare / Find)
-    ├── browse.py              # product profile view — Stage 10a rewrite (~20 lines): all rendering pushed into `_components` helpers; light identity strip + spec table with inline marker legend
+    ├── browse.py              # product profile view — Stage 10a rewrite (~20 lines): all rendering pushed into `_components` helpers; light identity strip + spec table with inline marker legend; Stage 11 Phase 3 (S49) rewired against 3-rung Brand → Series → Product picker + Year/Status toggle blocks + union spec view
     ├── compare.py             # side-by-side grid — Stage 10a rewrite: N vertical picker columns (1–4) with `+` / `×`; `comparison_grid_html` with `▌` strict-majority divergence cue
     ├── find.py                # filter playground — Stage 10a rewrite: three-box query bar (Spec field / Match / Value) with plain-English ops; rounded result cards with `Open →` cross-nav
     ├── triage.py              # review-queue triage — Stage 10a chrome-only cleanup (`← Hub` button + caption removed); full triage redesign parked for Stage 10c
