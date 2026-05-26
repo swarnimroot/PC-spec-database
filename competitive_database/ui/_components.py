@@ -1693,6 +1693,214 @@ def comparison_grid_html(
 
 
 # ---------------------------------------------------------------------------
+# Stage 11 Phase 4 — Comparison union grid (N columns, each a row-set)
+# ---------------------------------------------------------------------------
+
+
+def _union_column_header(rows: list[dict[str, Any]]) -> str:
+    """Derive the friendly per-column header for one union column.
+
+    Mirrors ``_product_header`` but reads the column's row-set instead
+    of one product. Product name comes from any row's vendor_full_name
+    (every row in a Phase 3 column shares the same logical product, so
+    the first row's name is canonical). The year suffix echoes the
+    sorted-ascending year set joined by ``, `` — matching the union
+    identity strip's year cell convention.
+    """
+    if not rows:
+        return "—"
+    first = rows[0]
+    mc = first.get("model_code") or ""
+    vfn_bundle = first.get("vendor_full_name")
+    vfn = None
+    if isinstance(vfn_bundle, dict):
+        v = vfn_bundle.get("value")
+        if isinstance(v, str):
+            vfn = v
+    # ``_product_name`` strips a single trailing year token; we rebuild
+    # the year suffix from the column's year set below.
+    name = _product_name(vfn, str(mc), 0)
+    years = sorted({r.get("year") for r in rows if r.get("year") is not None})
+    if years:
+        return f"{name} · {', '.join(str(y) for y in years)}"
+    return name
+
+
+def _cmp_union_section_cells(
+    section_name: str,
+    columns: list[list[dict[str, Any]]],
+    cpu_catalog: dict[str, dict[str, Any]],
+    gpu_catalog: dict[str, dict[str, Any]],
+) -> list[tuple[str, str]]:
+    """Per-column ``(value, marker)`` for one non-I/O section, union-rolled.
+
+    Empty columns (zero rows) contribute ``("", MARKER_EMPTY)`` — the
+    downstream cell renderer maps the empty string to ``—``.
+    """
+    out: list[tuple[str, str]] = []
+    for col_rows in columns:
+        if not col_rows:
+            out.append(("", MARKER_EMPTY))
+            continue
+        out.append(
+            _union_rollup_for_section(
+                section_name,
+                col_rows,
+                cpu_catalog=cpu_catalog,
+                gpu_catalog=gpu_catalog,
+            )
+        )
+    return out
+
+
+def _cmp_union_io_rows(
+    columns: list[list[dict[str, Any]]],
+) -> list[list[tuple[str, str, str]]]:
+    """Per-column I/O sub-row lists, union-rolled.
+
+    Each populated column's row-set is fed through ``_union_io_rollup_rows``;
+    empty columns synthesize a 4-entry placeholder using labels from the
+    first populated column so the row alignment stays consistent under
+    ``_cmp_rollup_rows_html``. If every column is empty the whole section
+    collapses to a single ``(no data scraped)`` placeholder row upstream.
+    """
+    populated_idx = next(
+        (i for i, col in enumerate(columns) if col), None
+    )
+    if populated_idx is None:
+        return []
+    labels = [lbl for lbl, _v, _m in _union_io_rollup_rows(columns[populated_idx])]
+    out: list[list[tuple[str, str, str]]] = []
+    for col_rows in columns:
+        if col_rows:
+            out.append(_union_io_rollup_rows(col_rows))
+        else:
+            out.append([(lbl, "—", MARKER_EMPTY) for lbl in labels])
+    return out
+
+
+def comparison_union_grid_html(
+    columns: list[list[dict[str, Any]]],
+    *,
+    cpu_catalog: dict[str, dict[str, Any]] | None = None,
+    gpu_catalog: dict[str, dict[str, Any]] | None = None,
+) -> str:
+    """Return the N-column union comparison grid HTML.
+
+    Stage 11 Phase 4: each column is a row-set (already filtered by the
+    column's year + status toggles), not a single product. Per row =
+    one spec section; per cell = the union rollup of that column's rows
+    for that section (Policy B: ``· `` joins, worst marker propagates).
+    Empty columns (zero rows) render ``—`` cells; with ``len(columns) == 1``
+    and that column populated the body becomes byte-identical to
+    ``union_spec_table_html`` content rows wrapped in the Compare shell.
+    """
+    cpu_catalog = cpu_catalog or {}
+    gpu_catalog = gpu_catalog or {}
+    headers = [_union_column_header(col) for col in columns]
+    n_col = len(columns)
+    body: list[str] = []
+    for section_name, _fn in _SECTION_REGISTRY:
+        if section_name not in _VISUAL_SECTIONS:
+            continue
+        if section_name == _IO_SECTION:
+            per_col_rows = _cmp_union_io_rows(columns)
+            if per_col_rows:
+                body.extend(_cmp_rollup_rows_html(section_name, per_col_rows))
+            continue
+        rollups = _cmp_union_section_cells(
+            section_name, columns, cpu_catalog, gpu_catalog
+        )
+        body.append(
+            _cmp_rollup_row_html(
+                section_name,
+                _ROLLUP_FEATURE_LABEL.get(section_name, section_name),
+                rollups,
+            )
+        )
+    legend = marker_legend_inline_html()
+    value_col_pct = max(8, int(58 / max(n_col, 1)))
+    header_cells = "".join(
+        f'<th class="cd-cmp__th-value" style="width:{value_col_pct}%">'
+        f"{html.escape(h)}</th>"
+        for h in headers
+    )
+    return (
+        "<style>"
+        ".cd-cmp {"
+        "border-collapse:collapse;width:100%;"
+        "font-family:var(--cd-font-family);"
+        "font-size:var(--cd-size-sm);line-height:1.5;"
+        "margin-top:var(--cd-space-sm);"
+        "}"
+        ".cd-cmp thead th {"
+        "text-align:left;"
+        "padding:var(--cd-space-sm) var(--cd-space-md) var(--cd-space-sm) 0;"
+        "border-bottom:1px solid var(--cd-border-strong);"
+        "color:var(--cd-text-faint);"
+        "font-weight:500;"
+        "font-size:var(--cd-size-xs);"
+        "letter-spacing:0.08em;"
+        "text-transform:uppercase;"
+        "vertical-align:bottom;"
+        "}"
+        ".cd-cmp thead th.cd-cmp__th-value {"
+        "color:var(--cd-text);"
+        "text-transform:none;"
+        "letter-spacing:0;"
+        "font-size:var(--cd-size-sm);"
+        "font-weight:600;"
+        "padding-right:var(--cd-space-md);"
+        "}"
+        ".cd-cmp thead th.cd-cmp__th-legend {"
+        "text-align:right;padding-right:0;"
+        "font-size:var(--cd-size-xs);"
+        "}"
+        ".cd-cmp__row {border-bottom:1px solid var(--cd-border);}"
+        ".cd-cmp__row--last {border-bottom:1px solid var(--cd-border-strong);}"
+        ".cd-cmp__section {"
+        "padding:var(--cd-space-sm) var(--cd-space-md) var(--cd-space-sm) 0;"
+        "vertical-align:top;"
+        "font-weight:600;"
+        "color:var(--cd-text);"
+        "border-right:1px solid var(--cd-border);"
+        "width:12%;"
+        "font-size:var(--cd-size-sm);"
+        "}"
+        ".cd-cmp__feature {"
+        "padding:var(--cd-space-sm) var(--cd-space-md);"
+        "vertical-align:top;"
+        "color:var(--cd-text-muted);"
+        "width:18%;"
+        "}"
+        ".cd-cmp__value {"
+        "padding:var(--cd-space-sm) var(--cd-space-md);"
+        "vertical-align:top;"
+        "color:var(--cd-text);"
+        "border-left:3px solid transparent;"
+        "}"
+        ".cd-cmp__value--diverges {"
+        "border-left:3px solid var(--cd-accent);"
+        "background:var(--cd-bg-accent-soft);"
+        "}"
+        "</style>"
+        '<table class="cd-cmp">'
+        "<thead><tr>"
+        '<th>Section</th>'
+        '<th>Feature</th>'
+        f"{header_cells}"
+        "</tr>"
+        "<tr>"
+        '<th></th>'
+        '<th></th>'
+        f'<th class="cd-cmp__th-legend" colspan="{n_col}">{legend}</th>'
+        "</tr></thead>"
+        f"<tbody>{''.join(body)}</tbody>"
+        "</table>"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Stage 10c additions: Compare ``+`` button styling + Find result cards
 # ---------------------------------------------------------------------------
 

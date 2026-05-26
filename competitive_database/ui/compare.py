@@ -1,26 +1,34 @@
-"""Compare side-by-side — N vertical picker columns + comparison grid."""
+"""Compare side-by-side — Stage 11 Phase 4 picker columns + union grid.
+
+Replaces the Stage 10c four-rung cascade per column with the Phase 3
+3-rung Brand → Series → Product picker + year/status pill toggles.
+Each column resolves a ``(brand, series, product)`` identity triple and
+a filtered row-set; the comparison grid below renders those row-sets as
+columns of union-rolled cells (Policy B ``·`` joins, worst marker per
+cell). One populated column is enough to render the grid (single-column
+union case collapses to byte-identical content with ``union_spec_table_html``
+modulo the Compare outer shell).
+"""
 
 from __future__ import annotations
 
-import html
 import sqlite3
 from typing import Any
 
 import streamlit as st
 
+from competitive_database.db.helpers import (
+    list_years_for_product,
+    load_product_rows,
+)
 from competitive_database.ui._components import (
-    cascading_picker,
-    comparison_grid_html,
+    brand_series_product_picker,
+    comparison_union_grid_html,
     inject_compare_styles,
+    status_toggle_block,
+    year_toggle_block,
 )
-from competitive_database.ui.theme import PALETTE
 from competitive_database.views import load as views_load
-from competitive_database.views.formatting import (
-    MARKER_EMPTY,
-    MARKER_VENDOR_NO_PUB,
-    display_value,
-    marker_for_bundle,
-)
 
 _MAX_COLUMNS = 4
 _STATE_IDS = "compare.column_ids"
@@ -59,40 +67,21 @@ def _remove_column(cid: int) -> None:
         return
     ids.remove(cid)
     st.session_state[_STATE_IDS] = ids
-    for suffix in ("company", "sub_brand", "series", "product", "year"):
+    # Stage 11 Phase 4 keyspace: brand/series/product/years/status.
+    # Legacy ``company`` / ``sub_brand`` / ``year`` keys went away with
+    # the Phase 3 picker; nothing else writes them so no cleanup needed.
+    for suffix in ("brand", "series", "product", "years", "status"):
         st.session_state.pop(f"compare.col{cid}.{suffix}", None)
-
-
-def _segment_line_html(product: dict[str, Any]) -> str:
-    bundle = product.get("segment")
-    if isinstance(bundle, dict):
-        marker = marker_for_bundle(bundle)
-        if marker in (MARKER_EMPTY, MARKER_VENDOR_NO_PUB):
-            value = "—"
-        else:
-            value = display_value(bundle) or "—"
-    else:
-        value = "—"
-    return (
-        f'<div style="'
-        f'margin-top:var(--cd-space-xs);'
-        f'font-size:var(--cd-size-xs);'
-        f'color:{PALETTE["text_muted"]};'
-        f'">'
-        f'<span style="color:{PALETTE["text_faint"]}">Segment:</span> '
-        f"{html.escape(value)}"
-        f"</div>"
-    )
 
 
 def render(conn: sqlite3.Connection, *, db_path: str) -> None:
     """Render the Compare side-by-side screen.
 
-    Stage 10c: strict-cascade Series-rung pickers, each preceded by a
-    blank offset column so the dropdowns line up with the comparison
-    grid's value column underneath. The ``+`` button parks at the right
-    and is centered on a faint rail line that runs behind it across the
-    picker stack.
+    Stage 11 Phase 4: per column, run the Phase 3 strict 3-rung picker
+    (Brand → Series → Product), then year + status pill toggles over
+    the resolved identity. Each column contributes a filtered row-set
+    to the union comparison grid. The grid renders as soon as ≥1
+    column is populated (a single-column union still surfaces value).
     """
     del db_path  # chrome handles attribution; no internal IDs leak here.
     st.title("Compare side-by-side")
@@ -116,7 +105,7 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
     weights.append(_ADD_COL_WEIGHT)
     cols = st.columns(weights)
 
-    picked_products: list[dict[str, Any]] = []
+    columns_rows: list[list[dict[str, Any]]] = []
     for i, cid in enumerate(ids):
         # Offset column: intentionally empty — pure visual padding so the
         # cascade dropdowns line up with the comparison-grid columns.
@@ -132,19 +121,28 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
                 ):
                     _remove_column(cid)
                     st.rerun()
-            picked = cascading_picker(
-                conn,
-                key_prefix=f"compare.col{cid}",
-                vertical=True,
-                strict_cascade=True,
-                rung_mode="series",
+            picked = brand_series_product_picker(
+                conn, key_prefix=f"compare.col{cid}", strict=True
             )
-            if picked is not None:
-                st.markdown(
-                    _segment_line_html(picked["row"]),
-                    unsafe_allow_html=True,
-                )
-                picked_products.append(picked["row"])
+            if picked is None:
+                # Cascade not yet complete for this column; it contributes
+                # an empty row-set to the union grid (rendered as ``—``).
+                columns_rows.append([])
+                continue
+            brand = picked["brand"]
+            series = picked["series"]
+            product = picked["product"]
+            years = list_years_for_product(conn, brand, series, product)
+            active_years = year_toggle_block(
+                years, key_prefix=f"compare.col{cid}"
+            )
+            active_statuses = status_toggle_block(
+                key_prefix=f"compare.col{cid}"
+            )
+            rows = load_product_rows(
+                conn, brand, series, product, active_years, active_statuses
+            )
+            columns_rows.append(rows)
 
     with cols[-1]:
         # Wrapper carries the faint rail (CSS pseudo-element) + centers
@@ -174,19 +172,21 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
     )
 
     st.markdown(
-        f'<div style="height:var(--cd-space-lg)"></div>',
+        '<div style="height:var(--cd-space-lg)"></div>',
         unsafe_allow_html=True,
     )
 
-    if len(picked_products) < 2:
-        st.info("Pick at least two products to compare.")
+    # Render the grid as soon as ≥1 column has rows — single-column union
+    # still surfaces value; user-confirmed Phase 4 threshold.
+    if not any(col for col in columns_rows):
+        st.info("Pick a product to start comparing.")
         return
 
     cpu_catalog = views_load.load_cpu_catalog(conn)
     gpu_catalog = views_load.load_gpu_catalog(conn)
     st.markdown(
-        comparison_grid_html(
-            picked_products,
+        comparison_union_grid_html(
+            columns_rows,
             cpu_catalog=cpu_catalog,
             gpu_catalog=gpu_catalog,
         ),
