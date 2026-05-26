@@ -335,22 +335,22 @@ def _render_card(
 
 
 def _open_in_browse(prod: dict[str, Any]) -> None:
-    """Wire Browse's strict-cascade session keys and switch view.
+    """Wire Browse's 3-rung picker session keys and switch view.
 
-    Browse runs in ``rung_mode='series'``; its keys are
-    ``browse.company / browse.sub_brand / browse.series / browse.year``.
-    A placeholder ``"—"`` is left in any rung the product can't fill so
-    the strict cascade still surfaces a downstream picker.
+    Browse (Stage 11 Phase 3) reads its picker from
+    ``browse.brand / browse.series / browse.product`` and its year
+    toggles from ``browse.years`` (a ``set[int]``). NULL series uses
+    the ``"—"`` sentinel to match ``list_series_options``.
     """
-    company = _company_of(prod)
-    sub = _sub_brand_of(prod) or "—"
+    brand = _company_of(prod)
     series = _series_of(prod) or "—"
+    product = prod.get("product")
     yr = _year_of(prod)
-    st.session_state["browse.company"] = company
-    st.session_state["browse.sub_brand"] = sub
+    st.session_state["browse.brand"] = brand
     st.session_state["browse.series"] = series
+    st.session_state["browse.product"] = product
     if yr is not None:
-        st.session_state["browse.year"] = yr
+        st.session_state["browse.years"] = {yr}
     st.session_state["view"] = "browse"
     st.rerun()
 

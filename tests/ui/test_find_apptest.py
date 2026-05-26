@@ -370,9 +370,9 @@ def test_open_button_sets_browse_session_state(empty_db):
     open_buttons = [b for b in at.button if b.label.startswith("Open")]
     assert open_buttons, "expected at least one Open → button"
     open_buttons[0].click().run()
-    # Rerun lands on Browse — view flipped and the four cascade keys are set.
+    # Rerun lands on Browse — view flipped and the picker + year keys are set.
     assert at.session_state["view"] == "browse"
-    assert at.session_state["browse.company"] == "Dell"
-    assert at.session_state["browse.sub_brand"] == "Alienware"
+    assert at.session_state["browse.brand"] == "Dell"
     assert at.session_state["browse.series"] == "m18"
-    assert at.session_state["browse.year"] == 2026
+    assert at.session_state["browse.product"] == "dell-x"
+    assert at.session_state["browse.years"] == {2026}
