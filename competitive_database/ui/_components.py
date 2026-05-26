@@ -38,6 +38,7 @@ from competitive_database.views.formatting import (
     MARKER_VERIFIED,
     display_value,
     marker_for_bundle,
+    worst_marker,
 )
 from competitive_database.views.orchestrator import (
     _SECTION_REGISTRY,
@@ -923,6 +924,472 @@ def spec_table_html(
         f"<tbody>{''.join(body)}</tbody>"
         "</table>"
     )
+
+
+# ---------------------------------------------------------------------------
+# Stage 11 Phase 3 — Union spec view (one logical product, N year rows)
+# ---------------------------------------------------------------------------
+
+
+def _union_marker(markers: list[str]) -> str:
+    """Worst marker across N per-row markers, EMPTY-preserving.
+
+    ``worst_marker`` falls back to ``MARKER_NEEDS_REVIEW`` when given
+    only unknown tokens — but for the union path the all-EMPTY case
+    should stay EMPTY so an N=1 union over a missing section renders
+    the same gray dot as the per-row ``rollup_value`` would. Defers to
+    ``worst_marker`` otherwise so the worst real status wins.
+    """
+    if not markers:
+        return MARKER_EMPTY
+    if all(m == MARKER_EMPTY for m in markers):
+        return MARKER_EMPTY
+    return worst_marker(markers)
+
+
+def _union_rollup_for_section(
+    section_name: str,
+    rows: list[dict[str, Any]],
+    *,
+    cpu_catalog: dict[str, dict[str, Any]],
+    gpu_catalog: dict[str, dict[str, Any]],
+) -> tuple[str, str]:
+    """Union one section's rollup across N product rows.
+
+    Calls ``_rollup_for_section`` once per row. Empty/None values are
+    dropped before deduping so a year-row missing data doesn't pollute
+    the union. Remaining values dedupe by exact-string equality with
+    first-seen order preserved, then join with `` · ``. Marker is the
+    worst across every per-row marker (including the rows whose values
+    were skipped — their marker still counts toward confidence);
+    all-empty markers stay empty.
+    """
+    per_row: list[tuple[str, str]] = [
+        _rollup_for_section(section_name, row, cpu_catalog, gpu_catalog)
+        for row in rows
+    ]
+    parts: list[str] = []
+    for value_str, _marker in per_row:
+        if not value_str:
+            continue
+        if value_str not in parts:
+            parts.append(value_str)
+    return " · ".join(parts), _union_marker([m for _v, m in per_row])
+
+
+def _union_io_rollup_rows(
+    rows: list[dict[str, Any]],
+) -> list[tuple[str, str, str]]:
+    """Union the I/O multi-row rollup across N product rows.
+
+    ``io.rollup_rows`` always returns four sub-rows in a fixed order
+    (USB / HDMI / SD card / Audio jack). For each sub-row index we
+    dedupe values (first-seen order; the ``"—"`` placeholder counts
+    as empty for dedupe purposes so a row missing a leaf doesn't
+    pollute the union) and take the worst marker across every row,
+    with all-empty staying empty so a fully-missing sub-row keeps its
+    gray dot.
+    """
+    per_row_lists = [io_view.rollup_rows(row) for row in rows]
+    n_sub = len(per_row_lists[0])
+    out: list[tuple[str, str, str]] = []
+    for sub_idx in range(n_sub):
+        per_prod = [rows_list[sub_idx] for rows_list in per_row_lists]
+        label = per_prod[0][0]
+        parts: list[str] = []
+        for _label, value_str, _marker in per_prod:
+            if not value_str or value_str == "—":
+                continue
+            if value_str not in parts:
+                parts.append(value_str)
+        marker = _union_marker([m for _l, _v, m in per_prod])
+        joined = " · ".join(parts) if parts else "—"
+        out.append((label, joined, marker))
+    return out
+
+
+def union_spec_table_html(
+    rows: list[dict[str, Any]],
+    *,
+    cpu_catalog: dict[str, dict[str, Any]] | None = None,
+    gpu_catalog: dict[str, dict[str, Any]] | None = None,
+) -> str:
+    """Return the Section / Feature / Value spec table HTML for N year-rows.
+
+    Same HTML shell as ``spec_table_html``. Body iterates
+    ``_VISUAL_SECTIONS`` and unions each section's rollup across all
+    rows: deduped values (first-seen order, exact string equality)
+    joined by `` · ``; marker = worst across rows. With ``len(rows) == 1``
+    the dedupe collapses to the single per-row value, so the output is
+    byte-identical to ``spec_table_html(rows[0])``. With ``len(rows) == 0``
+    raises ``ValueError`` — callers handle the zero-row case before
+    calling this.
+    """
+    if not rows:
+        raise ValueError("union_spec_table_html requires at least one row")
+    cpu_catalog = cpu_catalog or {}
+    gpu_catalog = gpu_catalog or {}
+    body: list[str] = []
+    for section_name, _fn in _SECTION_REGISTRY:
+        if section_name not in _VISUAL_SECTIONS:
+            continue
+        if section_name == _IO_SECTION:
+            body.extend(
+                _rollup_rows_html(section_name, _union_io_rollup_rows(rows))
+            )
+            continue
+        value, marker = _union_rollup_for_section(
+            section_name, rows, cpu_catalog=cpu_catalog, gpu_catalog=gpu_catalog
+        )
+        body.append(
+            _rollup_row_html(
+                section_name,
+                _ROLLUP_FEATURE_LABEL.get(section_name, section_name),
+                value,
+                marker,
+            )
+        )
+    legend = marker_legend_inline_html()
+    return (
+        "<style>"
+        ".cd-spec {"
+        "border-collapse:collapse;width:100%;"
+        "font-family:var(--cd-font-family);"
+        "font-size:var(--cd-size-sm);line-height:1.5;"
+        "margin-top:var(--cd-space-sm);"
+        "}"
+        ".cd-spec thead th {"
+        "text-align:left;"
+        "padding:var(--cd-space-sm) var(--cd-space-md) var(--cd-space-sm) 0;"
+        "border-bottom:1px solid var(--cd-border-strong);"
+        "color:var(--cd-text-faint);"
+        "font-weight:500;"
+        "font-size:var(--cd-size-xs);"
+        "letter-spacing:0.08em;"
+        "text-transform:uppercase;"
+        "}"
+        ".cd-spec thead th.cd-spec__th-value {"
+        "text-align:right;padding-right:0;"
+        "}"
+        ".cd-spec__row {border-bottom:1px solid var(--cd-border);}"
+        ".cd-spec__row--last {border-bottom:1px solid var(--cd-border-strong);}"
+        ".cd-spec__section {"
+        "padding:var(--cd-space-sm) var(--cd-space-md) var(--cd-space-sm) 0;"
+        "vertical-align:top;"
+        "font-weight:600;"
+        "color:var(--cd-text);"
+        "border-right:1px solid var(--cd-border);"
+        "width:14%;"
+        "font-size:var(--cd-size-sm);"
+        "}"
+        ".cd-spec__feature {"
+        "padding:var(--cd-space-sm) var(--cd-space-md);"
+        "vertical-align:top;"
+        "color:var(--cd-text-muted);"
+        "width:28%;"
+        "}"
+        ".cd-spec__value {"
+        "padding:var(--cd-space-sm) 0;"
+        "vertical-align:top;"
+        "color:var(--cd-text);"
+        "}"
+        ".cd-legend {"
+        "display:inline-flex;gap:var(--cd-space-md);"
+        "font-size:var(--cd-size-xs);"
+        "color:var(--cd-text-muted);"
+        "font-weight:400;"
+        "letter-spacing:0;"
+        "text-transform:none;"
+        "}"
+        ".cd-legend__entry {"
+        "display:inline-flex;align-items:center;"
+        "}"
+        "</style>"
+        '<table class="cd-spec">'
+        "<thead><tr>"
+        '<th>Section</th>'
+        '<th>Feature</th>'
+        f'<th class="cd-spec__th-value">{legend}</th>'
+        "</tr></thead>"
+        f"<tbody>{''.join(body)}</tbody>"
+        "</table>"
+    )
+
+
+def _year_set_cell_html(rows: list[dict[str, Any]]) -> str:
+    """Render the year-set identity cell for the union strip.
+
+    Echoes the sorted-ascending year set joined by ``, `` (e.g.
+    ``2025, 2026``). Carries no provenance dot — the year value is a PK
+    column, not a bundle, so a verified marker would be misleading; the
+    cell renders as a plain identity row consistent with the
+    sub-brand / series / status / segment treatment when those carry
+    real bundles.
+    """
+    years = sorted({row.get("year") for row in rows if row.get("year") is not None})
+    value_str = ", ".join(str(y) for y in years) if years else "—"
+    value_color = "var(--cd-text)" if years else "var(--cd-text-muted)"
+    return (
+        '<div class="cd-identity__cell">'
+        f'<div class="cd-identity__label">{html.escape("YEAR")}</div>'
+        f'<div class="cd-identity__value" style="color:{value_color}">'
+        f"{html.escape(value_str)}"
+        "</div>"
+        "</div>"
+    )
+
+
+def union_identity_strip_html(rows: list[dict[str, Any]]) -> str:
+    """Return the identity context strip HTML for N year-rows.
+
+    With ``len(rows) == 1`` delegates to ``identity_strip_html(rows[0])``
+    so the single-row case stays byte-identical to the existing strip
+    (no year cell — the existing layout has none). With
+    ``len(rows) > 1`` the four identity leaves (sub-brand / series /
+    status / segment) union the same way the spec rollup cells do
+    (deduped values joined by `` · ``, marker = worst) and a fifth
+    ``year`` cell echoes the sorted-ascending year set joined with
+    ``, ``. PK ``(product, year)`` guarantees product itself is
+    constant across rows; product surfaces in the caller's title, not
+    in this strip.
+    """
+    if not rows:
+        raise ValueError("union_identity_strip_html requires at least one row")
+    if len(rows) == 1:
+        return identity_strip_html(rows[0])
+    cells = [
+        _union_identity_cell_html(label, key, rows)
+        for label, key in _HEADER_IDENTITY_LEAVES
+    ]
+    cells.append(_year_set_cell_html(rows))
+    return (
+        "<style>"
+        ".cd-identity {"
+        "display:grid;grid-template-columns:repeat(5, minmax(0, 1fr));"
+        "gap:var(--cd-space-lg);"
+        "background:var(--cd-bg-card);"
+        "border:1px solid var(--cd-border);"
+        "border-radius:var(--cd-radius-md);"
+        "padding:var(--cd-space-md) var(--cd-space-lg);"
+        "margin:var(--cd-space-sm) 0 var(--cd-space-lg) 0;"
+        "}"
+        ".cd-identity__cell {display:flex;flex-direction:column;min-width:0;}"
+        ".cd-identity__label {"
+        "color:var(--cd-text-faint);"
+        "font-size:var(--cd-size-xs);"
+        "letter-spacing:0.08em;"
+        "font-weight:500;"
+        "margin-bottom:2px;"
+        "}"
+        ".cd-identity__value {"
+        "color:var(--cd-text);"
+        "font-size:var(--cd-size-sm);"
+        "}"
+        "</style>"
+        f'<div class="cd-identity">{"".join(cells)}</div>'
+    )
+
+
+def _union_identity_cell_html(
+    label: str, key: str, rows: list[dict[str, Any]]
+) -> str:
+    """Union one identity cell across N rows.
+
+    Mirrors ``_identity_cell_html`` but dedupes per-row display values
+    (skipping empty / vendor-n/p before deduping so a row missing data
+    doesn't surface as ``—`` in the union) and joins with `` · ``.
+    Marker = worst across every per-row bundle's marker (empty / n/p
+    rows still count toward confidence, matching the rollup rule).
+    """
+    parts: list[str] = []
+    markers: list[str] = []
+    for row in rows:
+        bundle = row.get(key)
+        if isinstance(bundle, dict):
+            marker = marker_for_bundle(bundle)
+            value_str = (
+                "" if marker in (MARKER_EMPTY, MARKER_VENDOR_NO_PUB)
+                else (display_value(bundle) or "")
+            )
+        else:
+            marker = MARKER_EMPTY
+            value_str = ""
+        markers.append(marker)
+        if value_str and value_str not in parts:
+            parts.append(value_str)
+    final_marker = worst_marker(markers)
+    if parts:
+        joined = " · ".join(parts)
+        value_color = "var(--cd-text)"
+    else:
+        joined = "—"
+        value_color = "var(--cd-text-muted)"
+    return (
+        '<div class="cd-identity__cell">'
+        f'<div class="cd-identity__label">{html.escape(label.upper())}</div>'
+        f'<div class="cd-identity__value" style="color:{value_color}">'
+        f"{_value_cell_html(joined, final_marker)}"
+        "</div>"
+        "</div>"
+    )
+
+
+def year_toggle_block(
+    years: list[int],
+    key_prefix: str,
+    *,
+    default_latest: bool = True,
+) -> list[int]:
+    """Render a row of year-toggle pill buttons and return active years.
+
+    Active years are stored as a ``set[int]`` in
+    ``st.session_state[f"{key_prefix}.years"]``. On first paint (key
+    absent), seed ``{max(years)}`` if ``default_latest`` else the empty
+    set. Clicking a pill toggles that year in/out. The returned list is
+    sorted descending (newest first) so callers' downstream ordering
+    matches the Browse year-dropdown convention.
+    """
+    state_key = f"{key_prefix}.years"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = {max(years)} if (default_latest and years) else set()
+    active: set[int] = set(st.session_state[state_key])
+    if not years:
+        return []
+    cols = st.columns(len(years))
+    for col, yr in zip(cols, years):
+        with col:
+            is_on = yr in active
+            label = f"● {yr}" if is_on else f"○ {yr}"
+            if st.button(label, key=f"{key_prefix}.year_btn.{yr}"):
+                if yr in active:
+                    active.discard(yr)
+                else:
+                    active.add(yr)
+                st.session_state[state_key] = active
+                st.rerun()
+    return sorted(active, reverse=True)
+
+
+def status_toggle_block(
+    key_prefix: str,
+    *,
+    default: tuple[str, ...] = ("Active",),
+) -> list[str]:
+    """Render the two fixed status pills (Active / Discontinued).
+
+    Active statuses are stored as a ``set[str]`` in
+    ``st.session_state[f"{key_prefix}.status"]``. On first paint the
+    set is seeded from ``default``. Returns the sorted list of
+    currently-active statuses so callers can filter their row set
+    deterministically.
+    """
+    state_key = f"{key_prefix}.status"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = set(default)
+    active: set[str] = set(st.session_state[state_key])
+    options = ("Active", "Discontinued")
+    cols = st.columns(len(options))
+    for col, opt in zip(cols, options):
+        with col:
+            is_on = opt in active
+            label = f"● {opt}" if is_on else f"○ {opt}"
+            if st.button(label, key=f"{key_prefix}.status_btn.{opt}"):
+                if opt in active:
+                    active.discard(opt)
+                else:
+                    active.add(opt)
+                st.session_state[state_key] = active
+                st.rerun()
+    return sorted(active)
+
+
+# ---------------------------------------------------------------------------
+# Stage 11 Phase 3: strict 3-rung Brand → Series → Product picker
+# ---------------------------------------------------------------------------
+
+
+def _series_sentinel_to_none(series: str) -> Optional[str]:
+    """Convert the ``"—"`` series sentinel back to ``None``; pass-through otherwise."""
+    return None if series == _PLACEHOLDER else series
+
+
+def brand_series_product_picker(
+    conn: sqlite3.Connection,
+    key_prefix: str,
+    *,
+    strict: bool = True,
+) -> Optional[dict]:
+    """Strict 3-rung Brand → Series → Product cascade (Stage 11 PK identity).
+
+    Renders three ``_selectbox``-style dropdowns inside
+    ``st.columns([1, 1, 2])``. Strict cascade: Series only renders once
+    Brand is picked, Product only renders once Series is picked. Changing
+    Brand resets Series + Product session-state; changing Series resets
+    Product (mirroring ``_reset_below_company`` in ``_series_cascade``).
+
+    The ``"—"`` series sentinel emitted by ``list_series_options`` maps
+    back to ``None`` in both the call to ``list_product_options`` and in
+    the returned dict's ``"series"`` slot (so callers downstream can pass
+    it straight into ``list_years_for_product`` / ``load_product_rows``).
+
+    Returns ``None`` when the cascade isn't fully picked. Returns
+    ``{"brand": str, "series": str | None, "product": str}`` once all
+    three rungs are chosen.
+    """
+    # Local import: keep this module's top-level imports unchanged (the
+    # existing cascading_picker doesn't pull from db.helpers either).
+    from competitive_database.db.helpers import (
+        list_brand_options,
+        list_product_options,
+        list_series_options,
+    )
+
+    k_brand = f"{key_prefix}.brand"
+    k_series = f"{key_prefix}.series"
+    k_product = f"{key_prefix}.product"
+
+    def _reset_below_brand() -> None:
+        for k in (k_series, k_product):
+            st.session_state.pop(k, None)
+
+    def _reset_below_series() -> None:
+        st.session_state.pop(k_product, None)
+
+    brands = list_brand_options(conn)
+    cols = st.columns([1, 1, 2])
+    with cols[0]:
+        brand = _selectbox(
+            "Brand", brands, k_brand, _reset_below_brand, strict=strict
+        )
+    if strict and not _is_picked(brand):
+        return None
+
+    series_opts = list_series_options(conn, brand)
+    if strict and not series_opts:
+        return None
+    with cols[1]:
+        series = _selectbox(
+            "Series", series_opts, k_series, _reset_below_series, strict=strict
+        )
+    if strict and not _is_picked(series):
+        return None
+
+    series_value = _series_sentinel_to_none(series)
+    product_opts = list_product_options(conn, brand, series_value)
+    if strict and not product_opts:
+        return None
+    with cols[2]:
+        product = _selectbox(
+            "Product", product_opts, k_product, None, strict=strict
+        )
+    if strict and not _is_picked(product):
+        return None
+
+    return {
+        "brand": brand,
+        "series": series_value,
+        "product": product,
+    }
 
 
 # ---------------------------------------------------------------------------

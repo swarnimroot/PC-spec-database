@@ -265,3 +265,164 @@ def read_offerings(
     if raw is None:
         return None
     return json.loads(raw)
+
+
+# --- Stage 11 Phase 3 read-side query helpers ----------------------------
+#
+# These power the picker UI: brand -> series -> product -> year/status. They
+# all read from ``products`` and unwrap the ``$.value`` path of bundle
+# columns. ``series`` NULL surfaces as the literal sentinel ``"—"`` (em dash)
+# so callers can render it as a real option instead of dropping the row.
+
+_SERIES_NULL_SENTINEL = "—"  # em dash
+
+
+def list_brand_options(conn: sqlite3.Connection) -> list[str]:
+    """DISTINCT brand values across all products, alphabetical ascending."""
+    rows = conn.execute(
+        "SELECT DISTINCT json_extract(brand, '$.value') AS v "
+        "FROM products "
+        "WHERE json_extract(brand, '$.value') IS NOT NULL "
+        "ORDER BY v ASC"
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def list_series_options(conn: sqlite3.Connection, brand: str) -> list[str]:
+    """DISTINCT series values for ``brand``; NULL surfaces as ``"—"``.
+
+    Result is alphabetical ascending, with the NULL sentinel sorted in by
+    its codepoint (em dash sorts after ASCII letters).
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT json_extract(series, '$.value') AS v "
+        "FROM products "
+        "WHERE json_extract(brand, '$.value') = ? "
+        "ORDER BY v ASC",
+        (brand,),
+    ).fetchall()
+    return [r[0] if r[0] is not None else _SERIES_NULL_SENTINEL for r in rows]
+
+
+def list_product_options(
+    conn: sqlite3.Connection, brand: str, series: Optional[str]
+) -> list[str]:
+    """DISTINCT product names for ``(brand, series)``, alphabetical.
+
+    ``series=None`` matches rows where ``series IS NULL``; otherwise the
+    ``$.value`` path is compared to ``series``.
+    """
+    if series is None:
+        sql = (
+            "SELECT DISTINCT product FROM products "
+            "WHERE json_extract(brand, '$.value') = ? "
+            "AND series IS NULL "
+            "ORDER BY product ASC"
+        )
+        params: tuple = (brand,)
+    else:
+        sql = (
+            "SELECT DISTINCT product FROM products "
+            "WHERE json_extract(brand, '$.value') = ? "
+            "AND json_extract(series, '$.value') = ? "
+            "ORDER BY product ASC"
+        )
+        params = (brand, series)
+    rows = conn.execute(sql, params).fetchall()
+    return [r[0] for r in rows]
+
+
+def list_years_for_product(
+    conn: sqlite3.Connection,
+    brand: str,
+    series: Optional[str],
+    product: str,
+) -> list[int]:
+    """DESC year list for the exact ``(brand, series, product)`` identity."""
+    if series is None:
+        sql = (
+            "SELECT year FROM products "
+            "WHERE json_extract(brand, '$.value') = ? "
+            "AND series IS NULL "
+            "AND product = ? "
+            "ORDER BY year DESC"
+        )
+        params: tuple = (brand, product)
+    else:
+        sql = (
+            "SELECT year FROM products "
+            "WHERE json_extract(brand, '$.value') = ? "
+            "AND json_extract(series, '$.value') = ? "
+            "AND product = ? "
+            "ORDER BY year DESC"
+        )
+        params = (brand, series, product)
+    rows = conn.execute(sql, params).fetchall()
+    return [r[0] for r in rows]
+
+
+def load_product_rows(
+    conn: sqlite3.Connection,
+    brand: str,
+    series: Optional[str],
+    product: str,
+    years: list[int],
+    statuses: list[str],
+) -> list[dict]:
+    """Fully load every ``(product, year)`` row matching the picker filters.
+
+    Filtering rules:
+      - empty ``years`` -> include all years for that product identity
+      - empty ``statuses`` -> include all rows regardless of status
+      - otherwise: include row if ``status.value IN statuses`` OR
+        ``status IS NULL`` (NULL is treated as Active; 0/76 rows have
+        status set today).
+
+    Each returned dict is the same shape that ``views.load.load_product``
+    produces (every bundle column decoded). The loader keys on
+    ``model_code`` so we resolve that per row before delegating.
+    """
+    # Local import keeps ``db.helpers`` free of a module-level dependency on
+    # the ``views`` package (which itself depends on ``db``).
+    from ..views.load import load_product
+
+    if series is None:
+        base_sql = (
+            "SELECT model_code, year, json_extract(status, '$.value') AS status_v "
+            "FROM products "
+            "WHERE json_extract(brand, '$.value') = ? "
+            "AND series IS NULL "
+            "AND product = ?"
+        )
+        base_params: list = [brand, product]
+    else:
+        base_sql = (
+            "SELECT model_code, year, json_extract(status, '$.value') AS status_v "
+            "FROM products "
+            "WHERE json_extract(brand, '$.value') = ? "
+            "AND json_extract(series, '$.value') = ? "
+            "AND product = ?"
+        )
+        base_params = [brand, series, product]
+
+    clauses: list[str] = []
+    params: list = list(base_params)
+    if years:
+        clauses.append("year IN (" + ", ".join(["?"] * len(years)) + ")")
+        params.extend(years)
+    if statuses:
+        placeholders = ", ".join(["?"] * len(statuses))
+        clauses.append(
+            f"(status_v IN ({placeholders}) OR status_v IS NULL)"
+        )
+        params.extend(statuses)
+    sql = base_sql
+    if clauses:
+        sql += " AND " + " AND ".join(clauses)
+    sql += " ORDER BY year DESC"
+
+    rows = conn.execute(sql, params).fetchall()
+    out: list[dict] = []
+    for row in rows:
+        out.append(load_product(conn, row["model_code"], row["year"]))
+    return out
