@@ -10,7 +10,7 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 
 ## Next
 - Stage 11 Phase 8 spot-checks — year-rule curation applied S52 (2025/2026 → Active 24+20; 2023/2024 → Discontinued 3+9); walk older-year Discontinued rows for products still on sale and correct as needed — Session 52
-- Stage 10c — Review queue triage redesign — filter / sort / grouping for the 229 unresolved Lenovo rows + friendly labels (no `value_dis` / `low_conf` abbreviations); gated behind Stage 11 implementation — Session 43
+- Stage 10c — Review queue triage redesign — **brainstorm locked S53**: master-detail kept; sidebar tree = product folder → conflict-type sub-folder → row leaf; top controls = filter chips (`All / Value mismatch / Low confidence / Catalog vouch / Year guess`) + sort (`Most open first` default / `A → Z by name`) + product search; fully-resolved products hide; friendly labels replace `value_dis` / `low_conf` / `new_chip` / `year_inf` across sidebar + detail headers. Phasing: P1 friendly-label swap → P2 sidebar tree → P3 chips+sort+search → P4 done-hides+counts — Session 53
 - Small UI polish brainstorm — user-flagged at S46 close; eclipsed by Stage 11 brainstorm in S47; still pending; surface after Stage 11 wraps — Session 46
 
 ## Deferred

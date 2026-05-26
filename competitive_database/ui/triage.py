@@ -1,16 +1,16 @@
 """Review queue triage — sidebar list + main panel detail.
 
-T8.5 scope: first UI write path. Lists every unresolved ``review_queue``
-row in a left-rail list; selecting a row loads its existing-vs-candidate
-diff into the right-hand panel with four action buttons matching the
-``resolve`` CLI verbs (``accept_candidate`` / ``kept_existing`` /
-``manual_override`` / ``dropped``).
+Lists every unresolved ``review_queue`` row in a left-rail list;
+selecting a row loads its existing-vs-candidate diff into the right-hand
+panel with action buttons matching the ``resolve`` CLI verbs
+(``accept_candidate`` / ``kept_existing`` / ``manual_override`` /
+``dropped``).
 
 Writes route through :func:`competitive_database.cli.resolve.resolve_row`
-— the same handler the CLI uses, re-callable as a library function after
-the Session 31 refactor. ``new_chip_unverified`` rows get the catalog
-vouching dispatch (only ``accept_candidate`` / ``dropped`` are valid);
-the UI greys out the inapplicable buttons.
+— the same handler the CLI uses, re-callable as a library function.
+``new_chip_unverified`` rows get the catalog vouching dispatch (only
+``accept_candidate`` / ``dropped`` are valid); the UI hides the
+inapplicable buttons.
 """
 
 from __future__ import annotations
@@ -24,22 +24,70 @@ import streamlit as st
 
 from competitive_database.cli.resolve import coerce_value_string, resolve_row
 from competitive_database.ui import theme
+from competitive_database.ui._components import _bundle_value, _product_name
 from competitive_database.ui._markers import MARKER_COLORS
 from competitive_database.views.formatting import marker_for_bundle
 
 _QUEUE_COLS = (
-    "id, product_model_code, product_year, field_path, conflict_type, "
-    "existing_value, existing_provenance, candidate_value, "
-    "candidate_provenance, detected_at"
+    "rq.id, rq.product_model_code, rq.product_year, rq.field_path, "
+    "rq.conflict_type, rq.existing_value, rq.existing_provenance, "
+    "rq.candidate_value, rq.candidate_provenance, rq.detected_at, "
+    "p.vendor_full_name AS _product_vfn"
 )
+
+# Friendly labels for the 4 ``review_queue.conflict_type`` enum values.
+# Surfaced on sidebar headers + detail-pane caption; the raw enum stays
+# as the DB-internal identifier (used by resolve / ingest paths).
+_CONFLICT_LABELS: dict[str, str] = {
+    "value_disagreement": "Value mismatch",
+    "low_confidence_extraction": "Low confidence",
+    "new_chip_unverified": "Catalog vouch",
+    "year_inferred": "Year guess",
+}
+_CONFLICT_LABELS_PLURAL: dict[str, str] = {
+    "value_disagreement": "Value mismatches",
+    "low_confidence_extraction": "Low confidence",
+    "new_chip_unverified": "Catalog vouches",
+    "year_inferred": "Year guesses",
+}
+# Canonical order for conflict-type sub-folders within a product folder.
+_CT_ORDER: tuple[str, ...] = tuple(_CONFLICT_LABELS.keys())
 
 
 def _list_unresolved(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
-        f"SELECT {_QUEUE_COLS} FROM review_queue "
-        "WHERE resolved_at IS NULL ORDER BY id"
+        f"SELECT {_QUEUE_COLS} FROM review_queue rq "
+        "LEFT JOIN products p ON p.model_code = rq.product_model_code "
+        "  AND p.year = rq.product_year "
+        "WHERE rq.resolved_at IS NULL ORDER BY rq.id"
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def _pkey(row: dict[str, Any]) -> str:
+    """Stable string key for a (model_code, year) pair."""
+    return f"{row['product_model_code']}:{row['product_year']}"
+
+
+def _ckey(row: dict[str, Any]) -> str:
+    """Stable string key for a (product, conflict_type) pair."""
+    return f"{_pkey(row)}|{row['conflict_type']}"
+
+
+def _friendly_product_name(row: dict[str, Any]) -> str:
+    """Friendly product name for a queue row's product, or model_code fallback."""
+    vfn = _bundle_value(row.get("_product_vfn"))
+    return _product_name(vfn, row["product_model_code"], int(row["product_year"]))
+
+
+def _group_by_product_and_type(
+    rows: list[dict[str, Any]],
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """{pkey: {conflict_type: [rows...]}} preserving row order from the query."""
+    groups: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for r in rows:
+        groups.setdefault(_pkey(r), {}).setdefault(r["conflict_type"] or "?", []).append(r)
+    return groups
 
 
 def _decode_json(raw: Any) -> Any:
@@ -135,20 +183,6 @@ def _render_new_chip_panel(value_json: Any, provenance: Any) -> None:
                 st.caption(f"{label_str}: {val}")
 
 
-def _summarize_for_sidebar(row: dict[str, Any]) -> str:
-    """One-line label for a queue row in the left rail."""
-    mc = row["product_model_code"] or "?"
-    short_mc = mc[:16] + "…" if len(mc) > 17 else mc
-    ct = row["conflict_type"] or "?"
-    ct_short = {
-        "value_disagreement": "value_dis",
-        "low_confidence_extraction": "low_conf",
-        "new_chip_unverified": "new_chip",
-        "year_inferred": "year_inf",
-    }.get(ct, ct)
-    return f"#{row['id']} · {short_mc} · {ct_short}"
-
-
 def _resolve_and_advance(
     conn: sqlite3.Connection,
     row_id: int,
@@ -198,8 +232,8 @@ def _render_actions(
             _resolve_and_advance(conn, rid, "dropped")
             st.rerun()
         st.caption(
-            "`kept_existing` / `manual_override` aren't valid for "
-            "`new_chip_unverified` rows — `existing_value` is always NULL."
+            "Catalog-vouch rows only support Accept or Drop — there's no "
+            "existing value to keep, and manual override doesn't apply."
         )
         return
 
@@ -281,8 +315,9 @@ def _render_detail(
 
     st.markdown(f"### Row #{rid} · `{mc}` · {yr}")
     detected = row.get("detected_at") or "?"
+    ct_label = _CONFLICT_LABELS.get(ct, ct)
     st.caption(
-        f"conflict: `{ct}` · field: `{fp}` · detected: {detected}"
+        f"{ct_label} · field: `{fp}` · detected: {detected}"
     )
 
     existing_v = _decode_json(row["existing_value"])
@@ -307,19 +342,94 @@ def _render_sidebar(
     rows: list[dict[str, Any]],
     selected_id: int,
 ) -> None:
+    """Two-level collapsible tree: product folder → conflict-type sub-folder → row leaf.
+
+    State held in `queue_expanded_products` + `queue_expanded_cts` (sets
+    of pkey / ckey strings). The path to the selected row auto-expands
+    on selection change (tracked via `queue_last_auto_expanded_for`)
+    but does not re-expand if the user explicitly collapses a folder
+    that already contains the current selection.
+    """
     st.markdown(f"**Queue ({len(rows)})**")
-    for r in rows:
-        is_sel = r["id"] == selected_id
-        label = _summarize_for_sidebar(r)
-        clicked = st.button(
-            label,
-            key=f"queue-pick-{r['id']}",
+
+    expanded_products: set[str] = st.session_state.setdefault(
+        "queue_expanded_products", set()
+    )
+    expanded_cts: set[str] = st.session_state.setdefault(
+        "queue_expanded_cts", set()
+    )
+
+    # Auto-expand the path to the selected row, but only when the
+    # selection changes — so an explicit collapse by the user sticks.
+    last_auto = st.session_state.get("queue_last_auto_expanded_for")
+    if last_auto != selected_id:
+        sel_row = next((r for r in rows if r["id"] == selected_id), None)
+        if sel_row is not None:
+            expanded_products.add(_pkey(sel_row))
+            expanded_cts.add(_ckey(sel_row))
+        st.session_state["queue_last_auto_expanded_for"] = selected_id
+
+    groups = _group_by_product_and_type(rows)
+    # Build a friendly-name lookup for sort + label.
+    name_for_pkey = {
+        pkey: _friendly_product_name(next(iter(ct_rows.values()))[0])
+        for pkey, ct_rows in groups.items()
+    }
+
+    def _ct_sort_key(ct: str) -> int:
+        return _CT_ORDER.index(ct) if ct in _CT_ORDER else len(_CT_ORDER)
+
+    for pkey in sorted(groups.keys(), key=lambda k: name_for_pkey[k].lower()):
+        product_total = sum(len(rs) for rs in groups[pkey].values())
+        friendly = name_for_pkey[pkey]
+        is_open = pkey in expanded_products
+        chevron = "▾" if is_open else "▸"
+        if st.button(
+            f"{chevron} {friendly}  ({product_total} open)",
+            key=f"queue-prod-{pkey}",
             use_container_width=True,
-            type=("primary" if is_sel else "secondary"),
-        )
-        if clicked and not is_sel:
-            st.session_state["queue_selected_id"] = r["id"]
+        ):
+            if is_open:
+                expanded_products.discard(pkey)
+            else:
+                expanded_products.add(pkey)
             st.rerun()
+
+        if not is_open:
+            continue
+
+        for ct in sorted(groups[pkey].keys(), key=_ct_sort_key):
+            ct_rows = groups[pkey][ct]
+            ct_label = _CONFLICT_LABELS_PLURAL.get(ct, ct)
+            ct_key = f"{pkey}|{ct}"
+            is_ct_open = ct_key in expanded_cts
+            ct_chevron = "▾" if is_ct_open else "▸"
+            if st.button(
+                f" {ct_chevron} {ct_label}  ({len(ct_rows)})",
+                key=f"queue-ct-{ct_key}",
+                use_container_width=True,
+            ):
+                if is_ct_open:
+                    expanded_cts.discard(ct_key)
+                else:
+                    expanded_cts.add(ct_key)
+                st.rerun()
+
+            if not is_ct_open:
+                continue
+
+            for r in ct_rows:
+                is_sel = r["id"] == selected_id
+                leaf_label = f"  #{r['id']} · {r['field_path']}"
+                clicked = st.button(
+                    leaf_label,
+                    key=f"queue-pick-{r['id']}",
+                    use_container_width=True,
+                    type=("primary" if is_sel else "secondary"),
+                )
+                if clicked and not is_sel:
+                    st.session_state["queue_selected_id"] = r["id"]
+                    st.rerun()
 
 
 def render(conn: sqlite3.Connection, *, db_path: str) -> None:

@@ -6,6 +6,104 @@ Newest sessions at the top.
 
 ---
 
+## Session 53 — 2026-05-26 (Stage 10c — brainstorm locked + P1 friendly-label swap + P2 sidebar tree restructure; tests 525/525 green throughout)
+
+**Goal:** Pick up Stage 10c (review queue triage redesign), which was queued behind Stage 11 (closed S52). Redesign is purely UI/UX — no data-layer change. Lock the layout, fix the abbreviated conflict-type IDs (`value_dis` / `low_conf` / `new_chip` / `year_inf`), and start shipping the phases.
+
+**Outcome:** Brainstorm complete; 5 design questions locked via `AskUserQuestion` mockup batches. Phase 1 (friendly-label swap) and Phase 2 (sidebar tree restructure) both shipped in this session. Tests stayed at 525/525.
+
+### Brainstorm (locked S53)
+
+Five design questions, each with side-by-side ASCII mockups in the preview field. User picks captured below; each is a hard lock for downstream phases.
+
+1. **Layout slice** — user picked **"Group by product"** over Group-by-problem-type / Group-by-field-batch / Flat-list-with-filter-chips. Each laptop becomes a folder with its open issues underneath; the implicit workflow is "clear one laptop at a time."
+2. **Row format inside product folder** — user picked **"Grouped by conflict type"** over Compact-one-liner / Inline-diff-cards. Two levels of folders: product → conflict-type → row. Detail pane stays on the right.
+3. **Top-of-sidebar controls** — user picked **"Chips + sort, done hides"** over alternatives that retained done products in a divider or pinned vouch rows. Filter chips for the 4 conflict types + sort dropdown + product search; fully-resolved products disappear from the tree.
+4. **Friendly label wording** — user picked **"Plain-English nouns"** over Action-framed / Descriptive-sentences. Chips read `Value mismatch` / `Low confidence` / `Catalog vouch` / `Year guess`; sub-folder headers use the plural form (Low confidence stays unchanged — quantity descriptor).
+5. **Sort dropdown options** — user picked **"Volume + alphabetical"** (two options) over the 5-option volume+age+alphabetical or the chrome-free minimal-volume-only variant.
+
+### Doc-tracking clarification (mid-session, user-corrected)
+
+Initially proposed creating `docs/STAGE10C_DESIGN.md`. User correctly flagged that Stage 10c is a redesign of an existing screen — no new feature, no new data model, no new dependencies — and asked whether this would be new doc creation or an update to an existing doc. Honest correction: there's no Stage 10 design doc in `docs/`; Stages 10a + 10b were tracked via SESSION_LOG + TASKS + README updates as phases shipped, with the dedicated audit doc pattern (`STAGE11_AUDIT.md`) belonging to Stage 11 alone. User picked **"Match 10a/10b pattern"** — TASKS.md row + SESSION_LOG entries per phase + the private `stage10_design.md` memory file as the working design log. No new file under `docs/`.
+
+### Phase 1 — Friendly-label swap (DONE S53)
+
+Smallest possible slice. New `_CONFLICT_LABELS` module-level constant in `competitive_database/ui/triage.py` mapping the 4 `conflict_type` enum values:
+
+| `conflict_type` enum | Friendly label |
+|---|---|
+| `value_disagreement` | Value mismatch |
+| `low_confidence_extraction` | Low confidence |
+| `new_chip_unverified` | Catalog vouch |
+| `year_inferred` | Year guess |
+
+Replaces:
+- The inline-dict abbreviation map in `_summarize_for_sidebar` (was `value_dis` / `low_conf` / `new_chip` / `year_inf`).
+- The raw `{ct}` enum in the detail-pane caption (line 285 area), now showing the friendly label without the redundant `conflict:` prefix.
+- The internal-jargon explanatory caption shown on `new_chip_unverified` action rows (was `\`kept_existing\` / \`manual_override\` aren't valid for \`new_chip_unverified\` rows — \`existing_value\` is always NULL`; now `Catalog-vouch rows only support Accept or Drop — there's no existing value to keep, and manual override doesn't apply`).
+
+Docstring carve-out folded in (the explicit fold-into-10c TODO from S43 cleanup):
+- `ui/triage.py` module docstring dropped its `T8.5 scope: first UI write path.` prefix + the Session-31-refactor self-reference.
+- `ui/__init__.py` module docstring dropped its `(Stage 8 / Phase 2)` + `T8.0 scope: skeleton + launch.` references.
+
+No test changes — `tests/ui/test_triage_apptest.py` asserts on the `Accept candidate` button label + resolved-row success-banner shape, neither of which P1 touched.
+
+### Phase 2 — Sidebar tree restructure (DONE S53)
+
+`_render_sidebar` rewritten from a flat per-row button list into a 2-level collapsible tree:
+- **Level 1** — product folder header: `▾/▸ {friendly_name}  ({N} open)`.
+- **Level 2** — conflict-type sub-folder header: ` ▾/▸ {plural_label}  ({k})`.
+- **Level 3** — row leaf button: `  #{id} · {field_path}`. Click writes `queue_selected_id`; detail-pane wiring unchanged.
+
+Toggle pattern matches the Edit screen's `edit.active_rows` precedent: a session-state `set[str]` per level (`queue_expanded_products` + `queue_expanded_cts`); button click adds/discards a key + `st.rerun()`. No `st.expander` nesting (Streamlit forbids it).
+
+Friendly product names come from a new LEFT JOIN: `_list_unresolved` now joins `products` on `(model_code, year)` and selects `vendor_full_name AS _product_vfn`. Cross-module import of `_bundle_value` + `_product_name` from `ui/_components.py` (precedent already set in `ui/refresh.py:34`). Fallback: model_code if VFN missing or product row absent.
+
+**Auto-expand on selection change** — when `selected_id` differs from `queue_last_auto_expanded_for`, the selected row's pkey + ckey are added to the expanded sets and the last-auto field is updated. Consequence: (a) first render auto-opens the selected row's path, (b) resolving a row auto-opens the next row's path, (c) explicit user collapse sticks (no rerun-time re-expand).
+
+New helpers in `triage.py`:
+- `_pkey(row)` → `"{model_code}:{year}"` — stable product key
+- `_ckey(row)` → `"{pkey}|{conflict_type}"` — stable (product, conflict_type) key
+- `_friendly_product_name(row)` → decoded VFN or model_code fallback
+- `_group_by_product_and_type(rows)` → `dict[pkey, dict[ct, list[row]]]`
+
+New constants alongside `_CONFLICT_LABELS`:
+- `_CONFLICT_LABELS_PLURAL` — plural form for sub-folder headers
+- `_CT_ORDER` — canonical conflict-type order tuple
+
+Removed: `_summarize_for_sidebar` (was the flat one-line label helper from pre-P1).
+
+Tests stayed at 525/525 green — the existing AppTest exercises the tree implicitly via the auto-expand-to-selected-row path on a single seeded row.
+
+### Files touched this session
+
+**Code:**
+- `competitive_database/ui/triage.py` — P1 + P2 combined: friendly labels + JOIN + tree restructure + helpers
+- `competitive_database/ui/__init__.py` — module docstring cleaned (T8 scope references dropped)
+
+**Tests:** none touched; suite stayed at 525/525.
+
+**Docs:** `docs/SESSION_LOG.md` (this entry), `docs/TASKS.md` (Stage 10c row expanded with brainstorm-locked design + 4-phase plan; row also annotated S53), `README.md` (Stage 10c paragraph added under §Status; Stage 11 paragraph's trailing "10c queued" sentence removed since it's no longer accurate).
+
+### Decisions made this session
+
+1. **Stage 10c uses the 10a/10b doc pattern, not the Stage 11 dedicated-doc pattern.** TASKS row + SESSION_LOG entries + private memory file as the working design log. No `docs/STAGE10C_DESIGN.md`.
+2. **Group by product, then conflict-type within product.** Locked from the layout brainstorm; the implicit workflow is "clear one laptop at a time."
+3. **Filter chips + sort dropdown + product search at the top; done products hide.** Locked from the controls brainstorm. No "Done" section / audit trail in the sidebar.
+4. **Friendly labels are plain-English nouns.** `Value mismatch / Low confidence / Catalog vouch / Year guess` over action-framed (`Pick a value / Verify value / Approve catalog / Confirm year`) or descriptive-sentence (`Disagreed value / Uncertain extraction / New chip in catalog / Inferred year`) alternatives.
+5. **Sort dropdown stays minimal — two options.** `Most open first` (default) + `A → Z by name`.
+6. **Auto-expand path to the selected row, on selection change only.** Explicit user collapse of a folder containing the current selection sticks; no re-expand on rerun.
+7. **Tree state lives in two `set[str]` keys** (`queue_expanded_products` + `queue_expanded_cts`) matching the Edit screen's `edit.active_rows` precedent — chosen over `st.expander` (Streamlit forbids nesting them) or a dict-of-sets shape.
+
+### Pickup pointers for next session
+
+- **Stage 10c P3** — filter chips + sort dropdown + product search at the top of the sidebar above the tree. Chip selection narrows the displayed conflict-type sub-folders (and trickles up: empty product folders hide while a non-`All` chip is active). Sort dropdown reorders the product folder list (`Most open first` default; `A → Z by name`). Search filters product folders by substring on the friendly name. All three operate in-memory on the already-loaded `rows` — no query change needed.
+- **Stage 10c P4** — done-hides behavior + counts wire-through. Auto-hide products with zero open rows after resolution; update header `({N} open)` counts in real time; verify chip narrow-by counts reflect the active product-filter intersection.
+- **Eyeball the new tree on real data** — Streamlit dev server hasn't been spun up this session. Tests verify correctness, not feel. Worth opening `python -m competitive_database ui` before P3 to make sure the indented buttons + chevrons read cleanly against the 229 Lenovo rows.
+- **Status curation spot-checks** (carryover from S52) — walk the 12 Discontinued (2023/2024) rows for products still on sale.
+
+---
+
 ## Session 52 — 2026-05-26 (Stage 11 Phase 7 — Find narrow-by reshape + Phase 8 tests/docs slice + status curation; tests 521 → 525 green)
 
 **Goal:** Land Stage 11 Phase 7 per the Session 51 pickup pointer. The Find result card identity line was already correct after P6 (3 crumbs + echo), but the narrow-by chips above the results still mirrored the legacy 3-selectbox shape (Company / Series / Year with an `(any)` sentinel). Reshape them onto the new Brand → Series → Product picker + Year/Status pill toggles from Phase 3, then start the Phase 8 wrap (tests slice + docs alignment). Status curation was initially deferred mid-session, then folded back in after a follow-up user call to apply a rough year-based rule across all 56 products.
