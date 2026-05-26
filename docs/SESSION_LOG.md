@@ -6,6 +6,55 @@ Newest sessions at the top.
 
 ---
 
+## Session 52 — 2026-05-26 (Stage 11 Phase 7 — Find narrow-by reshape + Phase 8 tests/docs slice + status curation; tests 521 → 525 green)
+
+**Goal:** Land Stage 11 Phase 7 per the Session 51 pickup pointer. The Find result card identity line was already correct after P6 (3 crumbs + echo), but the narrow-by chips above the results still mirrored the legacy 3-selectbox shape (Company / Series / Year with an `(any)` sentinel). Reshape them onto the new Brand → Series → Product picker + Year/Status pill toggles from Phase 3, then start the Phase 8 wrap (tests slice + docs alignment). Status curation was initially deferred mid-session, then folded back in after a follow-up user call to apply a rough year-based rule across all 56 products.
+
+**Outcome:** Stage 11 Phase 7 shipped. `ui/find.py::_render_narrow_by` rewritten end-to-end against `brand_series_product_picker` + `year_toggle_block` + `status_toggle_block`. Partial picks narrow (Brand-only is valid — not a strict cascade; user-locked UX decision). Phase 8 shipped in full this session: tests slice (+4 new, 2 fixed for the new shape), docs alignment, **plus the status curation pass** — all 56 products now carry a curated `status` bundle via a one-shot year-based rule (24 + 20 = 44 → Active; 3 + 9 = 12 → Discontinued). Test suite **521 → 525** (+4 net); no regressions.
+
+### Narrow-by reshape
+
+Legacy shape (pre-P7): three side-by-side selectboxes — Company, Series, Year — each carrying an `_ANY = "(any)"` sentinel as the first option. Picking `(any)` meant "don't narrow on this axis." Series options were keyed under `find.narrow.company` / `.series` / `.year`.
+
+New shape: a `brand_series_product_picker(conn, key_prefix="find", strict=True)` block plus a `year_toggle_block` pill row plus a `status_toggle_block` pill row, sitting under a single `Narrow by` label. Partial picks narrow naturally — picking only Brand narrows to that brand across all series/products; picking Brand + Series narrows further; picking through to Product narrows to one row. The Year pill row is scoped to products consistent with the upstream Section/Feature/Match/Value query so only useful years surface. Status defaults to empty (no filter) — different from Browse/Compare's Active default, because Find is exploratory and the user shouldn't get silent Discontinued filtering on top of an explicit query.
+
+### Partial-pick decision — locked
+
+The picker is NOT a strict cascade for Find's narrow-by purposes. The user explicitly chose "Brand-only is a valid narrow" so the explore-by-vendor workflow keeps working without forcing the user to drill all the way to a single product. `_render_narrow_by` reads `find.brand` / `find.series` / `find.product` directly from session state and treats `"—"` (the picker's NULL-series sentinel) and `None` identically as "not picked."
+
+### Curation slice (folded into Phase 8 mid-session)
+
+After the tests + docs slice landed and curation was initially deferred, the user called the rule in plain language — "anything 2025 or 2026 → Active. for all, not just ASUS. we will correct if needed later" — and a follow-up assigned 2023 + 2024 to Discontinued. Rough by design; spot-checks for products still being sold despite year ≤ 2024 are expected later.
+
+Applied via one-shot `scripts/curate_status_session52.py` (idempotent; uses the canonical `make_manual_bundle` + `write_scalar` helpers so each row gets a real manual provenance bundle: `status="vouched"`, `entered_by="session52-curation"`, `source_note` quoting the rule). Year split across all 56 products: **2025 → Active (24)**, **2026 → Active (20)**, **2023 → Discontinued (3)**, **2024 → Discontinued (9)**. **0/56 → 56/56 curated.** DB backup taken at `competitive.db.stage11-backup-pre-session52-curation` before writes. Test suite stayed at 525/525 — no test changes, the curation just fills the `products.status` JSON column that was empty before.
+
+### Files touched this session
+
+**Code:**
+- `competitive_database/ui/find.py` — `_render_narrow_by` rewritten (+69 / −72); narrow-by section now consumes the Phase 3 components; legacy `_ANY` sentinel + `find.narrow.company` / `.series` / `.year` session keys removed; new `cd-find__narrow-label` CSS class added for visual continuity with the upstream `cd-find__label` markers
+- `scripts/curate_status_session52.py` — one-shot curation script; reads every row in `products`, derives the rule from `year`, writes a manual `status` bundle via `make_manual_bundle` + `write_scalar`
+
+**Tests:**
+- `tests/ui/test_find_apptest.py` — 2 existing tests updated for the new narrow-by shape (legacy selectbox assertions → picker + pill assertions); 4 new tests covering brand-only narrow, brand+series narrow, year pill filter, and status pill filter
+
+**Docs:** `docs/SESSION_LOG.md` (this entry), `docs/TASKS.md` (Phase 7 DONE; Phase 8 row updated to "tests + docs + curation done; spot-checks for older years follow-up"), `docs/STAGE11_AUDIT.md` (Phase 7 SHIPPED annotation + Phase 8 SHIPPED annotation with curation rule block), `README.md` (status line bumped + test count 521 → 525 + Phase 8 done), `docs/ARCHITECTURE.md` (find.py shape updated to reflect new narrow-by block + Stage 11 paragraph reflects 56/56 curated).
+
+### Decisions made this session
+
+1. **Brand-only narrow is valid (not strict cascade).** Find's narrow-by deliberately accepts partial picks at any rung. Strict cascade lives on Browse + Compare where the goal is "resolve to one product"; Find's goal is "narrow the result set," and brand-only narrow is a real use case.
+2. **Status defaults to empty in Find.** Browse + Compare default Active; Find defaults to no-filter so an explicit query doesn't get silently filtered by status on top.
+3. **Year pills are scoped to base matches.** Only years present in products that already match the Section/Feature/Match/Value query surface as pills — avoids "year pill with zero hits" friction.
+4. **Status curation applied via year-based rule.** Initially deferred mid-session as "product-by-product judgment"; the user then locked a rough year rule ("anything 2025 or 2026 → Active. for all, not just ASUS. we will correct if needed later") with 2023/2024 → Discontinued via follow-up. Applied to all 56 rows in one shot; spot-checks for products still being sold despite year ≤ 2024 are the explicit follow-up.
+
+### Pickup pointers for next session
+
+- **Stage 10c** — review queue triage redesign (filter / sort / grouping for the 229 unresolved Lenovo rows + friendly labels). Was queued behind Stage 11; Stage 11 is now effectively done.
+- **Acer / MSI onboarding** — Tier 2 fetchers in `scrapers-lib` still upstream-blocked; revisit if/when those land.
+- **Status curation spot-checks** — the year rule painted with a broad brush. Walk the 12 Discontinued rows (3 × 2023 + 9 × 2024) and flip any that are still on sale; same in reverse if any 2025/2026 row turns out to be discontinued.
+- **Phase 1.5 follow-up** — strict callsite rename + drop the helpers compat shim + remove the zero-caller legacy components (`comparison_grid_html`, `_product_header`, `_segment_line_html`, `cascading_picker` now that Find no longer calls it). Still deferred.
+
+---
+
 ## Session 51 — 2026-05-26 (Stage 11 Phase 6 — echo-parent display rule across Browse + Compare + Find; tests 508 → 521 green)
 
 **Goal:** Land Stage 11 Phase 6 per the Session 47 plan and the Session 50 pickup pointer. When a product's `sub_brand` is NULL (e.g. TUF, Victus, LOQ, V), the identity strip / comparison column header / Find result card should still show a value at that rung — the nearest non-null ancestor rendered in italic-faint. Same rule for `series`. Pure rendering layer; no schema, no data, no CLI surface changes.

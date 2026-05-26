@@ -12,6 +12,21 @@
 
 **Phase 6 SHIPPED 2026-05-26 (Session 51):** Echo-parent display rule — when a product's `sub_brand` is NULL, the nearest non-null ancestor (brand) renders in italic-faint in its slot; when `series` is NULL, the nearest non-null ancestor (sub_brand if populated, else brand) renders the same way. Pure rendering layer — no schema, no data, no CLI changes. New helper `_echo_parent_for_leaf(key, product) -> tuple[str | None, bool]` in `competitive_database/ui/_components.py` returns `(own_value, False)` / `(echoed_parent, True)` / `(None, False)` based on the leaf + parent chain. New CSS class `cd-identity__value--echo` (Browse + Compare identity strips) and `cd-findcard__crumb--echo` (Find result cards) both consume the existing `--cd-text-faint` token. **Mixed-case stays plain (locked):** in a union strip, if some rows have a real `sub_brand` and others are NULL, the cell renders the real value plain — echo only fills total-absence, never appears alongside a real value at the same rung. **Find card always emits 3 crumbs (locked):** brand + sub_brand-or-echo + series-or-echo + year; previously omitted null crumbs. Surfaces affected: Browse identity strip, Compare union grid, Find result card. Tests 508 → 521 green (+13).
 
+**Phase 7 SHIPPED 2026-05-26 (Session 52):** Find narrow-by reshape — `ui/find.py::_render_narrow_by` rewritten end-to-end against the Phase 3 components. Legacy 3-selectbox shape (Company / Series / Year with `_ANY = "(any)"` sentinel) replaced by `brand_series_product_picker(conn, key_prefix="find", strict=True)` + `year_toggle_block` (scoped to products consistent with the upstream Section/Feature/Match/Value query) + `status_toggle_block` (default empty — no filter, unlike Browse/Compare's Active default). **Partial picks narrow (locked):** Brand-only is a valid narrow — strict cascade is intentionally rejected here because Find's goal is "narrow the result set," not "resolve to one product." Legacy session keys (`find.narrow.company` / `.series` / `.year`) and the `_ANY` sentinel removed. New CSS class `cd-find__narrow-label` for visual continuity. Pure UI layer — no schema, no data, no CLI changes. Tests 521 → 525 green (+4 new, 2 fixed for the new shape).
+
+**Phase 8 SHIPPED 2026-05-26 (Session 52):** Tests slice + docs alignment shipped (this entry + SESSION_LOG + TASKS + README + ARCHITECTURE) **plus the status curation pass** — all 56 products now carry a manual `status` provenance bundle (0/56 → 56/56). Applied via one-shot `scripts/curate_status_session52.py` (idempotent; uses canonical `make_manual_bundle` + `write_scalar` helpers; each bundle carries `status="vouched"`, `entered_by="session52-curation"`, `source_note` quoting the rule). DB backup taken at `competitive.db.stage11-backup-pre-session52-curation` before writes.
+
+**Curation rule applied:**
+
+| year | status | rows |
+|---|---|---|
+| 2025 | Active | 24 |
+| 2026 | Active | 20 |
+| 2023 | Discontinued | 3 |
+| 2024 | Discontinued | 9 |
+
+Total 44 Active + 12 Discontinued = 56. Rule is intentionally rough — user locked the year-based pass in plain language ("anything 2025 or 2026 → Active. for all, not just ASUS. we will correct if needed later") with 2023/2024 → Discontinued via follow-up. Follow-up: spot-check the 12 Discontinued rows for products still on sale and flip them to Active as needed; same in reverse for any 2025/2026 row that turns out to be discontinued.
+
 This file is the source of truth for the Phase 2 data-recurate step. The migration script reads it row-by-row.
 
 ---
