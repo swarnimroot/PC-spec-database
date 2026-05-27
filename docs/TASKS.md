@@ -10,8 +10,8 @@ Phasing principle: foundation first, then the smallest end-to-end slice (one ven
 
 ## Next
 - Stage 11 Phase 8 spot-checks — year-rule curation applied S52 (2025/2026 → Active 24+20; 2023/2024 → Discontinued 3+9); walk older-year Discontinued rows for products still on sale and correct as needed — Session 52
-- Stage 10c — Review queue triage redesign — **brainstorm locked S53**: master-detail kept; sidebar tree = product folder → conflict-type sub-folder → row leaf; top controls = filter chips (`All / Value mismatch / Low confidence / Catalog vouch / Year guess`) + sort (`Most open first` default / `A → Z by name`) + product search; fully-resolved products hide; friendly labels replace `value_dis` / `low_conf` / `new_chip` / `year_inf` across sidebar + detail headers. Phasing: P1 friendly-label swap → P2 sidebar tree → P3 chips+sort+search → P4 done-hides+counts — Session 53
-- Small UI polish brainstorm — user-flagged at S46 close; eclipsed by Stage 11 brainstorm in S47; still pending; surface after Stage 11 wraps — Session 46
+- Stage 10c — Review queue triage redesign — **brainstorm locked S53**; P1 friendly-label swap + P2 sidebar tree restructure SHIPPED S53; **P3 (filter chips + sort + product search) + P4 (done-hides + counts) PARKED — post-commit user feedback S53 flagged the tree shape itself as too click-heavy ("very difficult to understand, involves a lot of clicks and steps before being able to take any action"); queued phases don't fix the underlying problem**; fresh triage UX brainstorm needed anchored on minimizing clicks to act on a row — Session 53
+- Small UI polish brainstorm — enumerate paper cuts user has been noticing across Browse / Compare / Find / Edit / Hub; user-flagged at S46 close, never enumerated — Session 53
 
 ## Deferred
 - Stage 11 Phase 1.5 (optional cleanup) — strict callsite rename to `{"product": ..., "year": ...}` pk dicts everywhere; remove the `_normalize_products_pk` compat shim in `db/helpers.py`. ~34 mechanical callsites + bridges populating `product` per the new naming convention. Tests stay green throughout — Session 48

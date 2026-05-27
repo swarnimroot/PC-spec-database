@@ -95,12 +95,24 @@ Tests stayed at 525/525 green — the existing AppTest exercises the tree implic
 6. **Auto-expand path to the selected row, on selection change only.** Explicit user collapse of a folder containing the current selection sticks; no re-expand on rerun.
 7. **Tree state lives in two `set[str]` keys** (`queue_expanded_products` + `queue_expanded_cts`) matching the Edit screen's `edit.active_rows` precedent — chosen over `st.expander` (Streamlit forbids nesting them) or a dict-of-sets shape.
 
+### Post-commit: UI eyeballed; triage rethink flagged
+
+After commit `a1461c6` landed (Stage 10c brainstorm + P1 friendly-label swap + P2 sidebar tree restructure), user spun up Streamlit via `python -m competitive_database ui` to eyeball the new product/conflict-type tree on the live 229-row Lenovo queue.
+
+**Verbatim user feedback:** *"the entire triage page is very difficult to understand, it's confusing, involves a lot of clicks and steps before being able to take any action by a user."*
+
+**Strategic discussion outcome.** User asked what non-UI work remains for "ship to review." Honest answer: data/code side is essentially done. Open non-UI items are minor (ASUS GPU regex over-matching, T9.4 Dell `snapshot.options` consumption, Stage 11 P1.5 mechanical callsite rename, Edit annotation-only boolean round-trip) and none are ship blockers; Acer/MSI explicitly held by the roadmap. What IS blocking ship-to-review is UI work, specifically the triage flow.
+
+**Decision: P3 + P4 PARKED.** The queued phases don't address what the user flagged. P3 (filter chips + sort + product search) and P4 (done-hides + counts wire-through) only add controls on top of the tree shape — but the 3-level click depth (product folder → conflict-type sub-folder → row leaf → action button) IS the underlying problem the user named. Adding chips above a click-heavy tree won't reduce clicks-to-action. A fresh triage UX brainstorm is needed, anchored on a different question than the S53 brainstorm asked.
+
+**Path forward (user-set):** rethink triage UX from scratch (probably scrap P3+P4), run the long-deferred small UI polish brainstorm, then ship. Non-UI items shelved unless re-prompted.
+
 ### Pickup pointers for next session
 
-- **Stage 10c P3** — filter chips + sort dropdown + product search at the top of the sidebar above the tree. Chip selection narrows the displayed conflict-type sub-folders (and trickles up: empty product folders hide while a non-`All` chip is active). Sort dropdown reorders the product folder list (`Most open first` default; `A → Z by name`). Search filters product folders by substring on the friendly name. All three operate in-memory on the already-loaded `rows` — no query change needed.
-- **Stage 10c P4** — done-hides behavior + counts wire-through. Auto-hide products with zero open rows after resolution; update header `({N} open)` counts in real time; verify chip narrow-by counts reflect the active product-filter intersection.
-- **Eyeball the new tree on real data** — Streamlit dev server hasn't been spun up this session. Tests verify correctness, not feel. Worth opening `python -m competitive_database ui` before P3 to make sure the indented buttons + chevrons read cleanly against the 229 Lenovo rows.
+- **Triage UX rethink** — fresh brainstorm anchored on "fewest clicks to act on a row" (the queued P3+P4 phases are likely the wrong direction; the tree-shape itself is what user flagged as too click-heavy). The S53 brainstorm asked layout/slicing questions ("group by what, what controls at the top, what labels") and the resulting design landed on 3 levels of clicking before action. Next brainstorm should ask interaction-cost questions and bring 3–4 concrete mockups showing the click count per option (e.g. flat scrollable card list with inline actions, single-row wizard with prev/next, virtualized table with row hover-actions, paginated batch-resolve).
+- **Small UI polish brainstorm** — never enumerated; user-flagged at S46 close; surface paper cuts across Browse / Compare / Find / Edit / Hub.
 - **Status curation spot-checks** (carryover from S52) — walk the 12 Discontinued (2023/2024) rows for products still on sale.
+- **Optional non-UI items** are listed in `TASKS.md` Deferred/Active — none are ship blockers; pick up only if re-prompted (ASUS GPU regex, T9.4 Dell `snapshot.options`, Stage 11 P1.5 callsite rename, Edit bool round-trip).
 
 ---
 
