@@ -332,6 +332,26 @@ def list_product_options(
     return [r[0] for r in rows]
 
 
+def list_all_product_identities(conn: sqlite3.Connection) -> list[dict]:
+    """DISTINCT ``(brand, series, product)`` identities across all products.
+
+    Ordered by brand, then series, then product. NULL series is kept as
+    ``None``. Each dict matches the picker's return shape
+    ``{"brand": str, "series": str | None, "product": str}``. Powers the
+    single-search product combobox (one type-to-filter list instead of the
+    3-rung cascade). Reads the stored series value directly, so products
+    with a non-null series surface with their real series here.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT json_extract(brand, '$.value') AS b, "
+        "json_extract(series, '$.value') AS s, product AS p "
+        "FROM products "
+        "WHERE json_extract(brand, '$.value') IS NOT NULL "
+        "ORDER BY b ASC, s ASC, p ASC"
+    ).fetchall()
+    return [{"brand": r[0], "series": r[1], "product": r[2]} for r in rows]
+
+
 def list_years_for_product(
     conn: sqlite3.Connection,
     brand: str,

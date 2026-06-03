@@ -1,28 +1,26 @@
-"""Find products — Section→Feature→Match→Value cascade + result cards.
+"""Find products — searchable spec-field + Match + Value query → results table.
 
-Stage 10c rewrite of the Find screen. The behavioral core —
-``_cell_matches``, ``_expand_template``, ``_distinct_values_for_template``,
-``_union_templates`` — is preserved unchanged from Phase E. The query
-shape is a strict Section → Feature → Match → Value cascade with a
-Stage 11 Phase 7 narrow-by section (Brand → Series → Product picker +
-Year + Status pill toggles). Result rendering uses horizontal cards
-driven by the per-section rollup dispatch, with a marker dot + ``Open →``
-jump to Browse.
+The behavioral core — ``_cell_matches``, ``_expand_template``,
+``_distinct_values_for_template``, ``_union_templates`` — is unchanged.
+The query is one searchable "Section · Feature" field + a Match operator
++ a Value; narrow-by uses the single-search product combobox + Year +
+Status toggles. Results render as a table; per-row ``Open →`` loads one
+product into Spec Roster, and "Open top N" loads up to four matches as
+Spec Roster compare columns.
 """
 
 from __future__ import annotations
 
+import html
 import sqlite3
 from typing import Any
 
 import streamlit as st
 
 from competitive_database.ui._components import (
-    brand_series_product_picker,
-    find_result_card_html,
-    find_rollup_for_section,
-    friendly_leaf_label as _friendly_leaf_label,
-    inject_findcard_styles,
+    _value_cell_html,
+    friendly_field_label,
+    product_search_picker,
     status_toggle_block,
     year_toggle_block,
 )
@@ -60,16 +58,6 @@ _OP_LABEL: dict[str, str] = {
 }
 _LABEL_TO_OP: dict[str, str] = {label: op for op, label in _OP_LABEL.items()}
 _OP_LABELS_ORDERED: list[str] = [_OP_LABEL[op] for op in _OPS_ALL]
-
-# Sections that surface as a single rolled-up line in result cards. This
-# tracks ``orchestrator._VISUAL_SECTIONS`` minus I/O — I/O renders as a
-# multi-row rollup in the spec table, which doesn't compress neatly
-# into the card layout. When the queried section is I/O the card falls
-# back to a Section-name header without a rollup string.
-_CARD_ROLLUP_SECTIONS: frozenset[str] = frozenset(
-    orchestrator._VISUAL_SECTIONS
-) - {"I/O"}
-
 
 def _list_product_pks(conn: sqlite3.Connection) -> list[tuple[str, int]]:
     rows = conn.execute(
@@ -287,74 +275,26 @@ def _find_matches(
     return out
 
 
-def _render_card(
-    prod: dict[str, Any],
-    section: str,
-    cpu_catalog: dict[str, dict[str, Any]],
-    gpu_catalog: dict[str, dict[str, Any]],
-    fallback_value: str,
-    fallback_marker: str,
-) -> None:
-    """Render one horizontal result card + ``Open →`` button."""
-    company = _company_of(prod)
-    sub = _sub_brand_of(prod)
-    series = _series_of(prod)
-    year = _year_of(prod)
+def _open_in_spec_roster(prods: list[dict[str, Any]]) -> None:
+    """Load up to four matched products into Spec Roster as columns.
 
-    # For visual-section queries we use the per-section rollup as the
-    # card's middle line. Outside that set (Identity, Keyboard, Thermals,
-    # I/O) we fall back to the matched cell's own value + marker, so the
-    # user still sees what the query hit.
-    if section in _CARD_ROLLUP_SECTIONS:
-        value_str, marker = find_rollup_for_section(
-            section, prod, cpu_catalog, gpu_catalog
-        )
-        if not value_str:
-            value_str, marker = fallback_value, fallback_marker
-    else:
-        value_str, marker = fallback_value, fallback_marker
-
-    body_html = find_result_card_html(
-        company=company,
-        sub_brand=sub,
-        series=series,
-        year=year,
-        section_name=section,
-        rollup_value=value_str,
-        marker=marker,
-    )
-
-    container = st.container()
-    with container:
-        cols = st.columns([6, 1])
-        with cols[0]:
-            st.markdown(body_html, unsafe_allow_html=True)
-        with cols[1]:
-            mc = prod.get("model_code")
-            yr = year
-            key = f"find.open.{mc}.{yr}"
-            if st.button("Open →", key=key, use_container_width=True):
-                _open_in_browse(prod)
-
-
-def _open_in_browse(prod: dict[str, Any]) -> None:
-    """Wire Browse's 3-rung picker session keys and switch view.
-
-    Browse (Stage 11 Phase 3) reads its picker from
-    ``browse.brand / browse.series / browse.product`` and its year
-    toggles from ``browse.years`` (a ``set[int]``). NULL series uses
-    the ``"—"`` sentinel to match ``list_series_options``.
+    Sets the Spec Roster column ids + each column's combobox search key
+    (the ``Brand · Series · Product`` label, matching the picker's option
+    labels) and switches the view. One product → single-column roomy
+    view; several → the comparison grid.
     """
-    brand = _company_of(prod)
-    series = _series_of(prod) or "—"
-    product = prod.get("product")
-    yr = _year_of(prod)
-    st.session_state["browse.brand"] = brand
-    st.session_state["browse.series"] = series
-    st.session_state["browse.product"] = product
-    if yr is not None:
-        st.session_state["browse.years"] = {yr}
-    st.session_state["view"] = "browse"
+    prods = prods[:4]
+    ids = list(range(1, len(prods) + 1))
+    st.session_state["spec_roster.column_ids"] = ids
+    for cid, prod in zip(ids, prods):
+        brand = _company_of(prod)
+        series = _series_of(prod)
+        product = prod.get("product")
+        label = " · ".join(p for p in [brand, series, product] if p)
+        st.session_state[f"spec_roster.col{cid}.search"] = label
+    # Spec Roster lives inline on the hub.
+    st.session_state["view"] = "hub"
+    st.session_state["hub.section"] = "spec_roster"
     st.rerun()
 
 
@@ -405,7 +345,6 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
     del db_path  # chrome handles attribution; no internal IDs leak here.
 
     st.markdown(_FIND_CHROME_CSS, unsafe_allow_html=True)
-    inject_findcard_styles()
     st.markdown(
         '<div class="cd-find__title">Find products</div>'
         '<div class="cd-find__subtitle">'
@@ -425,64 +364,36 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
         st.info("No filterable cells in this database.")
         return
 
-    # Section → list of (template, friendly_leaf_label). Sections render in
-    # the order they first appear in ``all_field_paths`` (i.e. orchestrator
-    # render order).
-    sections_in_order: list[str] = []
-    by_section: dict[str, list[tuple[str, str]]] = {}
-    for section, template in paths:
-        if section not in by_section:
-            sections_in_order.append(section)
-            by_section[section] = []
-        leaf = template.split(".")[-1]
-        feature_label = _friendly_leaf_label(leaf, section)
-        by_section[section].append((template, feature_label))
+    # ---- Filter: searchable spec-field + Match + Value ----
+    field_options: list[str] = []
+    label_to_entry: dict[str, tuple[str, str]] = {}
+    for sec, tmpl in paths:
+        lbl = friendly_field_label(sec, tmpl)
+        label_to_entry[lbl] = (sec, tmpl)
+        field_options.append(lbl)
 
-    # ---- Section / Feature row ----
-    c_section, c_feature = st.columns([2, 2])
-    with c_section:
-        st.markdown('<div class="cd-find__label">Section</div>', unsafe_allow_html=True)
-        section = st.selectbox(
-            "Section",
-            sections_in_order,
-            key="find.section",
+    c_field, c_op, c_value = st.columns([3, 2, 2])
+    with c_field:
+        st.markdown('<div class="cd-find__label">Find</div>', unsafe_allow_html=True)
+        field_label = st.selectbox(
+            "Spec field",
+            field_options,
+            index=None,
+            placeholder="Search a spec field…",
+            key="find.field",
             label_visibility="collapsed",
         )
-    feature_entries = by_section.get(section, [])
-    feature_labels = [lbl for _, lbl in feature_entries]
-    label_to_template: dict[str, str] = {
-        lbl: tmpl for tmpl, lbl in feature_entries
-    }
-    with c_feature:
-        st.markdown('<div class="cd-find__label">Feature</div>', unsafe_allow_html=True)
-        feature_label = st.selectbox(
-            "Feature",
-            feature_labels,
-            key="find.feature",
-            label_visibility="collapsed",
-        )
-    template = label_to_template.get(feature_label, "")
-    if not template:
-        st.info("No features available in this section.")
+    if field_label is None:
+        st.info("Pick a spec field to search on.")
         return
-
-    # ---- Match / Value row ----
-    op_default_label = _OP_LABEL[_OP_EQ]
-    op_state_key = "find.op_label"
-    op_current = st.session_state.get(op_state_key, op_default_label)
-    needs_value = _LABEL_TO_OP[op_current] in _OPS_NEED_VALUE
-
-    if needs_value:
-        c_op, c_value = st.columns([2, 2])
-    else:
-        c_op, c_value = st.columns([2, 2])
+    section, template = label_to_entry[field_label]
 
     with c_op:
         st.markdown('<div class="cd-find__label">Match</div>', unsafe_allow_html=True)
         op_label = st.selectbox(
             "Match",
             _OP_LABELS_ORDERED,
-            key=op_state_key,
+            key="find.op_label",
             label_visibility="collapsed",
         )
     op = _LABEL_TO_OP[op_label]
@@ -555,15 +466,56 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
         )
         return
 
-    st.markdown(
-        f'<div class="cd-find__count">{n} product{"s" if n != 1 else ""} match</div>',
-        unsafe_allow_html=True,
-    )
+    top = matches[:4]
+    bar_l, bar_r = st.columns([3, 2])
+    with bar_l:
+        st.markdown(
+            f'<div class="cd-find__count">{n} product{"s" if n != 1 else ""} match</div>',
+            unsafe_allow_html=True,
+        )
+    with bar_r:
+        if st.button(
+            f"Open top {len(top)} in Spec Roster →",
+            key="find.open_top",
+            use_container_width=True,
+        ):
+            _open_in_spec_roster([m[0] for m in top])
 
-    cpu_catalog = load.load_cpu_catalog(conn)
-    gpu_catalog = load.load_gpu_catalog(conn)
+    value_header = field_label.split(" · ")[-1]
+    weights = [3, 1, 1.4, 2.6, 1.2]
+    _th = (
+        '<div style="font-size:var(--cd-size-xs);color:var(--cd-text-faint);'
+        "font-weight:600;text-transform:uppercase;letter-spacing:0.05em;"
+        'border-bottom:1px solid var(--cd-border-strong);padding-bottom:4px;">{}</div>'
+    )
+    hdr = st.columns(weights)
+    for col, text in zip(hdr, ("Product", "Year", "Status", value_header, "")):
+        col.markdown(_th.format(html.escape(text)), unsafe_allow_html=True)
+
     for prod, vstr, marker in matches:
-        _render_card(prod, section, cpu_catalog, gpu_catalog, vstr, marker)
+        brand = _company_of(prod)
+        series = _series_of(prod)
+        product = prod.get("product") or ""
+        yr = _year_of(prod)
+        status = _status_of(prod) or "Active"
+        crumb = " · ".join(p for p in [brand, series] if p)
+        display_v = "" if marker in (MARKER_EMPTY, MARKER_VENDOR_NO_PUB) else vstr
+        row = st.columns(weights)
+        row[0].markdown(
+            f'<span style="color:var(--cd-text-faint)">{html.escape(crumb)} ·</span> '
+            f"<strong>{html.escape(product)}</strong>",
+            unsafe_allow_html=True,
+        )
+        row[1].markdown(str(yr) if yr is not None else "")
+        row[2].markdown(html.escape(status))
+        row[3].markdown(
+            _value_cell_html(display_v, marker), unsafe_allow_html=True
+        )
+        mc = prod.get("model_code")
+        if row[4].button(
+            "Open →", key=f"find.open.{mc}.{yr}", use_container_width=True
+        ):
+            _open_in_spec_roster([prod])
 
 
 def _render_narrow_by(
@@ -589,18 +541,15 @@ def _render_narrow_by(
         '<div class="cd-find__narrow-label">Narrow by</div>',
         unsafe_allow_html=True,
     )
-    picked = brand_series_product_picker(conn, key_prefix="find", strict=True)
-    brand_raw = st.session_state.get("find.brand")
-    series_raw = st.session_state.get("find.series")
-    product_raw = st.session_state.get("find.product")
-    brand_pick = brand_raw if (brand_raw is not None and brand_raw != "—") else None
-    series_pick = (
-        series_raw if (series_raw is not None and series_raw != "—") else None
+    picked = product_search_picker(
+        conn, key_prefix="find.narrow", label="Product"
     )
-    product_pick = (
-        product_raw if (product_raw is not None and product_raw != "—") else None
-    )
-    del picked  # session keys carry the partial-pick state we need
+    if picked is not None:
+        brand_pick = picked["brand"]
+        series_pick = picked["series"]
+        product_pick = picked["product"]
+    else:
+        brand_pick = series_pick = product_pick = None
 
     years_int = sorted(
         {_year_of(p) for p in base_prods if _year_of(p) is not None},

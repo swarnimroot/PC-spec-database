@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spec Roster — real data</title>
+<style>
+  :root {
+    --cd-bg-page: #fafaf7; --cd-bg-card: #ffffff; --cd-bg-subtle: #f3f3ef;
+    --cd-border: #e5e5e2; --cd-border-strong: #d1d5db;
+    --cd-text: #1c1e22; --cd-text-muted: #4b5563; --cd-text-faint: #6b7280;
+    --cd-accent: #3a5a7c; --cd-bg-accent-soft: #eef2f7;
+    --cd-verified: #16a34a; --cd-needs-review: #d97706; --cd-manual: #3b82f6; --cd-gray: #6b7280;
+    --r-sm: 4px; --r-md: 8px; --r-lg: 12px; --r-pill: 999px;
+    --s-xs: 4px; --s-sm: 8px; --s-md: 12px; --s-lg: 16px; --s-xl: 24px; --s-xxl: 32px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--cd-bg-page); color: var(--cd-text); font-family: var(--font); margin: 0; padding: var(--s-xxl) var(--s-lg) 64px; line-height: 1.45; }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  .page-head h1 { font-size: 28px; font-weight: 600; margin: 0 0 6px; }
+  .page-head p { color: var(--cd-text-muted); font-size: 15px; margin: 0 0 8px; max-width: 80ch; }
+  .page-head .real { font-size: 13px; color: var(--cd-text-faint); }
+  .page-head .real b { color: var(--cd-verified); }
+
+  .card { background: var(--cd-bg-card); border: 1px solid var(--cd-border); border-radius: var(--r-lg); padding: var(--s-xl); margin-bottom: var(--s-xl); }
+  .card-head { display: flex; align-items: center; gap: var(--s-md); margin-bottom: 4px; }
+  .badge { width: 26px; height: 26px; border-radius: var(--r-pill); background: var(--cd-accent); color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 600; flex: none; }
+  .card-head h2 { font-size: 18px; font-weight: 600; margin: 0; }
+  .sub { color: var(--cd-text-muted); font-size: 14px; margin: 0 0 var(--s-lg) 38px; }
+
+  .mock { background: var(--cd-bg-subtle); border: 1px solid var(--cd-border); border-radius: var(--r-md); padding: var(--s-lg); margin: 0 0 var(--s-md) 38px; }
+
+  .field { background: #fff; border: 1px solid var(--cd-border-strong); border-radius: var(--r-md); padding: 9px var(--s-md); display: flex; align-items: center; gap: var(--s-sm); font-size: 14px; max-width: 460px; }
+  .field .ico { color: var(--cd-text-faint); }
+  .field .chev { color: var(--cd-text-faint); margin-left: auto; }
+  .crumb-dim { color: var(--cd-text-faint); }
+
+  .ctrlrow { display: flex; align-items: center; gap: var(--s-md); flex-wrap: wrap; margin-top: var(--s-md); }
+  .ctrlrow .lbl { font-size: 13px; color: var(--cd-text-faint); }
+  .tpill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--cd-border-strong); border-radius: var(--r-pill); padding: 4px 12px; font-size: 13px; background: #fff; color: var(--cd-text-muted); }
+  .tpill.on { background: var(--cd-bg-accent-soft); border-color: var(--cd-accent); color: var(--cd-text); font-weight: 600; }
+  .tpill .ck { width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid var(--cd-border-strong); }
+  .tpill.on .ck { background: var(--cd-accent); border-color: var(--cd-accent); }
+  .divider-v { width: 1px; height: 20px; background: var(--cd-border); }
+
+  /* single spec table */
+  .spec { width: 100%; border-collapse: collapse; font-size: 14px; background: #fff; border: 1px solid var(--cd-border); border-radius: var(--r-md); overflow: hidden; }
+  .spec td { padding: 9px 12px; border-top: 1px solid var(--cd-border); vertical-align: middle; }
+  .spec tr:first-child td { border-top: none; }
+  .spec .k { color: var(--cd-text-faint); width: 130px; white-space: nowrap; }
+  .spec .v { color: var(--cd-text); }
+  .spec .m { text-align: right; width: 110px; white-space: nowrap; }
+
+  .lbl-nr { font-size: 12px; color: var(--cd-needs-review); font-weight: 500; }
+  .lbl-man { font-size: 12px; color: var(--cd-manual); font-weight: 500; }
+
+  .vpills { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .vpill { background: var(--cd-bg-subtle); border: 1px solid var(--cd-border); border-radius: var(--r-pill); padding: 3px 10px; font-size: 13px; color: var(--cd-text); }
+  .ident { font-size: 13px; color: var(--cd-text-muted); margin: var(--s-md) 0 var(--s-sm); }
+  .ident b { color: var(--cd-text); font-weight: 600; }
+
+  /* compare columns */
+  .cmp { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; border: 1px solid var(--cd-border); border-radius: var(--r-md); overflow: hidden; table-layout: fixed; }
+  .cmp th, .cmp td { padding: 8px 10px; border-top: 1px solid var(--cd-border); border-left: 1px solid var(--cd-border); text-align: left; vertical-align: top; }
+  .cmp th:first-child, .cmp td:first-child { border-left: none; }
+  .cmp thead th { border-top: none; background: var(--cd-bg-subtle); font-weight: 600; }
+  .cmp thead th.rh { background: #fff; width: 120px; }
+  .cmp thead .st { display: block; font-weight: 400; font-size: 11px; margin-top: 2px; }
+  .cmp thead .st.act { color: var(--cd-verified); }
+  .cmp thead .st.disc { color: var(--cd-gray); }
+  .cmp td.k { color: var(--cd-text-faint); white-space: nowrap; }
+  .cmp td.diff { background: var(--cd-bg-accent-soft); }
+  .cmp .vpill { font-size: 12px; padding: 2px 8px; margin: 1px 0; }
+  .cmp .vpills { gap: 4px; }
+
+  .note { font-size: 13px; color: var(--cd-text-faint); margin: var(--s-sm) 0 0 38px; }
+  .note b { color: var(--cd-text-muted); }
+  .legend { display: flex; gap: var(--s-lg); flex-wrap: wrap; font-size: 12px; color: var(--cd-text-faint); margin: var(--s-md) 0 0 38px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 20px; height: 13px; border-radius: 3px; display: inline-block; border: 1px solid var(--cd-border); }
+  .sw.diff { background: var(--cd-bg-accent-soft); border-color: var(--cd-accent); }
+
+  .badcompare { font-size: 13px; background: #fff; border: 1px dashed #e0b4b4; border-radius: var(--r-md); padding: 10px 12px; margin: 0 0 var(--s-md) 38px; color: var(--cd-text-muted); }
+  .badcompare .t { color: #b91c1c; font-weight: 600; font-size: 12px; }
+  .goodcompare { font-size: 13px; background: #fff; border: 1px dashed #bfe3cf; border-radius: var(--r-md); padding: 10px 12px; margin: 0 0 var(--s-md) 38px; color: var(--cd-text-muted); }
+  .goodcompare .t { color: #15803d; font-weight: 600; font-size: 12px; }
+
+  .samestrip { background:#fff; border:1px solid var(--cd-border); border-left:3px solid var(--cd-border-strong); border-radius: var(--r-md); padding:9px 12px; font-size:13px; color:var(--cd-text-faint); margin-top:6px; }
+  .samestrip b { color: var(--cd-text-muted); }
+  .samestrip .show { color: var(--cd-accent); font-weight:600; }
+  .yrpick { display:inline-flex; align-items:center; gap:4px; font-weight:400; font-size:11px; color:var(--cd-text-muted); border:1px solid var(--cd-border-strong); border-radius:var(--r-sm); padding:1px 6px; margin-top:4px; background:#fff; }
+  .conflict { color:#b91c1c; }
+
+  .mergecol { max-width: 560px; }
+  .varies { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--cd-accent); border:1px solid var(--cd-border-strong); border-radius:var(--r-pill); padding:2px 10px; background:#fff; }
+  .varies .ct { color: var(--cd-text-faint); font-size:12px; }
+  .byyear { margin-top:7px; padding-left:2px; border-left:2px solid var(--cd-border); }
+  .byyear .yr { display:flex; gap:10px; align-items:center; font-size:12px; padding:3px 0 3px 10px; }
+  .byyear .yrlbl { color:var(--cd-text-faint); width:38px; flex:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="page-head">
+    <h1>Spec Roster — built on real data</h1>
+    <p>Picker = pure #1 (Brand · Series · Product). Year &amp; status are multi-select toggles on the header. One year = a single
+       roomy column; multiple years = one column each (not a unioned blob). Genuine option-lists within a year become pills.
+       Exceptions are labelled (needs review / manual); verified is unmarked; vendor-not-published with no value is blank.</p>
+    <p class="real">All values below are <b>real, pulled from competitive.db</b> — ASUS Flow Z13 and Lenovo Legion Pro 5 16.</p>
+  </div>
+
+  <!-- A: header controls -->
+  <div class="card">
+    <div class="card-head"><span class="badge">A</span><h2>Header — picker + multi-select year &amp; status</h2></div>
+    <p class="sub">Search picks the product. Year toggles are multi-select; status uses the same toggle (Active / Inactive). Adding a product to compare uses the same search.</p>
+    <div class="mock">
+      <div class="field"><span class="ico">⌕</span><span>Lenovo <span class="crumb-dim">·</span> Legion <span class="crumb-dim">·</span> Legion Pro 5 16</span><span class="chev">▾</span></div>
+      <div class="ctrlrow">
+        <span class="lbl">Year</span>
+        <span class="tpill on"><span class="ck"></span>2025</span>
+        <span class="tpill"><span class="ck"></span>2024</span>
+        <span class="tpill"><span class="ck"></span>2023</span>
+        <span class="divider-v"></span>
+        <span class="lbl">Status</span>
+        <span class="tpill on"><span class="ck"></span>Active</span>
+        <span class="tpill"><span class="ck"></span>Inactive</span>
+      </div>
+      <div class="note" style="margin-left:0;">One year on → single-column view below. Toggle more years on → they become columns. Status filters which year-variants qualify (a Discontinued year only appears if Inactive is on).</div>
+    </div>
+  </div>
+
+  <!-- B: single-year clean view (Flow Z13) -->
+  <div class="card">
+    <div class="card-head"><span class="badge">B</span><h2>Single year — the common, clean case</h2></div>
+    <p class="sub">ASUS · Flow · Flow Z13 · 2025. Real data. Shows every marker case: manual + needs-review labels, pills for option-lists, blank for no-value, and the majority of rows clean (verified = no marker).</p>
+    <div class="mock">
+      <div class="ident"><b>ASUS</b> · Flow · Flow Z13 · 2025 · <span style="color:var(--cd-verified)">Active</span></div>
+      <table class="spec">
+        <tr><td class="k">Processor</td><td class="v">STX-H</td><td class="m"><span class="lbl-man">manual</span></td></tr>
+        <tr><td class="k">Graphics</td><td class="v"></td><td class="m"><span class="lbl-nr">needs review</span></td></tr>
+        <tr><td class="k">Display</td><td class="v">13.4" 2.5K 180Hz IPS-level</td><td class="m"></td></tr>
+        <tr><td class="k">Memory</td><td class="v"><span class="vpills"><span class="vpill">LPDDR5X 8000MT/s</span><span class="vpill">soldered</span></span> &nbsp;up to 128GB</td><td class="m"></td></tr>
+        <tr><td class="k">Storage</td><td class="v">1× Gen4 &nbsp;up to 1TB</td><td class="m"></td></tr>
+        <tr><td class="k">Camera</td><td class="v">5MP</td><td class="m"><span class="lbl-nr">needs review</span></td></tr>
+        <tr><td class="k">Audio</td><td class="v">2-speaker Dolby Atmos</td><td class="m"></td></tr>
+        <tr><td class="k">Network</td><td class="v">Wi-Fi 7</td><td class="m"></td></tr>
+        <tr><td class="k">USB</td><td class="v"><span class="vpills"><span class="vpill">2× USB-C</span><span class="vpill">1× USB-A</span></span></td><td class="m"></td></tr>
+        <tr><td class="k">HDMI</td><td class="v">1× 2.1</td><td class="m"></td></tr>
+        <tr><td class="k">SD card</td><td class="v">microSD</td><td class="m"></td></tr>
+        <tr><td class="k">Audio jack</td><td class="v">combo</td><td class="m"></td></tr>
+        <tr><td class="k">Battery</td><td class="v">70Wh 4-cell</td><td class="m"></td></tr>
+        <tr><td class="k">Adapter</td><td class="v">200W &nbsp;rectangle</td><td class="m"></td></tr>
+        <tr><td class="k">Dimensions</td><td class="v">300 × 204 × 13-14.9 mm</td><td class="m"></td></tr>
+        <tr><td class="k">Weight</td><td class="v">1.2 kg min</td><td class="m"></td></tr>
+        <tr><td class="k">Design</td><td class="v"></td><td class="m"></td></tr>
+      </table>
+    </div>
+    <div class="note">Graphics &amp; Design are blank (no published value). Graphics still carries a <span class="lbl-nr">needs review</span> label because it's flagged but unfilled — exactly the curation signal you want. Verified rows carry nothing.</div>
+  </div>
+
+  <!-- C: dedup vs collapse -->
+  <div class="card">
+    <div class="card-head"><span class="badge">C</span><h2>Repeated values across years — what dedup can &amp; can't do</h2></div>
+    <p class="sub">Your question: drop repeated values when merging years (like CPU/GPU already do). It works for set-like fields, breaks for config-like fields. Real TUF 16 below.</p>
+
+    <div class="goodcompare">
+      <div class="t">WORKS — set-like fields (already deduped today)</div>
+      Processor and Graphics are unordered <i>sets</i> of options, so a value seen twice collapses to once:<br>
+      <table class="cmp" style="max-width:620px; margin-top:8px;">
+        <thead><tr><th class="rh"></th><th>across 2026 · 2025 · 2024</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Processor</td><td><span class="vpills"><span class="vpill">ARL-HX R</span><span class="vpill">ARL-HX</span><span class="vpill">RPL-HX R</span><span class="vpill">RPL-HX</span><span class="vpill">RPL-H R</span><span class="vpill">RPL-H</span></span></td></tr>
+          <tr><td class="k">Graphics</td><td><span class="vpills"><span class="vpill">MB2</span><span class="vpill">MB3</span></span> <span style="color:var(--cd-text-faint)">(MB2 appears in two years → shown once)</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="badcompare">
+      <div class="t">BREAKS — config-like fields (USB, Display, Dimensions…)</div>
+      Dedup the USB fragments and you get conflicting counts of the same port, with no idea which year is which:<br>
+      <div style="margin-top:8px; color:var(--cd-text);"><span class="vpills"><span class="vpill conflict">1× TB</span><span class="vpill conflict">3× TB</span><span class="vpill">1× USB-C</span><span class="vpill conflict">2× USB-C</span><span class="vpill">3× USB-A</span><span class="vpill conflict">2× USB-A</span></span></div>
+      <div style="margin-top:6px; font-size:12px;">“1× TB” <b>and</b> “3× TB”? Meaningless as a flat set. This field needs columns, not dedup.</div>
+    </div>
+
+    <div class="goodcompare">
+      <div class="t">THE REAL WIN — collapse fields that are identical across the selected years</div>
+      Don't repeat what's the same; only expand what differs. (Shown applied in D below.)
+    </div>
+  </div>
+
+  <!-- D: multi-year columns WITH collapse-identical (Legion) -->
+  <div class="card">
+    <div class="card-head"><span class="badge">D</span><h2>Multiple years → columns, with identical rows collapsed (real Legion Pro 5 16)</h2></div>
+    <p class="sub">All three years on. Only the rows that DIFFER expand into columns; the 5 fields identical across all years collapse into one line. Differences pop instantly.</p>
+    <div class="mock">
+      <table class="cmp">
+        <thead><tr>
+          <th class="rh"></th>
+          <th>2025<span class="st act">Active</span></th>
+          <th>2024<span class="st disc">Discontinued</span></th>
+          <th>2023<span class="st disc">Discontinued</span></th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="k">Processor</td><td class="diff">RPL-HX R</td><td class="diff">RPL-HX R</td><td class="diff">DRG</td></tr>
+          <tr><td class="k">Graphics</td><td class="diff"><span class="vpills"><span class="vpill">MB2</span><span class="vpill">MB1</span></span></td><td class="diff"></td><td class="diff"></td></tr>
+          <tr><td class="k">Display</td><td class="diff">16" WQXGA 240Hz IPS</td><td class="diff"><span class="vpills"><span class="vpill">16" WQXGA 165Hz IPS</span><span class="vpill">WQXGA 240Hz IPS</span></span></td><td class="diff"><span class="vpills"><span class="vpill">16" WQXGA 165Hz IPS</span><span class="vpill">WQXGA 240Hz IPS</span></span></td></tr>
+          <tr><td class="k">Camera</td><td class="diff"><span class="vpills"><span class="vpill">1440p</span><span class="vpill">720p</span></span></td><td class="diff"><span class="vpills"><span class="vpill">1080p</span><span class="vpill">720p</span></span></td><td class="diff"><span class="vpills"><span class="vpill">1080p</span><span class="vpill">720p</span></span></td></tr>
+          <tr><td class="k">Network</td><td class="diff">Wi-Fi 6</td><td class="diff">Wi-Fi 6E</td><td class="diff">Wi-Fi 6</td></tr>
+          <tr><td class="k">USB</td><td class="diff"><span class="vpills"><span class="vpill">2× USB-C</span><span class="vpill">3× USB-A</span></span></td><td class="diff"><span class="vpills"><span class="vpill">2× USB-C</span><span class="vpill">4× USB-A</span></span></td><td class="diff"><span class="vpill">2× USB-C</span></td></tr>
+          <tr><td class="k">Adapter</td><td class="diff">245W slim-tip</td><td class="diff">300W slim-tip</td><td class="diff"><span class="vpills"><span class="vpill">230W</span><span class="vpill">300W slim-tip</span></span></td></tr>
+          <tr><td class="k">Dimensions</td><td class="diff">364.38 × 268.06 × 21.69-25.95 mm</td><td class="diff">363.4 × 261.75 × 21.99-26.95 mm</td><td class="diff">363.4 × 260.35 × 22.45-26.75 mm</td></tr>
+          <tr><td class="k">Weight</td><td class="diff">2.4 kg min</td><td class="diff">2.5 kg min</td><td class="diff">2.5 kg min</td></tr>
+        </tbody>
+      </table>
+      <div class="samestrip"><b>Same across all 3 years</b> (collapsed): &nbsp;Memory <i>DDR5 · 2 slots · up to 32GB</i> &nbsp;·&nbsp; Storage <i>1× Gen4 · up to 1TB</i> &nbsp;·&nbsp; HDMI <i>1× 2.1</i> &nbsp;·&nbsp; Battery <i>80Wh</i> &nbsp;·&nbsp; Design <i>aluminum (A)</i> &nbsp; <span class="show">show ▾</span></div>
+    </div>
+    <div class="legend">
+      <span><span class="sw diff"></span> highlighted = differs across the selected years</span>
+      <span><span class="lbl-nr">needs review</span> / <span class="lbl-man">manual</span> = the only labels shown</span>
+      <span>blank = no published value</span>
+    </div>
+  </div>
+
+  <!-- E: 4-product compare, one (product,year) per column -->
+  <div class="card">
+    <div class="card-head"><span class="badge">E</span><h2>Comparing several products — a column is one (product · year)</h2></div>
+    <p class="sub">Multi-year is just a shortcut that expands ONE product into year-columns. When you compare products, each column is a product at one year (its own little year picker), so 4 products = 4 columns — never a 12-column grid. Collapse-identical applies here too. Real data.</p>
+    <div class="mock">
+      <table class="cmp">
+        <thead><tr>
+          <th class="rh"></th>
+          <th>ASUS Flow Z13<span class="yrpick">2025 ▾</span></th>
+          <th>ASUS TUF 16<span class="yrpick">2026 ▾</span></th>
+          <th>Lenovo Legion Pro 5 16<span class="yrpick">2025 ▾</span></th>
+          <th class="addcol" style="border-style:dashed;border-color:var(--cd-accent);color:var(--cd-accent);text-align:center;">+ add<br>product</th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="k">Processor</td><td class="diff">STX-H <span class="lbl-man">manual</span></td><td class="diff"><span class="vpills"><span class="vpill">ARL-HX R</span><span class="vpill">ARL-HX</span></span></td><td class="diff">RPL-HX R</td><td></td></tr>
+          <tr><td class="k">Graphics</td><td class="diff"><span class="lbl-nr">needs review</span></td><td class="diff">MB2</td><td class="diff"><span class="vpills"><span class="vpill">MB2</span><span class="vpill">MB1</span></span></td><td></td></tr>
+          <tr><td class="k">Display</td><td class="diff">13.4" 2.5K 180Hz IPS-level</td><td class="diff"><span class="vpills"><span class="vpill">16" 2.5K OLED 300Hz</span><span class="vpill">165Hz IPS</span></span></td><td class="diff">16" WQXGA 240Hz IPS</td><td></td></tr>
+          <tr><td class="k">Memory</td><td class="diff"><span class="vpills"><span class="vpill">LPDDR5X 8000</span><span class="vpill">soldered</span></span> ≤128GB</td><td class="diff">DDR5 5600 ≤64GB</td><td class="diff"><span class="vpills"><span class="vpill">DDR5</span><span class="vpill">2 slots</span></span> ≤32GB</td><td></td></tr>
+          <tr><td class="k">Storage</td><td class="diff">1× Gen4 ≤1TB</td><td class="diff">2× Gen4 ≤2TB</td><td class="diff">1× Gen4 ≤1TB</td><td></td></tr>
+          <tr><td class="k">Network</td><td class="diff">Wi-Fi 7</td><td class="diff">Wi-Fi 6E</td><td class="diff">Wi-Fi 6</td><td></td></tr>
+          <tr><td class="k">USB</td><td class="diff"><span class="vpills"><span class="vpill">2× USB-C</span><span class="vpill">1× USB-A</span></span></td><td class="diff"><span class="vpills"><span class="vpill">1× TB</span><span class="vpill">1× USB-C</span><span class="vpill">3× USB-A</span></span></td><td class="diff"><span class="vpills"><span class="vpill">2× USB-C</span><span class="vpill">3× USB-A</span></span></td><td></td></tr>
+          <tr><td class="k">Battery</td><td class="diff">70Wh 4-cell</td><td class="diff">90Wh 4-cell</td><td class="diff">80Wh</td><td></td></tr>
+        </tbody>
+      </table>
+      <div class="samestrip"><b>Same across all products</b> (collapsed): &nbsp;HDMI <i>1× 2.1</i> <span class="show">show ▾</span></div>
+    </div>
+    <div class="note">Each column header has its own <span class="yrpick">year ▾</span> — switch Flow Z13 to 2024 without touching the others. Columns = products you added (cap ~4–5 before it gets dense). Multi-year mode (card D) and multi-product mode are the same column engine, just different "add" actions.</div>
+  </div>
+
+  <!-- F: merged column -->
+  <div class="card">
+    <div class="card-head"><span class="badge">F</span><h2>Merged column — one product across several years</h2></div>
+    <p class="sub">Lenovo Legion Pro 5 16, years 2023–2025 merged into ONE column. Set-like specs list everything ever offered (deduped pills); specs identical every year show once; config specs that change read “varies → expand by year”. Real data.</p>
+    <div class="mock">
+      <table class="spec mergecol">
+        <thead><tr><td class="k" style="font-weight:600;color:var(--cd-text);">Legion Pro 5 16</td><td style="font-weight:600;color:var(--cd-text-faint);font-size:12px;">2023 – 2025 (merged)</td></tr></thead>
+        <tbody>
+          <tr><td class="k">Processor</td><td class="v"><span class="vpills"><span class="vpill">RPL-HX R</span><span class="vpill">DRG</span></span></td></tr>
+          <tr><td class="k">Graphics</td><td class="v"><span class="vpills"><span class="vpill">MB2</span><span class="vpill">MB1</span></span></td></tr>
+          <tr><td class="k">Display</td><td class="v"><span class="vpills"><span class="vpill">16" WQXGA 240Hz IPS</span><span class="vpill">16" WQXGA 165Hz IPS</span></span></td></tr>
+          <tr><td class="k">Memory</td><td class="v"><span class="vpills"><span class="vpill">DDR5</span><span class="vpill">2 slots</span></span> &nbsp;up to 32GB</td></tr>
+          <tr><td class="k">Storage</td><td class="v">1× Gen4 &nbsp;up to 1TB</td></tr>
+          <tr><td class="k">Camera</td><td class="v"><span class="vpills"><span class="vpill">1440p</span><span class="vpill">1080p</span><span class="vpill">720p</span></span></td></tr>
+          <tr><td class="k">Network</td><td class="v"><span class="vpills"><span class="vpill">Wi-Fi 6</span><span class="vpill">Wi-Fi 6E</span></span></td></tr>
+          <tr><td class="k">USB</td><td class="v">
+            <span class="varies">varies <span class="ct">3 ▾</span></span>
+            <div class="byyear">
+              <div class="yr"><span class="yrlbl">2025</span><span class="vpills"><span class="vpill">2× USB-C</span><span class="vpill">3× USB-A</span></span></div>
+              <div class="yr"><span class="yrlbl">2024</span><span class="vpills"><span class="vpill">2× USB-C</span><span class="vpill">4× USB-A</span></span></div>
+              <div class="yr"><span class="yrlbl">2023</span><span class="vpills"><span class="vpill">2× USB-C</span></span></div>
+            </div>
+          </td></tr>
+          <tr><td class="k">HDMI</td><td class="v">1× 2.1</td></tr>
+          <tr><td class="k">Battery</td><td class="v">80Wh</td></tr>
+          <tr><td class="k">Adapter</td><td class="v"><span class="varies">varies <span class="ct">3 ▾</span></span></td></tr>
+          <tr><td class="k">Dimensions</td><td class="v"><span class="varies">varies <span class="ct">3 ▾</span></span></td></tr>
+          <tr><td class="k">Weight</td><td class="v"><span class="vpills"><span class="vpill">2.4 kg min</span><span class="vpill">2.5 kg min</span></span></td></tr>
+          <tr><td class="k">Design</td><td class="v">aluminum (A)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">USB is shown <b>expanded</b> to illustrate the per-year breakdown; Adapter &amp; Dimensions stay collapsed as <span class="varies" style="padding:1px 8px;">varies <span class="ct">▾</span></span>. Set-like fields (Processor, Graphics, Display, Camera, Network) deduped to "everything offered". Identical fields (Storage, HDMI, Battery, Design) show once. This is the "lifetime overview" of a product — pair it with split-columns (card D) when you need exact per-year config.</div>
+  </div>
+
+</div>
+</body>
+</html>

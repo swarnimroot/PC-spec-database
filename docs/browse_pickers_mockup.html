@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lineup — one laptop or several (5 picker concepts)</title>
+<style>
+  :root {
+    --cd-bg-page: #fafaf7;
+    --cd-bg-card: #ffffff;
+    --cd-bg-subtle: #f3f3ef;
+    --cd-border: #e5e5e2;
+    --cd-border-strong: #d1d5db;
+    --cd-text: #1c1e22;
+    --cd-text-muted: #4b5563;
+    --cd-text-faint: #6b7280;
+    --cd-accent: #3a5a7c;
+    --cd-bg-accent-soft: #eef2f7;
+    --cd-bg-accent-soft-hover: #dde6ef;
+    --cd-verified: #16a34a;
+    --cd-needs-review: #d97706;
+    --r-sm: 4px; --r-md: 8px; --r-lg: 12px; --r-pill: 999px;
+    --s-xs: 4px; --s-sm: 8px; --s-md: 12px; --s-lg: 16px; --s-xl: 24px; --s-xxl: 32px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--cd-bg-page);
+    color: var(--cd-text);
+    font-family: var(--font);
+    margin: 0;
+    padding: var(--s-xxl) var(--s-lg) 64px;
+    line-height: 1.45;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  .page-head { margin-bottom: var(--s-xl); }
+  .page-head h1 { font-size: 28px; font-weight: 600; margin: 0 0 6px; }
+  .page-head p { color: var(--cd-text-muted); font-size: 15px; margin: 0 0 8px; max-width: 76ch; }
+  .page-head .note { font-size: 13px; color: var(--cd-text-faint); }
+  .page-head .note .pin { color: var(--cd-accent); font-weight: 600; }
+
+  /* legend */
+  .legend { display: flex; gap: var(--s-lg); flex-wrap: wrap; font-size: 12px; color: var(--cd-text-faint); margin-top: var(--s-md); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 22px; height: 14px; border-radius: 3px; display: inline-block; border: 1px solid var(--cd-border); }
+  .sw.diff { background: var(--cd-bg-accent-soft); border-color: var(--cd-accent); }
+
+  /* context strip: home->section pill row, now only 2 sections */
+  .ctx {
+    display: flex; align-items: center; gap: var(--s-lg);
+    padding: var(--s-md) var(--s-lg);
+    border: 1px dashed var(--cd-border-strong);
+    border-radius: var(--r-md);
+    background: var(--cd-bg-card);
+    margin-bottom: var(--s-xl);
+    font-size: 14px; color: var(--cd-text-muted);
+  }
+  .ctx .brand { font-weight: 600; color: var(--cd-text); }
+  .ctx .mark { color: var(--cd-accent); font-size: 18px; }
+  .ctx .seg { margin-left: auto; display: flex; gap: var(--s-sm); }
+  .ctx .nav { display: flex; gap: var(--s-md); font-size: 13px; }
+
+  .card {
+    background: var(--cd-bg-card);
+    border: 1px solid var(--cd-border);
+    border-radius: var(--r-lg);
+    padding: var(--s-xl);
+    margin-bottom: var(--s-xl);
+  }
+  .card-head { display: flex; align-items: center; gap: var(--s-md); margin-bottom: 4px; }
+  .num {
+    width: 28px; height: 28px; border-radius: var(--r-pill);
+    background: var(--cd-accent); color: #fff;
+    display: grid; place-items: center; font-size: 14px; font-weight: 600; flex: none;
+  }
+  .card-head h2 { font-size: 18px; font-weight: 600; margin: 0; }
+  .tag {
+    font-size: 11px; font-weight: 600; letter-spacing: .04em;
+    background: var(--cd-bg-accent-soft); color: var(--cd-accent);
+    padding: 2px 8px; border-radius: var(--r-pill); text-transform: uppercase;
+  }
+  .sub { color: var(--cd-text-muted); font-size: 14px; margin: 0 0 var(--s-lg) 40px; }
+
+  .state-label {
+    font-size: 12px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase;
+    color: var(--cd-text-faint); margin: 0 0 var(--s-sm) 40px;
+  }
+  .morph-arrow {
+    margin: var(--s-md) 0 var(--s-md) 40px; font-size: 13px; color: var(--cd-accent); font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .morph-arrow::before, .morph-arrow::after { content: ""; height: 1px; background: var(--cd-border); flex: 1; }
+
+  .mock {
+    background: var(--cd-bg-subtle);
+    border: 1px solid var(--cd-border);
+    border-radius: var(--r-md);
+    padding: var(--s-lg);
+    margin: 0 0 0 40px;
+  }
+
+  /* generic field/dropdown */
+  .field {
+    background: #fff; border: 1px solid var(--cd-border-strong);
+    border-radius: var(--r-md); padding: 9px var(--s-md);
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 14px;
+  }
+  .field .ph { color: var(--cd-text-faint); }
+  .field .chev { color: var(--cd-text-faint); }
+  .field.search { gap: var(--s-sm); }
+  .field .ico { color: var(--cd-text-faint); }
+  .field input { border: none; background: transparent; font: inherit; flex: 1; outline: none; color: var(--cd-text); }
+
+  /* pills */
+  .pillrow { display: flex; align-items: center; gap: var(--s-sm); flex-wrap: wrap; margin: 5px 0; }
+  .pillrow .lbl { width: 64px; color: var(--cd-text-faint); font-size: 13px; flex: none; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--cd-border-strong); border-radius: var(--r-pill);
+    padding: 5px 12px; font-size: 13px; background: #fff; color: var(--cd-text-muted);
+  }
+  .pill.on { background: var(--cd-bg-accent-soft); border-color: var(--cd-accent); color: var(--cd-text); font-weight: 500; }
+  .pill .pdot { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--cd-border-strong); }
+  .pill.on .pdot { background: var(--cd-accent); border-color: var(--cd-accent); }
+
+  /* chips / tray */
+  .tray { display: flex; align-items: center; gap: var(--s-sm); flex-wrap: wrap; margin-bottom: var(--s-md); }
+  .tray .lbl { color: var(--cd-text-faint); font-size: 13px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    border: 1px solid var(--cd-border-strong); border-radius: var(--r-pill);
+    padding: 5px 10px; font-size: 13px; background: #fff; color: var(--cd-text);
+  }
+  .chip.sel { background: var(--cd-bg-accent-soft); border-color: var(--cd-accent); font-weight: 500; }
+  .chip .x { color: var(--cd-text-faint); font-size: 14px; cursor: default; }
+  .chip.add { border-style: dashed; color: var(--cd-accent); }
+
+  /* tree */
+  .split { display: grid; grid-template-columns: 210px 1fr; border: 1px solid var(--cd-border); border-radius: var(--r-md); overflow: hidden; background: #fff; }
+  .rail { background: var(--cd-bg-subtle); border-right: 1px solid var(--cd-border); padding: var(--s-md); }
+  .rail .field { margin-bottom: var(--s-md); padding: 7px 10px; }
+  .tree { font-size: 14px; }
+  .tnode { padding: 4px 0; color: var(--cd-text-muted); display: flex; align-items: center; gap: 7px; }
+  .tnode.lvl1 { font-weight: 500; color: var(--cd-text); }
+  .tnode.lvl2 { padding-left: 16px; }
+  .tnode.lvl3 { padding-left: 30px; }
+  .tnode.lvl3.on { color: var(--cd-text); font-weight: 500; }
+  .tri { color: var(--cd-text-faint); font-size: 11px; width: 10px; }
+  .ck { width: 13px; height: 13px; border: 1.5px solid var(--cd-border-strong); border-radius: 3px; flex: none; display: inline-block; }
+  .ck.on { background: var(--cd-accent); border-color: var(--cd-accent); position: relative; }
+  .ck.on::after { content: "✓"; color: #fff; font-size: 10px; position: absolute; top: -2px; left: 1px; }
+
+  /* single (roomy) spec */
+  .ident { font-size: 13px; color: var(--cd-text-muted); margin: var(--s-md) 0 var(--s-sm); }
+  .ident b { color: var(--cd-text); font-weight: 600; }
+  .spec { width: 100%; border-collapse: collapse; font-size: 14px; background: #fff; border: 1px solid var(--cd-border); border-radius: var(--r-md); overflow: hidden; }
+  .spec td { padding: 11px 12px; border-top: 1px solid var(--cd-border); }
+  .spec tr:first-child td { border-top: none; }
+  .spec .k { color: var(--cd-text-faint); width: 110px; }
+  .spec .v { color: var(--cd-text); }
+  .spec .m { text-align: right; color: var(--cd-verified); font-size: 12px; white-space: nowrap; width: 90px; }
+  .vdot { width: 8px; height: 8px; border-radius: 50%; background: var(--cd-verified); display: inline-block; margin-right: 5px; }
+
+  /* compare (columns) */
+  .cmp { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; border: 1px solid var(--cd-border); border-radius: var(--r-md); overflow: hidden; }
+  .cmp th, .cmp td { padding: 9px 10px; border-top: 1px solid var(--cd-border); border-left: 1px solid var(--cd-border); text-align: left; vertical-align: top; }
+  .cmp th:first-child, .cmp td:first-child { border-left: none; }
+  .cmp thead th { border-top: none; background: var(--cd-bg-subtle); font-weight: 600; font-size: 13px; }
+  .cmp thead th.rowhdr { background: #fff; }
+  .cmp th .colname { display: flex; align-items: center; justify-content: space-between; gap: var(--s-sm); }
+  .cmp th .yr { color: var(--cd-text-faint); font-weight: 400; font-size: 12px; }
+  .cmp th .x { color: var(--cd-text-faint); font-weight: 400; }
+  .cmp td.k { color: var(--cd-text-faint); width: 90px; white-space: nowrap; }
+  .cmp td.diff { background: var(--cd-bg-accent-soft); }
+  .cmp th.addcol { border-style: dashed; border-color: var(--cd-accent); color: var(--cd-accent); text-align: center; font-weight: 500; background: #fff; min-width: 96px; }
+
+  /* cost + tradeoff */
+  .meta { margin: var(--s-lg) 0 0 40px; }
+  .costs { display: flex; gap: var(--s-sm); flex-wrap: wrap; margin-bottom: var(--s-sm); }
+  .cost {
+    font-size: 12px; padding: 4px 10px; border-radius: var(--r-pill);
+    background: var(--cd-bg-subtle); border: 1px solid var(--cd-border); color: var(--cd-text-muted);
+  }
+  .cost b { color: var(--cd-text); }
+  .cost.good { background: #f0fbf4; border-color: #c9ece1; color: #15803d; }
+  .cost.good b { color: #15803d; }
+  .trade { font-size: 13px; color: var(--cd-text-faint); margin: 0; }
+  .trade .win { color: var(--cd-verified); font-weight: 600; }
+  .trade .lose { color: var(--cd-needs-review); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="page-head">
+    <h1>Lineup — one laptop or several</h1>
+    <p>Browse and Compare are merged into one page. It defaults to a single laptop (the roomy spec view), and grows
+       side-by-side columns when you add more. Below: how each of the 5 pickers handles the morph from one → several.
+       The spec content is identical across concepts — only the picker, and how you <em>add</em> a laptop, changes.</p>
+    <p class="note">Proposed name: <span class="pin">Lineup</span> &nbsp;(alternates: Showcase, Roster). Used throughout this mock.</p>
+    <div class="legend">
+      <span><span class="vdot"></span> verified value</span>
+      <span><span class="sw diff"></span> highlighted = differs between laptops</span>
+      <span>× = remove a laptop from the lineup</span>
+    </div>
+  </div>
+
+  <!-- in-context strip: 6 sections -> nav(3) + pills(2 now, was 3) -->
+  <div class="ctx">
+    <span class="mark">◆</span><span class="brand">Spec Compass</span>
+    <span class="seg">
+      <span class="pill on"><span class="pdot"></span>Lineup</span>
+      <span class="pill"><span class="pdot"></span>Find</span>
+    </span>
+    <span class="nav" style="margin-left:var(--s-lg);">
+      <span>Edit</span><span>Refresh</span><span>Triage</span>
+    </span>
+  </div>
+
+  <!-- ============ 1 — Single search picker ============ -->
+  <div class="card">
+    <div class="card-head"><span class="num">1</span><h2>Single search picker</h2></div>
+    <p class="sub">One searchable dropdown picks the laptop. To compare, each laptop gets its own picker as a column header; a dashed “+ add” column appends one more.</p>
+
+    <div class="state-label">One laptop</div>
+    <div class="mock">
+      <div class="field"><span>Lenovo · Legion · Pro 7i</span><span class="chev">▾</span></div>
+      <div class="ident"><b>Lenovo</b> · Legion · Pro 7i · 2024 · Active</div>
+      <table class="spec">
+        <tr><td class="k">CPU</td><td class="v">Core i9-14900HX</td><td class="m"><span class="vdot"></span>verified</td></tr>
+        <tr><td class="k">GPU</td><td class="v">RTX 4080</td><td class="m"><span class="vdot"></span>verified</td></tr>
+        <tr><td class="k">Display</td><td class="v">16" 165Hz QHD+</td><td class="m"><span class="vdot"></span>verified</td></tr>
+        <tr><td class="k">RAM</td><td class="v">32GB DDR5</td><td class="m"><span class="vdot"></span>verified</td></tr>
+      </table>
+    </div>
+
+    <div class="morph-arrow">+ add a laptop →</div>
+
+    <div class="state-label">Comparing three</div>
+    <div class="mock">
+      <table class="cmp">
+        <thead><tr>
+          <th class="rowhdr"></th>
+          <th><div class="colname"><span>Pro 7i ▾</span><span class="x">×</span></div></th>
+          <th><div class="colname"><span>Strix G16 ▾</span><span class="x">×</span></div></th>
+          <th><div class="colname"><span>Alienware m18 ▾</span><span class="x">×</span></div></th>
+          <th class="addcol">+ add</th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="k">CPU</td><td>i9-14900HX</td><td>i9-14900HX</td><td>i9-14900HX</td><td></td></tr>
+          <tr><td class="k">GPU</td><td class="diff">RTX 4080</td><td class="diff">RTX 4070</td><td class="diff">RTX 4090</td><td></td></tr>
+          <tr><td class="k">Display</td><td class="diff">16" 165Hz</td><td class="diff">16" 240Hz</td><td class="diff">18" 165Hz</td><td></td></tr>
+          <tr><td class="k">RAM</td><td class="diff">32GB</td><td class="diff">16GB</td><td class="diff">32GB</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="meta">
+      <div class="costs">
+        <span class="cost good">view one: <b>0 clicks</b> (default)</span>
+        <span class="cost good">add a laptop: <b>2 clicks</b> (+add, pick)</span>
+        <span class="cost good">remove: <b>1 click</b> (×)</span>
+      </div>
+      <p class="trade"><span class="win">Wins:</span> single view stays roomy; adding is an obvious “+” column. &nbsp; <span class="lose">Loses:</span> each new column needs its own search — slightly repetitive for many laptops.</p>
+    </div>
+  </div>
+
+  <!-- ============ 2 — Inline pill rows ============ -->
+  <div class="card">
+    <div class="card-head"><span class="num">2</span><h2>Inline pill rows</h2></div>
+    <p class="sub">Brand & Series pills filter; the Product row becomes multi-select. Tap more product pills to add columns — picks from other brands stay pinned in a tray.</p>
+
+    <div class="state-label">One laptop</div>
+    <div class="mock">
+      <div class="pillrow"><span class="lbl">Brand</span><span class="pill on"><span class="pdot"></span>Lenovo</span><span class="pill"><span class="pdot"></span>ASUS</span><span class="pill"><span class="pdot"></span>Dell</span><span class="pill"><span class="pdot"></span>MSI</span></div>
+      <div class="pillrow"><span class="lbl">Series</span><span class="pill on"><span class="pdot"></span>Legion</span><span class="pill"><span class="pdot"></span>ThinkPad</span></div>
+      <div class="pillrow"><span class="lbl">Product</span><span class="pill on"><span class="pdot"></span>Pro 7i</span><span class="pill"><span class="pdot"></span>Pro 5i</span><span class="pill"><span class="pdot"></span>Slim 5</span></div>
+      <div class="ident"><b>Lenovo</b> · Legion · Pro 7i · 2024 · Active</div>
+      <table class="spec">
+        <tr><td class="k">CPU</td><td class="v">Core i9-14900HX</td><td class="m"><span class="vdot"></span>verified</td></tr>
+        <tr><td class="k">GPU</td><td class="v">RTX 4080</td><td class="m"><span class="vdot"></span>verified</td></tr>
+        <tr><td class="k">Display</td><td class="v">16" 165Hz QHD+</td><td class="m"><span class="vdot"></span>verified</td></tr>
+        <tr><td class="k">RAM</td><td class="v">32GB DDR5</td><td class="m"><span class="vdot"></span>verified</td></tr>
+      </table>
+    </div>
+
+    <div class="morph-arrow">tap more Product pills →</div>
+
+    <div class="state-label">Comparing three</div>
+    <div class="mock">
+      <div class="pillrow"><span class="lbl">Brand</span><span class="pill on"><span class="pdot"></span>Lenovo</span><span class="pill"><span class="pdot"></span>ASUS</span><span class="pill"><span class="pdot"></span>Dell</span><span class="pill"><span class="pdot"></span>MSI</span></div>
+      <div class="pillrow"><span class="lbl">Product</span><span class="pill on"><span class="pdot"></span>Pro 7i</span><span class="pill"><span class="pdot"></span>Pro 5i</span></div>
+      <div class="tray"><span class="lbl">Lineup:</span><span class="chip sel">Pro 7i <span class="x">×</span></span><span class="chip sel">Strix G16 <span class="x">×</span></span><span class="chip sel">Alienware m18 <span class="x">×</span></span></div>
+      <table class="cmp">
+        <thead><tr><th class="rowhdr"></th>
+          <th><div class="colname"><span>Pro 7i</span><span class="yr">2024</span></div></th>
+          <th><div class="colname"><span>Strix G16</span><span class="yr">2024</span></div></th>
+          <th><div class="colname"><span>Alienware m18</span><span class="yr">2024</span></div></th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="k">CPU</td><td>i9-14900HX</td><td>i9-14900HX</td><td>i9-14900HX</td></tr>
+          <tr><td class="k">GPU</td><td class="diff">RTX 4080</td><td class="diff">RTX 4070</td><td class="diff">RTX 4090</td></tr>
+          <tr><td class="k">Display</td><td class="diff">16" 165Hz</td><td class="diff">16" 240Hz</td><td class="diff">18" 165Hz</td></tr>
+          <tr><td class="k">RAM</td><td class="diff">32GB</td><td class="diff">16GB</td><td class="diff">32GB</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="meta">
+      <div class="costs">
+        <span class="cost good">view one: <b>0 clicks</b></span>
+        <span class="cost good">add same-brand laptop: <b>1 click</b></span>
+        <span class="cost">add other-brand: <b>2 clicks</b> (brand + product)</span>
+        <span class="cost good">remove: <b>1 click</b></span>
+      </div>
+      <p class="trade"><span class="win">Wins:</span> fastest 1-click adds within a brand; hierarchy visible. &nbsp; <span class="lose">Loses:</span> needs a pinned-tray concept so cross-brand picks don’t vanish — more moving parts.</p>
+    </div>
+  </div>
+
+  <!-- ============ 3 — Left-rail tree ============ -->
+  <div class="card">
+    <div class="card-head"><span class="num">3</span><h2>Left-rail tree (multi-select)</h2></div>
+    <p class="sub">Tree on the left gains checkboxes. Check one → single view on the right; check several across branches → side-by-side columns.</p>
+
+    <div class="state-label">One laptop</div>
+    <div class="mock" style="padding:0; background:transparent; border:none;">
+      <div class="split">
+        <div class="rail">
+          <div class="field search"><span class="ico">⌕</span><span class="ph">search</span></div>
+          <div class="tree">
+            <div class="tnode lvl1"><span class="tri">▾</span> Lenovo</div>
+            <div class="tnode lvl2"><span class="tri">▾</span> Legion</div>
+            <div class="tnode lvl3 on"><span class="ck on"></span>Pro 7i</div>
+            <div class="tnode lvl3"><span class="ck"></span>Pro 5i</div>
+            <div class="tnode lvl1"><span class="tri">▸</span> ASUS</div>
+            <div class="tnode lvl1"><span class="tri">▸</span> Dell</div>
+          </div>
+        </div>
+        <div style="padding: var(--s-lg);">
+          <div class="ident" style="margin-top:0;"><b>Lenovo</b> · Legion · Pro 7i · 2024 · Active</div>
+          <table class="spec">
+            <tr><td class="k">CPU</td><td class="v">Core i9-14900HX</td><td class="m"><span class="vdot"></span>verified</td></tr>
+            <tr><td class="k">GPU</td><td class="v">RTX 4080</td><td class="m"><span class="vdot"></span>verified</td></tr>
+            <tr><td class="k">Display</td><td class="v">16" 165Hz QHD+</td><td class="m"><span class="vdot"></span>verified</td></tr>
+            <tr><td class="k">RAM</td><td class="v">32GB DDR5</td><td class="m"><span class="vdot"></span>verified</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="morph-arrow">check more leaves →</div>
+
+    <div class="state-label">Comparing three</div>
+    <div class="mock" style="padding:0; background:transparent; border:none;">
+      <div class="split">
+        <div class="rail">
+          <div class="field search"><span class="ico">⌕</span><span class="ph">search</span></div>
+          <div class="tree">
+            <div class="tnode lvl1"><span class="tri">▾</span> Lenovo</div>
+            <div class="tnode lvl3 on"><span class="ck on"></span>Pro 7i</div>
+            <div class="tnode lvl1"><span class="tri">▾</span> ASUS</div>
+            <div class="tnode lvl3 on"><span class="ck on"></span>Strix G16</div>
+            <div class="tnode lvl1"><span class="tri">▾</span> Dell</div>
+            <div class="tnode lvl3 on"><span class="ck on"></span>Alienware m18</div>
+            <div class="tnode lvl1"><span class="tri">▸</span> MSI</div>
+          </div>
+        </div>
+        <div style="padding: var(--s-lg);">
+          <table class="cmp">
+            <thead><tr><th class="rowhdr"></th>
+              <th><div class="colname"><span>Pro 7i</span><span class="x">×</span></div></th>
+              <th><div class="colname"><span>Strix G16</span><span class="x">×</span></div></th>
+              <th><div class="colname"><span>m18</span><span class="x">×</span></div></th>
+            </tr></thead>
+            <tbody>
+              <tr><td class="k">CPU</td><td>i9-14900HX</td><td>i9-14900HX</td><td>i9-14900HX</td></tr>
+              <tr><td class="k">GPU</td><td class="diff">RTX 4080</td><td class="diff">RTX 4070</td><td class="diff">RTX 4090</td></tr>
+              <tr><td class="k">Display</td><td class="diff">16" 165Hz</td><td class="diff">16" 240Hz</td><td class="diff">18" 165Hz</td></tr>
+              <tr><td class="k">RAM</td><td class="diff">32GB</td><td class="diff">16GB</td><td class="diff">32GB</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="meta">
+      <div class="costs">
+        <span class="cost good">view one: <b>0 clicks</b></span>
+        <span class="cost good">add (branch open): <b>1 click</b></span>
+        <span class="cost">add (branch closed): <b>2 clicks</b></span>
+        <span class="cost good">remove: <b>1 click</b> (uncheck)</span>
+      </div>
+      <p class="trade"><span class="win">Wins:</span> checkboxes are the most natural multi-select; catalog always visible. &nbsp; <span class="lose">Loses:</span> it’s a tree — the exact pattern you flagged as too click-heavy on Triage; eats a column every session.</p>
+    </div>
+  </div>
+
+  <!-- ============ 4 — Recent chips + search ============ -->
+  <div class="card">
+    <div class="card-head"><span class="num">4</span><h2>Recent chips + search</h2><span class="tag">new</span></div>
+    <p class="sub">Tap a recent chip to add it to the lineup; search to add anything else. A “Lineup” tray shows what’s selected; one chip = single view, several = columns.</p>
+
+    <div class="state-label">One laptop</div>
+    <div class="mock">
+      <div class="tray"><span class="lbl">Recent:</span><span class="chip">Pro 7i</span><span class="chip">Strix G16</span><span class="chip">Alienware m18</span><span class="chip">Raider 18 HX</span></div>
+      <div class="field search"><span class="ico">⌕</span><span class="ph">add another of 56 products…</span></div>
+      <div class="tray" style="margin-top:var(--s-md);"><span class="lbl">Lineup:</span><span class="chip sel">Pro 7i <span class="x">×</span></span></div>
+      <div class="ident"><b>Lenovo</b> · Legion · Pro 7i · 2024 · Active</div>
+      <table class="spec">
+        <tr><td class="k">CPU</td><td class="v">Core i9-14900HX</td><td class="m"><span class="vdot"></span>verified</td></tr>
+        <tr><td class="k">GPU</td><td class="v">RTX 4080</td><td class="m"><span class="vdot"></span>verified</td></tr>
+        <tr><td class="k">Display</td><td class="v">16" 165Hz QHD+</td><td class="m"><span class="vdot"></span>verified</td></tr>
+        <tr><td class="k">RAM</td><td class="v">32GB DDR5</td><td class="m"><span class="vdot"></span>verified</td></tr>
+      </table>
+    </div>
+
+    <div class="morph-arrow">tap chips to add →</div>
+
+    <div class="state-label">Comparing three</div>
+    <div class="mock">
+      <div class="tray"><span class="lbl">Recent:</span><span class="chip">Pro 7i</span><span class="chip">Strix G16</span><span class="chip">Alienware m18</span><span class="chip">Raider 18 HX</span></div>
+      <div class="field search"><span class="ico">⌕</span><span class="ph">add another of 56 products…</span></div>
+      <div class="tray" style="margin-top:var(--s-md);"><span class="lbl">Lineup:</span><span class="chip sel">Pro 7i <span class="x">×</span></span><span class="chip sel">Strix G16 <span class="x">×</span></span><span class="chip sel">Alienware m18 <span class="x">×</span></span></div>
+      <table class="cmp">
+        <thead><tr><th class="rowhdr"></th>
+          <th><div class="colname"><span>Pro 7i</span><span class="yr">2024</span></div></th>
+          <th><div class="colname"><span>Strix G16</span><span class="yr">2024</span></div></th>
+          <th><div class="colname"><span>Alienware m18</span><span class="yr">2024</span></div></th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="k">CPU</td><td>i9-14900HX</td><td>i9-14900HX</td><td>i9-14900HX</td></tr>
+          <tr><td class="k">GPU</td><td class="diff">RTX 4080</td><td class="diff">RTX 4070</td><td class="diff">RTX 4090</td></tr>
+          <tr><td class="k">Display</td><td class="diff">16" 165Hz</td><td class="diff">16" 240Hz</td><td class="diff">18" 165Hz</td></tr>
+          <tr><td class="k">RAM</td><td class="diff">32GB</td><td class="diff">16GB</td><td class="diff">32GB</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="meta">
+      <div class="costs">
+        <span class="cost good">view one: <b>0–1 clicks</b></span>
+        <span class="cost good">add a recent laptop: <b>1 click</b></span>
+        <span class="cost">add a new laptop: <b>2 clicks</b> (search)</span>
+        <span class="cost good">remove: <b>1 click</b></span>
+      </div>
+      <p class="trade"><span class="win">Wins:</span> recall-heavy browsing is 1 click; the tray makes “what’s in the lineup” obvious. &nbsp; <span class="lose">Loses:</span> two add-surfaces (chips + search) to learn; recent list must be tracked.</p>
+    </div>
+  </div>
+
+  <!-- ============ 5 — Command palette ============ -->
+  <div class="card">
+    <div class="card-head"><span class="num">5</span><h2>Command palette</h2><span class="tag">new</span></div>
+    <p class="sub">One box. Type + Enter adds a laptop as a token (like an email “To:” field). One token = single view; several tokens = columns.</p>
+
+    <div class="state-label">One laptop</div>
+    <div class="mock">
+      <div class="field search"><span class="ico">⌕</span><span class="chip sel" style="margin-right:6px;">Pro 7i <span class="x">×</span></span><span class="ph">type to add another…</span></div>
+      <div class="ident"><b>Lenovo</b> · Legion · Pro 7i · 2024 · Active</div>
+      <table class="spec">
+        <tr><td class="k">CPU</td><td class="v">Core i9-14900HX</td><td class="m"><span class="vdot"></span>verified</td></tr>
+        <tr><td class="k">GPU</td><td class="v">RTX 4080</td><td class="m"><span class="vdot"></span>verified</td></tr>
+        <tr><td class="k">Display</td><td class="v">16" 165Hz QHD+</td><td class="m"><span class="vdot"></span>verified</td></tr>
+        <tr><td class="k">RAM</td><td class="v">32GB DDR5</td><td class="m"><span class="vdot"></span>verified</td></tr>
+      </table>
+    </div>
+
+    <div class="morph-arrow">type + Enter to add →</div>
+
+    <div class="state-label">Comparing three</div>
+    <div class="mock">
+      <div class="field search"><span class="ico">⌕</span>
+        <span class="chip sel" style="margin-right:6px;">Pro 7i <span class="x">×</span></span>
+        <span class="chip sel" style="margin-right:6px;">Strix G16 <span class="x">×</span></span>
+        <span class="chip sel" style="margin-right:6px;">Alienware m18 <span class="x">×</span></span>
+        <span class="ph">type to add…</span>
+      </div>
+      <table class="cmp">
+        <thead><tr><th class="rowhdr"></th>
+          <th><div class="colname"><span>Pro 7i</span><span class="yr">2024</span></div></th>
+          <th><div class="colname"><span>Strix G16</span><span class="yr">2024</span></div></th>
+          <th><div class="colname"><span>Alienware m18</span><span class="yr">2024</span></div></th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="k">CPU</td><td>i9-14900HX</td><td>i9-14900HX</td><td>i9-14900HX</td></tr>
+          <tr><td class="k">GPU</td><td class="diff">RTX 4080</td><td class="diff">RTX 4070</td><td class="diff">RTX 4090</td></tr>
+          <tr><td class="k">Display</td><td class="diff">16" 165Hz</td><td class="diff">16" 240Hz</td><td class="diff">18" 165Hz</td></tr>
+          <tr><td class="k">RAM</td><td class="diff">32GB</td><td class="diff">16GB</td><td class="diff">32GB</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="meta">
+      <div class="costs">
+        <span class="cost good">add a laptop: <b>~0 clicks</b> (type + Enter)</span>
+        <span class="cost">first use: <b>1 click</b> into box</span>
+        <span class="cost good">remove: <b>1 click</b> (× token)</span>
+      </div>
+      <p class="trade"><span class="win">Wins:</span> adding many laptops is effortless; also searches spec keywords. &nbsp; <span class="lose">Loses:</span> least obvious for non-technical use; Streamlit can’t keep the box truly always-focused.</p>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

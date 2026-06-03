@@ -1,23 +1,18 @@
 """AppTest coverage for the Find-products screen.
 
-Stage 10c rewrite: the Find screen exposes a strict cascade
-Section → Feature → Match → Value. Stage 11 Phase 7 replaced the
-3-selectbox narrow-by chips (Company / Series / Year) with the strict
-Brand → Series → Product picker plus Year + Status pill toggles. The
-behavioral core (``_distinct_values_for_template`` and
-``_cell_matches``) is unchanged; these tests drive the new presentation
-but cover the same outcomes.
+The query is one searchable "Section · Feature" combobox + a Match
+operator + a Value; narrow-by uses the single-search product combobox +
+Year + Status toggles. Results render as a table; per-row ``Open →``
+loads one product into Spec Roster, and "Open top N" loads up to four
+matches as Spec Roster compare columns.
 
-Selectbox keys on this screen:
-  - ``find.section``  — Section (orchestrator render order)
-  - ``find.feature``  — Feature (friendly leaf labels for that section)
-  - ``find.op_label`` — Match operator (plain-English label)
+Widget keys on this screen:
+  - ``find.field``        — searchable Section · Feature combobox (index=None)
+  - ``find.op_label``     — Match operator (plain-English label)
   - ``find.value_select`` — Value picker (only when op needs a value)
-  - ``find.brand`` / ``find.series`` / ``find.product`` — Phase 7 picker rungs
-
-Pill-button key prefixes:
-  - ``find.year_btn.<yr>``     — year toggle pills
-  - ``find.status_btn.<name>`` — status toggle pills
+  - ``find.narrow.search``— narrow-by product combobox
+  - ``find.year_btn.<yr>`` / ``find.status_btn.<name>`` — toggle pills
+  - ``find.open.<mc>.<yr>`` — per-row Open →; ``find.open_top`` — Open top N
 """
 
 from __future__ import annotations
@@ -50,10 +45,36 @@ def _bundle(value):
     )
 
 
+def _run(view: str = "find") -> AppTest:
+    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
+    at.session_state["view"] = view
+    return at
+
+
+def _field_box(at):
+    return [s for s in at.selectbox if s.key == "find.field"][0]
+
+
+def _pick_field(at, needle: str):
+    """Select the first Section · Feature option containing ``needle``."""
+    box = _field_box(at)
+    opt = next(o for o in box.options if needle in o)
+    box.set_value(opt).run()
+    return opt
+
+
 def _value_box(at):
-    """Return the value selectbox (key=find.value_select) or None."""
     matches = [s for s in at.selectbox if s.key == "find.value_select"]
     return matches[0] if matches else None
+
+
+def _blob(at) -> str:
+    return "\n".join(m.value for m in at.markdown)
+
+
+# ---------------------------------------------------------------------------
+# Seed helpers
+# ---------------------------------------------------------------------------
 
 
 def _seed_two_vendors(db_path) -> None:
@@ -132,149 +153,6 @@ def _seed_two_panel_variants(db_path) -> None:
         conn.close()
 
 
-def _section_box(at):
-    return [s for s in at.selectbox if s.key == "find.section"][0]
-
-
-def _feature_box(at):
-    return [s for s in at.selectbox if s.key == "find.feature"][0]
-
-
-def test_value_dropdown_populated_for_default_spec_field(empty_db):
-    """Default Section/Feature lands on the first option (Identity / Vendor name).
-
-    Seeds two products with distinct vendors and asserts the value
-    selectbox carries those values, sorted casefold-alphabetically.
-    """
-    _seed_two_vendors(empty_db)
-
-    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
-    at.session_state["view"] = "find"
-    at.run()
-    assert not at.exception, [str(e) for e in at.exception]
-
-    section_box = _section_box(at)
-    feature_box = _feature_box(at)
-    op_box = [s for s in at.selectbox if s.key == "find.op_label"][0]
-    assert "Identity" in list(section_box.options)
-    assert section_box.value == "Identity"
-    assert "Vendor name" in list(feature_box.options)
-    assert op_box.value == "equals"
-
-    value_box = _value_box(at)
-    assert value_box is not None, "expected find.value_select to be rendered"
-    assert list(value_box.options) == ["Dell Inc.", "HP Inc."], (
-        f"unexpected dropdown options: {value_box.options!r}"
-    )
-
-
-def test_value_dropdown_numeric_sort_on_refresh_rate(empty_db):
-    """Numeric leaf sorts numerically ascending, not alphabetically."""
-    _seed_three_refresh_rates(empty_db)
-
-    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
-    at.session_state["view"] = "find"
-    at.run()
-    assert not at.exception, [str(e) for e in at.exception]
-
-    _section_box(at).set_value("Display").run()
-    assert not at.exception, [str(e) for e in at.exception]
-    feature_box = _feature_box(at)
-    assert "Refresh rate" in list(feature_box.options), (
-        f"missing 'Refresh rate' in feature options: "
-        f"{list(feature_box.options)!r}"
-    )
-    feature_box.set_value("Refresh rate").run()
-    assert not at.exception, [str(e) for e in at.exception]
-
-    value_box = _value_box(at)
-    assert value_box is not None
-    assert list(value_box.options) == ["60", "120", "240"], (
-        f"numeric sort broken: got {value_box.options!r}"
-    )
-
-
-def test_empty_field_shows_inline_message_and_no_results(empty_db):
-    """When no product has a filled cell at the chosen template, an
-    inline "No values to filter on" message renders and the value
-    selectbox is absent. The result panel shows "No products match".
-    """
-    _seed_only_vendor(empty_db)
-
-    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
-    at.session_state["view"] = "find"
-    at.run()
-    assert not at.exception, [str(e) for e in at.exception]
-
-    # Flip to "Identity / Brand" — brand is NULL on the seeded product.
-    _section_box(at).set_value("Identity").run()
-    assert not at.exception, [str(e) for e in at.exception]
-    feature_box = _feature_box(at)
-    assert "Brand" in list(feature_box.options), (
-        f"missing 'Brand' in feature options: {list(feature_box.options)!r}"
-    )
-    feature_box.set_value("Brand").run()
-    assert not at.exception, [str(e) for e in at.exception]
-
-    markdown_blob = "\n".join(m.value for m in at.markdown)
-    assert "No values to filter on for this field" in markdown_blob, (
-        f"expected inline 'no values' message; saw markdown {markdown_blob!r}"
-    )
-    assert _value_box(at) is None, (
-        "value selectbox should be absent when no values exist"
-    )
-    assert "No products match this query." in markdown_blob
-
-
-def test_panel_type_canonicalizes_ips_level_to_ips(empty_db):
-    """T9.2: dropdown shows a single canonical "IPS" entry for products
-    that store either "IPS" or "IPS-level".
-    """
-    _seed_two_panel_variants(empty_db)
-
-    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
-    at.session_state["view"] = "find"
-    at.run()
-    assert not at.exception, [str(e) for e in at.exception]
-
-    _section_box(at).set_value("Display").run()
-    _feature_box(at).set_value("Panel").run()
-    assert not at.exception, [str(e) for e in at.exception]
-
-    value_box = _value_box(at)
-    assert value_box is not None
-    assert list(value_box.options) == ["IPS"], (
-        f"canonical collapse broken: got {value_box.options!r}"
-    )
-
-
-def test_panel_type_canonical_pick_matches_both_stored_variants(empty_db):
-    """T9.2: picking "IPS" matches both the product that stores "IPS"
-    raw and the one that stores "IPS-level".
-    """
-    _seed_two_panel_variants(empty_db)
-
-    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
-    at.session_state["view"] = "find"
-    at.run()
-    assert not at.exception, [str(e) for e in at.exception]
-
-    _section_box(at).set_value("Display").run()
-    _feature_box(at).set_value("Panel").run()
-    assert not at.exception, [str(e) for e in at.exception]
-
-    markdown_blob = "\n".join(m.value for m in at.markdown)
-    # Two products match; the result count line carries the count text.
-    assert "2 products match" in markdown_blob, (
-        f"expected '2 products match' in markdown; got {markdown_blob!r}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Stage 10c — cascade order + result cards + Open → wiring
-# ---------------------------------------------------------------------------
-
-
 def _seed_two_full_identity(db_path):
     conn = connect(db_path)
     try:
@@ -300,123 +178,7 @@ def _seed_two_full_identity(db_path):
         conn.close()
 
 
-def test_cascade_order_section_then_feature_then_match_then_value(empty_db):
-    """Section / Feature / Match / Value selectboxes render in that order,
-    with the four expected keys.
-    """
-    _seed_two_full_identity(empty_db)
-    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
-    at.session_state["view"] = "find"
-    at.run()
-    assert not at.exception, [str(e) for e in at.exception]
-
-    keys_in_render_order = [s.key for s in at.selectbox]
-    # Section/feature/op render unconditionally; value renders when the
-    # current op needs one (default "equals" does, so it must appear).
-    expected = ["find.section", "find.feature", "find.op_label", "find.value_select"]
-    for k in expected:
-        assert k in keys_in_render_order, (
-            f"missing {k!r} in selectboxes: {keys_in_render_order!r}"
-        )
-    # Strict ordering of the leading four.
-    leading = [k for k in keys_in_render_order if k in expected]
-    assert leading[: len(expected)] == expected, (
-        f"unexpected cascade order: {leading!r}"
-    )
-
-
-def test_narrow_by_renders_picker_and_toggles(empty_db):
-    """Phase 7: narrow-by exposes the strict Brand → Series → Product
-    picker (``find.brand`` rendered first; Series + Product gated until
-    Brand is picked) plus year and status pill toggle blocks. Default
-    state seeds neither year nor status, so both pill sets exist but
-    don't filter.
-    """
-    _seed_two_full_identity(empty_db)
-    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
-    at.session_state["view"] = "find"
-    at.run()
-    _section_box(at).set_value("Display").run()
-    _feature_box(at).set_value("Panel").run()
-    assert not at.exception, [str(e) for e in at.exception]
-
-    keys = {s.key for s in at.selectbox}
-    # Brand renders unconditionally; Series + Product gated behind picks.
-    assert "find.brand" in keys
-    assert "find.series" not in keys
-    assert "find.product" not in keys
-    # Year + status pill blocks render (two seeded products share year 2026,
-    # so one year pill; status block always renders Active + Discontinued).
-    year_buttons = [b for b in at.button if b.key and b.key.startswith("find.year_btn.")]
-    status_buttons = [b for b in at.button if b.key and b.key.startswith("find.status_btn.")]
-    assert len(year_buttons) == 1
-    assert len(status_buttons) == 2
-    # Phase 7 defaults: no year or status pre-toggled → empty filter sets.
-    assert at.session_state["find.years"] == set()
-    assert at.session_state["find.status"] == set()
-
-
-def test_result_card_renders_identity_and_open_button(empty_db):
-    _seed_two_full_identity(empty_db)
-    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
-    at.session_state["view"] = "find"
-    at.run()
-    _section_box(at).set_value("Display").run()
-    _feature_box(at).set_value("Panel").run()
-    assert not at.exception, [str(e) for e in at.exception]
-
-    markdown_blob = "\n".join(m.value for m in at.markdown)
-    # Card layout class + identity crumbs for at least one seeded product.
-    assert "cd-findcard" in markdown_blob
-    assert "Dell" in markdown_blob
-    assert "Alienware" in markdown_blob
-    # Open → buttons keyed per matched product.
-    open_buttons = [b for b in at.button if b.label.startswith("Open")]
-    assert open_buttons, "expected at least one Open → button"
-
-
-def test_open_button_sets_browse_session_state(empty_db):
-    """Clicking ``Open →`` on a result card primes Browse's strict-cascade
-    keys and switches the view to ``browse``.
-
-    Phase 7 narrow-by uses session-state directly, so we seed
-    ``find.brand`` to filter to the Dell row instead of poking a now-gone
-    ``find.narrow.company`` selectbox.
-    """
-    _seed_two_full_identity(empty_db)
-    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
-    at.session_state["view"] = "find"
-    # Narrow to the Dell row so we click a deterministic card.
-    at.session_state["find.brand"] = "Dell"
-    at.run()
-    _section_box(at).set_value("Display").run()
-    _feature_box(at).set_value("Panel").run()
-    assert not at.exception, [str(e) for e in at.exception]
-
-    open_buttons = [b for b in at.button if b.label.startswith("Open")]
-    assert open_buttons, "expected at least one Open → button"
-    open_buttons[0].click().run()
-    # Rerun lands on Browse — view flipped and the picker + year keys are set.
-    assert at.session_state["view"] == "browse"
-    assert at.session_state["browse.brand"] == "Dell"
-    assert at.session_state["browse.series"] == "m18"
-    assert at.session_state["browse.product"] == "dell-x"
-    assert at.session_state["browse.years"] == {2026}
-
-
-# ---------------------------------------------------------------------------
-# Stage 11 Phase 7 — narrow-by reshape (picker + year + status toggles)
-# ---------------------------------------------------------------------------
-
-
 def _seed_dell_two_years_and_hp(db_path):
-    """Three rows: Dell m18 in 2025 + 2026, HP Transcend in 2026.
-
-    Mirrors the Browse/Compare seed helpers' shape so the picker's
-    Brand → Series → Product resolution works against the same row
-    geometry. Lets year/brand narrow-by axes each isolate a unique
-    subset of the base result set.
-    """
     conn = connect(db_path)
     try:
         with transaction(conn):
@@ -443,12 +205,6 @@ def _seed_dell_two_years_and_hp(db_path):
 
 
 def _seed_active_and_discontinued(db_path):
-    """Two Dell rows differing only in status + sub_brand.
-
-    The sub_brand divergence gives each card a distinguishable identity
-    crumb (cards don't surface the status string directly), so the test
-    can assert which row passed the status filter.
-    """
     conn = connect(db_path)
     try:
         with transaction(conn):
@@ -474,92 +230,215 @@ def _seed_active_and_discontinued(db_path):
         conn.close()
 
 
-def test_narrow_by_partial_brand_only_filters_to_that_brand(empty_db):
-    """Partial pick: setting Brand alone (no Series, no Product) narrows
-    results to that brand. Proves the Phase 7 partial-pick contract.
-    """
-    _seed_dell_two_years_and_hp(empty_db)
-    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
-    at.session_state["view"] = "find"
-    at.session_state["find.brand"] = "Dell"
-    at.run()
-    _section_box(at).set_value("Display").run()
-    _feature_box(at).set_value("Panel").run()
-    assert not at.exception, [str(e) for e in at.exception]
+# ---------------------------------------------------------------------------
+# Query row: field combobox + match + value
+# ---------------------------------------------------------------------------
 
-    markdown_blob = "\n".join(m.value for m in at.markdown)
-    # Two Dell rows match; HP row filtered out.
-    assert "2 products match" in markdown_blob, (
-        f"expected '2 products match'; got {markdown_blob!r}"
-    )
-    assert "Dell" in markdown_blob
-    assert "OMEN" not in markdown_blob
+
+def test_first_paint_prompts_for_a_spec_field(empty_db):
+    _seed_two_vendors(empty_db)
+    at = _run().run()
+    assert not at.exception, [str(e) for e in at.exception]
+    # index=None combobox: nothing picked yet → prompt, no value box.
+    assert "find.field" in {s.key for s in at.selectbox}
+    assert _value_box(at) is None
+    assert any("Pick a spec field" in i.value for i in at.info)
+
+
+def test_value_dropdown_for_vendor_field(empty_db):
+    _seed_two_vendors(empty_db)
+    at = _run().run()
+    _pick_field(at, "Vendor name")
+    assert not at.exception, [str(e) for e in at.exception]
+    op_box = [s for s in at.selectbox if s.key == "find.op_label"][0]
+    assert op_box.value == "equals"
+    value_box = _value_box(at)
+    assert value_box is not None
+    assert list(value_box.options) == ["Dell Inc.", "HP Inc."]
+
+
+def test_value_dropdown_numeric_sort_on_refresh_rate(empty_db):
+    _seed_three_refresh_rates(empty_db)
+    at = _run().run()
+    _pick_field(at, "Refresh rate")
+    assert not at.exception, [str(e) for e in at.exception]
+    value_box = _value_box(at)
+    assert value_box is not None
+    assert list(value_box.options) == ["60", "120", "240"]
+
+
+def test_empty_field_shows_inline_message_and_no_results(empty_db):
+    _seed_only_vendor(empty_db)
+    at = _run().run()
+    _pick_field(at, "· Brand")  # brand is NULL on the seeded product
+    assert not at.exception, [str(e) for e in at.exception]
+    blob = _blob(at)
+    assert "No values to filter on for this field" in blob
+    assert _value_box(at) is None
+    assert "No products match this query." in blob
+
+
+def test_panel_type_canonicalizes_ips_level_to_ips(empty_db):
+    _seed_two_panel_variants(empty_db)
+    at = _run().run()
+    _pick_field(at, "· Panel")
+    assert not at.exception, [str(e) for e in at.exception]
+    value_box = _value_box(at)
+    assert value_box is not None
+    assert list(value_box.options) == ["IPS"]
+
+
+def test_panel_type_canonical_pick_matches_both_stored_variants(empty_db):
+    _seed_two_panel_variants(empty_db)
+    at = _run().run()
+    _pick_field(at, "· Panel")
+    assert not at.exception, [str(e) for e in at.exception]
+    assert "2 products match" in _blob(at)
+
+
+def test_query_row_has_field_match_value_selectboxes(empty_db):
+    _seed_two_full_identity(empty_db)
+    at = _run().run()
+    _pick_field(at, "· Panel")
+    assert not at.exception, [str(e) for e in at.exception]
+    keys = [s.key for s in at.selectbox]
+    for k in ("find.field", "find.op_label", "find.value_select"):
+        assert k in keys, f"missing {k!r} in {keys!r}"
+    leading = [k for k in keys if k in (
+        "find.field", "find.op_label", "find.value_select"
+    )]
+    assert leading[:3] == ["find.field", "find.op_label", "find.value_select"]
+
+
+# ---------------------------------------------------------------------------
+# Narrow-by: product combobox + year/status toggles
+# ---------------------------------------------------------------------------
+
+
+def test_narrow_by_renders_product_picker_and_toggles(empty_db):
+    _seed_two_full_identity(empty_db)
+    at = _run().run()
+    _pick_field(at, "· Panel")
+    assert not at.exception, [str(e) for e in at.exception]
+    keys = {s.key for s in at.selectbox}
+    assert "find.narrow.search" in keys
+    year_buttons = [
+        b for b in at.button if b.key and b.key.startswith("find.year_btn.")
+    ]
+    status_buttons = [
+        b for b in at.button if b.key and b.key.startswith("find.status_btn.")
+    ]
+    assert len(year_buttons) == 1
+    assert len(status_buttons) == 2
+    assert at.session_state["find.years"] == set()
+    assert at.session_state["find.status"] == set()
+
+
+def test_narrow_by_product_filters_to_that_product(empty_db):
+    _seed_two_full_identity(empty_db)
+    at = _run()
+    at.session_state["find.op_label"] = "has any value"
+    at.session_state["find.narrow.search"] = "Dell · m18 · dell-x"
+    at.run()
+    _pick_field(at, "· Panel")
+    assert not at.exception, [str(e) for e in at.exception]
+    blob = _blob(at)
+    assert "1 product match" in blob
+    assert "dell-x" in blob
+    assert "hp-y" not in blob
 
 
 def test_narrow_by_year_pill_filters_to_selected_years(empty_db):
-    """Toggling a year pill narrows results to that year's rows."""
     _seed_dell_two_years_and_hp(empty_db)
-    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
-    at.session_state["view"] = "find"
+    at = _run()
     at.session_state["find.years"] = {2025}
     at.run()
-    _section_box(at).set_value("Display").run()
-    _feature_box(at).set_value("Panel").run()
+    _pick_field(at, "· Panel")
+    vbox = _value_box(at)
+    vbox.set_value("IPS").run()
     assert not at.exception, [str(e) for e in at.exception]
-
-    markdown_blob = "\n".join(m.value for m in at.markdown)
-    # Only the 2025 Dell row matches.
-    assert "1 product match" in markdown_blob, (
-        f"expected '1 product match'; got {markdown_blob!r}"
-    )
-    assert "Dell" in markdown_blob
-    assert "OMEN" not in markdown_blob
+    blob = _blob(at)
+    assert "1 product match" in blob
+    assert "dell-x-2025" in blob
 
 
 def test_narrow_by_status_pill_filters_to_selected_statuses(empty_db):
-    """Toggling a status pill narrows results to that status. NULL status
-    is treated as ``"Active"`` per the Phase 7 fallback in
-    ``_render_narrow_by``.
-    """
     _seed_active_and_discontinued(empty_db)
-    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
-    at.session_state["view"] = "find"
+    at = _run()
     at.session_state["find.status"] = {"Discontinued"}
     at.run()
-    _section_box(at).set_value("Display").run()
-    _feature_box(at).set_value("Panel").run()
+    _pick_field(at, "· Panel")
+    vbox = _value_box(at)
+    vbox.set_value("IPS").run()
     assert not at.exception, [str(e) for e in at.exception]
-
-    markdown_blob = "\n".join(m.value for m in at.markdown)
-    # Only the Discontinued row matches; identifiable by its sub_brand crumb.
-    assert "1 product match" in markdown_blob, (
-        f"expected '1 product match'; got {markdown_blob!r}"
-    )
-    assert "Inspiron" in markdown_blob
-    assert "Alienware" not in markdown_blob
+    blob = _blob(at)
+    assert "1 product match" in blob
+    assert "dell-disc" in blob
+    assert "dell-active" not in blob
 
 
-def test_narrow_by_empty_picker_and_pills_matches_all_query_results(empty_db):
-    """Default state — picker unpicked, year/status pill sets empty —
-    applies no narrow-by filter. The result count matches the unfiltered
-    Section/Feature/Match/Value query.
-    """
+def test_narrow_by_default_matches_all_query_results(empty_db):
     _seed_dell_two_years_and_hp(empty_db)
-    at = AppTest.from_file(str(APP_SCRIPT), default_timeout=10.0)
-    at.session_state["view"] = "find"
-    at.run()
-    _section_box(at).set_value("Display").run()
-    _feature_box(at).set_value("Panel").run()
+    at = _run().run()
+    _pick_field(at, "· Panel")
+    vbox = _value_box(at)
+    vbox.set_value("IPS").run()
     assert not at.exception, [str(e) for e in at.exception]
-
-    # No picker rung set, no year/status pills toggled — all 3 seeded rows
-    # match the default Display/Panel = IPS query (HP's OLED panel falls
-    # out by the value match, not by narrow-by). IPS canonical collapse
-    # means 2 Dell rows match; HP's OLED does not.
-    markdown_blob = "\n".join(m.value for m in at.markdown)
-    assert "2 products match" in markdown_blob, (
-        f"expected '2 products match'; got {markdown_blob!r}"
-    )
-    # Default Phase 7 filter axes are inert.
+    assert "2 products match" in _blob(at)
     assert at.session_state["find.years"] == set()
     assert at.session_state["find.status"] == set()
+
+
+# ---------------------------------------------------------------------------
+# Results table + Spec Roster handoff
+# ---------------------------------------------------------------------------
+
+
+def test_results_table_renders_identity_and_open_buttons(empty_db):
+    _seed_two_full_identity(empty_db)
+    at = _run().run()
+    _pick_field(at, "· Panel")
+    assert not at.exception, [str(e) for e in at.exception]
+    blob = _blob(at)
+    assert "cd-findcard" not in blob  # cards retired
+    assert "Dell" in blob and "m18" in blob and "dell-x" in blob
+    row_opens = [b for b in at.button if b.label == "Open →"]
+    assert row_opens, "expected at least one per-row Open → button"
+    assert any(b.key == "find.open_top" for b in at.button)
+
+
+def test_open_button_loads_one_product_into_spec_roster(empty_db):
+    _seed_two_full_identity(empty_db)
+    at = _run()
+    at.session_state["find.op_label"] = "has any value"
+    at.session_state["find.narrow.search"] = "Dell · m18 · dell-x"
+    at.run()
+    _pick_field(at, "· Panel")
+    assert not at.exception, [str(e) for e in at.exception]
+    row_opens = [b for b in at.button if b.label == "Open →"]
+    assert len(row_opens) == 1
+    row_opens[0].click().run()
+    assert at.session_state["view"] == "hub"
+    assert at.session_state["hub.section"] == "spec_roster"
+    assert at.session_state["spec_roster.column_ids"] == [1]
+    assert at.session_state["spec_roster.col1.search"] == "Dell · m18 · dell-x"
+
+
+def test_open_top_loads_columns_into_spec_roster(empty_db):
+    _seed_two_full_identity(empty_db)
+    at = _run()
+    at.session_state["find.op_label"] = "has any value"
+    at.run()
+    _pick_field(at, "· Panel")
+    assert not at.exception, [str(e) for e in at.exception]
+    assert "2 products match" in _blob(at)
+    open_top = [b for b in at.button if b.key == "find.open_top"][0]
+    open_top.click().run()
+    assert at.session_state["view"] == "hub"
+    assert at.session_state["hub.section"] == "spec_roster"
+    assert at.session_state["spec_roster.column_ids"] == [1, 2]
+    searches = {
+        at.session_state["spec_roster.col1.search"],
+        at.session_state["spec_roster.col2.search"],
+    }
+    assert searches == {"Dell · m18 · dell-x", "HP · Transcend · hp-y"}

@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Find — redesign (locked direction)</title>
+<style>
+  :root {
+    --cd-bg-page:#fafaf7; --cd-bg-card:#ffffff; --cd-bg-subtle:#f3f3ef;
+    --cd-border:#e5e5e2; --cd-border-strong:#d1d5db;
+    --cd-text:#1c1e22; --cd-text-muted:#4b5563; --cd-text-faint:#6b7280;
+    --cd-accent:#3a5a7c; --cd-bg-accent-soft:#eef2f7;
+    --cd-verified:#16a34a; --cd-needs-review:#d97706; --cd-gray:#6b7280;
+    --r-sm:4px; --r-md:8px; --r-lg:12px; --r-pill:999px;
+    --s-sm:8px; --s-md:12px; --s-lg:16px; --s-xl:24px; --s-xxl:32px;
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body { background:var(--cd-bg-page); color:var(--cd-text); font-family:var(--font); margin:0; padding:var(--s-xxl) var(--s-lg) 64px; line-height:1.45; }
+  .wrap { max-width:1000px; margin:0 auto; }
+  .page-head h1 { font-size:28px; font-weight:600; margin:0 0 6px; }
+  .page-head p { color:var(--cd-text-muted); font-size:15px; margin:0 0 8px; max-width:80ch; }
+  .page-head .real { font-size:13px; color:var(--cd-text-faint); } .page-head .real b{color:var(--cd-verified);}
+
+  .card { background:var(--cd-bg-card); border:1px solid var(--cd-border); border-radius:var(--r-lg); padding:var(--s-xl); margin-bottom:var(--s-xl); }
+  .card-head { display:flex; align-items:center; gap:var(--s-md); margin-bottom:4px; }
+  .badge { width:26px; height:26px; border-radius:var(--r-pill); background:var(--cd-accent); color:#fff; display:grid; place-items:center; font-size:13px; font-weight:600; flex:none; }
+  .card-head h2 { font-size:18px; font-weight:600; margin:0; }
+  .sub { color:var(--cd-text-muted); font-size:14px; margin:0 0 var(--s-lg) 38px; }
+
+  .mock { background:var(--cd-bg-subtle); border:1px solid var(--cd-border); border-radius:var(--r-md); padding:var(--s-lg); margin:0 0 var(--s-md) 38px; }
+  .mock-label { font-size:12px; color:var(--cd-text-faint); margin-bottom:var(--s-sm); }
+  .rowlabel { font-size:12px; color:var(--cd-text-faint); width:54px; flex:none; }
+
+  .filterline { display:flex; align-items:center; gap:var(--s-sm); flex-wrap:wrap; }
+  .fdrop { display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid var(--cd-border-strong); border-radius:var(--r-md); padding:8px 11px; font-size:14px; }
+  .fdrop .chev { color:var(--cd-text-faint); font-size:12px; }
+  .fdrop .dim { color:var(--cd-text-faint); }
+  /* the combobox (searchable spec-field) */
+  .combo { display:inline-flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--cd-accent); border-radius:var(--r-md); padding:8px 11px; font-size:14px; min-width:230px; }
+  .combo .ico { color:var(--cd-text-faint); }
+  .combo .chev { color:var(--cd-text-faint); margin-left:auto; }
+  .combo .crumb-dim { color:var(--cd-text-faint); }
+  .menu { background:#fff; border:1px solid var(--cd-border-strong); border-radius:var(--r-md); margin-top:6px; overflow:hidden; max-width:300px; }
+  .opt { padding:8px 11px; font-size:14px; border-top:1px solid var(--cd-border); }
+  .opt:first-child { border-top:none; }
+  .opt.hl { background:var(--cd-bg-accent-soft); }
+  .opt .crumb-dim { color:var(--cd-text-faint); }
+
+  .narrowline { display:flex; align-items:center; gap:var(--s-md); flex-wrap:wrap; margin-top:var(--s-md); padding-top:var(--s-md); border-top:1px dashed var(--cd-border); }
+  .field { background:#fff; border:1px solid var(--cd-border-strong); border-radius:var(--r-md); padding:7px 11px; display:inline-flex; align-items:center; gap:8px; font-size:14px; min-width:210px; }
+  .field .ico { color:var(--cd-text-faint); } .field .chev { color:var(--cd-text-faint); margin-left:auto; }
+  .tpill { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--cd-border-strong); border-radius:var(--r-pill); padding:4px 11px; font-size:13px; background:#fff; color:var(--cd-text-muted); }
+  .tpill.on { background:var(--cd-bg-accent-soft); border-color:var(--cd-accent); color:var(--cd-text); font-weight:600; }
+  .tpill .ck { width:6px; height:6px; border-radius:50%; border:1.5px solid var(--cd-border-strong); } .tpill.on .ck { background:var(--cd-accent); border-color:var(--cd-accent); }
+  .minilabel { font-size:13px; color:var(--cd-text-faint); }
+  .divider-v { width:1px; height:18px; background:var(--cd-border); }
+
+  .resbar { display:flex; align-items:center; justify-content:space-between; gap:var(--s-md); margin:var(--s-lg) 0 var(--s-sm) 38px; flex-wrap:wrap; }
+  .resbar .count { font-size:14px; font-weight:600; }
+  .btn-primary { background:var(--cd-bg-accent-soft); border:1px solid var(--cd-border-strong); color:var(--cd-text); border-radius:var(--r-md); padding:9px 15px; font-size:13px; font-weight:600; }
+  .res { width:100%; border-collapse:collapse; font-size:14px; background:#fff; border:1px solid var(--cd-border); border-radius:var(--r-md); overflow:hidden; }
+  .res th, .res td { padding:10px 12px; border-top:1px solid var(--cd-border); text-align:left; }
+  .res thead th { border-top:none; background:var(--cd-bg-subtle); font-weight:600; font-size:13px; color:var(--cd-text-muted); }
+  .res .prod { font-weight:500; } .res .crumb { color:var(--cd-text-faint); font-weight:400; font-size:13px; }
+  .res .open { color:var(--cd-accent); font-weight:600; font-size:13px; }
+  .res .stat { font-size:12px; } .res .stat.act { color:var(--cd-verified); } .res .stat.disc { color:var(--cd-gray); }
+  .res .rank { color:var(--cd-text-faint); font-size:12px; width:30px; }
+  .res tr.top4 td { background:#fbfdfb; }
+  .mockwrap { margin:0 0 var(--s-md) 38px; }
+
+  /* compare (what Open top 4 produces) */
+  .cmp { width:100%; border-collapse:collapse; font-size:13px; background:#fff; border:1px solid var(--cd-border); border-radius:var(--r-md); overflow:hidden; table-layout:fixed; }
+  .cmp th, .cmp td { padding:8px 10px; border-top:1px solid var(--cd-border); border-left:1px solid var(--cd-border); text-align:left; vertical-align:top; }
+  .cmp th:first-child, .cmp td:first-child { border-left:none; }
+  .cmp thead th { border-top:none; background:var(--cd-bg-subtle); font-weight:600; }
+  .cmp thead th.rh { background:#fff; width:96px; }
+  .cmp thead .st { display:block; font-weight:400; font-size:11px; margin-top:2px; } .cmp thead .st.act{color:var(--cd-verified);} .cmp thead .st.disc{color:var(--cd-gray);}
+  .cmp td.k { color:var(--cd-text-faint); white-space:nowrap; }
+  .cmp td.diff { background:var(--cd-bg-accent-soft); }
+  .cmp .x { color:var(--cd-text-faint); font-weight:400; float:right; }
+  .vpills { display:inline-flex; gap:4px; flex-wrap:wrap; } .vpill { background:var(--cd-bg-subtle); border:1px solid var(--cd-border); border-radius:var(--r-pill); padding:2px 8px; font-size:12px; }
+  .addcol { border-style:dashed!important; border-color:var(--cd-accent)!important; color:var(--cd-accent); text-align:center; font-weight:500; background:#fff!important; }
+
+  .note { font-size:13px; color:var(--cd-text-faint); margin:var(--s-sm) 0 0 38px; } .note b{color:var(--cd-text-muted);}
+  .costs { display:flex; gap:var(--s-sm); flex-wrap:wrap; margin:var(--s-md) 0 0 38px; }
+  .cost { font-size:12px; padding:4px 10px; border-radius:var(--r-pill); background:var(--cd-bg-subtle); border:1px solid var(--cd-border); color:var(--cd-text-muted); } .cost b{color:var(--cd-text);}
+  .cost.good { background:#f0fbf4; border-color:#c9ece1; color:#15803d; } .cost.good b{color:#15803d;}
+  .arrow { margin:var(--s-md) 0 var(--s-md) 38px; font-size:13px; color:var(--cd-accent); font-weight:600; display:flex; align-items:center; gap:8px; }
+  .arrow::before, .arrow::after { content:""; height:1px; background:var(--cd-border); flex:1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="page-head">
+    <h1>Find — locked direction</h1>
+    <p>Section + Feature merge into one searchable spec-field box (type or pick, same as the product search); operator and value
+       stay as dropdowns. Single criterion only. Results are a table; "Open top 4" loads up to the first four matches as a
+       Spec Roster compare view.</p>
+    <p class="real">Results are <b>real matches from competitive.db</b> for the filter shown.</p>
+  </div>
+
+  <!-- A: the filter -->
+  <div class="card">
+    <div class="card-head"><span class="badge">A</span><h2>The filter — searchable spec-field + operator + value</h2></div>
+    <p class="sub">The first box takes typing AND shows a dropdown of matching Section · Feature fields. Then operator + value. Narrow-by folds in below with the Spec Roster picker + multi-select pills.</p>
+
+    <div class="mock">
+      <div class="mock-label">spec-field box — closed</div>
+      <div class="filterline">
+        <span class="rowlabel">Find</span>
+        <span class="combo"><span class="ico">⌕</span><span>Network <span class="crumb-dim">·</span> Wi-Fi</span><span class="chev">▾</span></span>
+        <span class="fdrop"><span class="dim">that</span> equals <span class="chev">▾</span></span>
+        <span class="fdrop">Wi-Fi 6E <span class="chev">▾</span></span>
+      </div>
+    </div>
+
+    <div class="mock">
+      <div class="mock-label">spec-field box — typed "wi", dropdown filters Section · Feature matches</div>
+      <div class="filterline">
+        <span class="rowlabel">Find</span>
+        <span class="combo" style="min-width:230px;"><span class="ico">⌕</span><span>wi</span><span class="chev">▾</span></span>
+        <span class="fdrop"><span class="dim">that</span> equals <span class="chev">▾</span></span>
+        <span class="fdrop">Wi-Fi 6E <span class="chev">▾</span></span>
+      </div>
+      <div class="menu" style="margin-left:54px;">
+        <div class="opt hl">Network <span class="crumb-dim">·</span> Wi-Fi</div>
+        <div class="opt">Display <span class="crumb-dim">·</span> Width</div>
+        <div class="opt">Dimensions <span class="crumb-dim">·</span> Width</div>
+      </div>
+      <div class="note" style="margin-left:54px;">Type anything — "panel", "usb", "gpu", "battery" — and the box narrows to matching fields. One box replaces the old Section + Feature pair.</div>
+    </div>
+
+    <div class="mock">
+      <div class="mock-label">full filter panel (with narrow-by folded in)</div>
+      <div class="filterline">
+        <span class="rowlabel">Find</span>
+        <span class="combo"><span class="ico">⌕</span><span>Network <span class="crumb-dim">·</span> Wi-Fi</span><span class="chev">▾</span></span>
+        <span class="fdrop"><span class="dim">that</span> equals <span class="chev">▾</span></span>
+        <span class="fdrop">Wi-Fi 6E <span class="chev">▾</span></span>
+      </div>
+      <div class="narrowline">
+        <span class="rowlabel">Narrow</span>
+        <span class="field"><span class="ico">⌕</span><span style="color:var(--cd-text-faint)">any product</span><span class="chev">▾</span></span>
+        <span class="divider-v"></span>
+        <span class="minilabel">Year</span>
+        <span class="tpill on"><span class="ck"></span>2026</span><span class="tpill on"><span class="ck"></span>2025</span><span class="tpill on"><span class="ck"></span>2024</span><span class="tpill on"><span class="ck"></span>2023</span>
+        <span class="divider-v"></span>
+        <span class="minilabel">Status</span>
+        <span class="tpill on"><span class="ck"></span>Active</span><span class="tpill on"><span class="ck"></span>Inactive</span>
+      </div>
+    </div>
+
+    <div class="costs">
+      <span class="cost good">build filter + see results: <b>3 picks</b> (was 4)</span>
+      <span class="cost good">spec-field: type OR pick</span>
+    </div>
+  </div>
+
+  <!-- B: results table + open top 4 -->
+  <div class="card">
+    <div class="card-head"><span class="badge">B</span><h2>Results table → "Open top 4" into Spec Roster</h2></div>
+    <p class="sub">Matches as a table. Per-row "Open →" sends one product to Spec Roster; the primary button opens up to the first 4 results together as a compare view.</p>
+
+    <div class="resbar">
+      <div class="count">3 matches</div>
+      <button class="btn-primary">Open top 4 in Spec Roster →</button>
+    </div>
+    <div class="mockwrap">
+      <table class="res">
+        <thead><tr><th class="rank">#</th><th>Product</th><th>Year</th><th>Wi-Fi</th><th></th></tr></thead>
+        <tbody>
+          <tr class="top4"><td class="rank">1</td><td><span class="crumb">ASUS · TUF ·</span> <span class="prod">TUF 16</span></td><td>2026 <span class="stat act">Active</span></td><td>Wi-Fi 6E</td><td><span class="open">Open →</span></td></tr>
+          <tr class="top4"><td class="rank">2</td><td><span class="crumb">ASUS · TUF ·</span> <span class="prod">TUF 16</span></td><td>2025 <span class="stat act">Active</span></td><td>Wi-Fi 6E</td><td><span class="open">Open →</span></td></tr>
+          <tr class="top4"><td class="rank">3</td><td><span class="crumb">Lenovo · Legion 5 ·</span> <span class="prod">Legion Pro 5 16</span></td><td>2024 <span class="stat disc">Discontinued</span></td><td>Wi-Fi 6E</td><td><span class="open">Open →</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">"Open top 4" takes up to the first 4 rows (3 here) as compare columns. More than 4 matches → only the top 4 open; refine the filter or drop columns in Spec Roster.</div>
+
+    <div class="arrow">Open top 4 produces ↓</div>
+
+    <div class="mock">
+      <div class="mock-label">Spec Roster — compare view, the 3 matches as columns (real data)</div>
+      <table class="cmp">
+        <thead><tr>
+          <th class="rh"></th>
+          <th>TUF 16 <span class="x">×</span><span class="st act">2026 · Active</span></th>
+          <th>TUF 16 <span class="x">×</span><span class="st act">2025 · Active</span></th>
+          <th>Legion Pro 5 16 <span class="x">×</span><span class="st disc">2024 · Disc.</span></th>
+          <th class="addcol">+ add</th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="k">Processor</td><td class="diff"><span class="vpills"><span class="vpill">ARL-HX R</span><span class="vpill">ARL-HX</span></span></td><td class="diff"><span class="vpills"><span class="vpill">ARL-HX</span><span class="vpill">RPL-HX R</span><span class="vpill">RPL-HX</span></span></td><td class="diff">RPL-HX R</td><td></td></tr>
+          <tr><td class="k">Graphics</td><td class="diff">MB2</td><td class="diff">MB2</td><td class="diff"></td><td></td></tr>
+          <tr><td class="k">Display</td><td class="diff"><span class="vpills"><span class="vpill">16" 2.5K OLED 300Hz</span><span class="vpill">165Hz</span></span></td><td class="diff"><span class="vpills"><span class="vpill">16" FHD 144Hz</span><span class="vpill">2.5K 165Hz</span></span></td><td class="diff"><span class="vpills"><span class="vpill">16" WQXGA 165Hz IPS</span><span class="vpill">240Hz IPS</span></span></td><td></td></tr>
+          <tr><td class="k">Wi-Fi</td><td>Wi-Fi 6E</td><td>Wi-Fi 6E</td><td>Wi-Fi 6E</td><td></td></tr>
+          <tr><td class="k">USB</td><td class="diff"><span class="vpills"><span class="vpill">1× TB</span><span class="vpill">1× USB-C</span><span class="vpill">3× USB-A</span></span></td><td class="diff"><span class="vpills"><span class="vpill">3× TB</span><span class="vpill">2× USB-C</span><span class="vpill">3× USB-A</span></span></td><td class="diff"><span class="vpills"><span class="vpill">2× USB-C</span><span class="vpill">4× USB-A</span></span></td><td></td></tr>
+        </tbody>
+      </table>
+      <div class="note" style="margin-left:0;">Wi-Fi row matches (it's what you filtered on); everything else is highlighted where it differs. From here it's the full Spec Roster — add/remove columns, switch any column's year.</div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

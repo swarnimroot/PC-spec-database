@@ -26,22 +26,23 @@ def test_hub_renders_against_empty_db(empty_db):
     assert not at.exception, [str(e) for e in at.exception]
     # Editorial Hub: hero copy + 3 metric tiles + 3 CTA cards with Open → buttons.
     markdown_blob = "\n".join(m.value for m in at.markdown)
-    assert "The competitive gaming-laptop reference." in markdown_blob
+    # Tagline removed in the rework.
+    assert "The competitive gaming-laptop reference." not in markdown_blob
     for tile_label in ("products", "vendors", "since refresh"):
         assert tile_label in markdown_blob
-    for card_title in ("Browse", "Compare", "Find"):
+    for card_title in ("Spec Roster", "Find"):
         assert card_title in markdown_blob
     button_labels = [b.label for b in at.button]
-    assert button_labels.count("Open →") >= 3
+    assert button_labels.count("Open →") == 2
 
 
-def test_browse_view_renders_empty_state(empty_db):
+def test_spec_roster_view_renders_empty_state(empty_db):
     at = _run()
-    at.session_state["view"] = "browse"
+    at.session_state["view"] = "spec_roster"
     at.run()
     assert not at.exception, [str(e) for e in at.exception]
     titles = [t.value for t in at.title]
-    assert "Browse one product" in titles
+    assert "Spec Roster" in titles
     info_messages = [i.value for i in at.info]
     assert any("No products" in msg for msg in info_messages)
 
@@ -92,7 +93,7 @@ def test_welcome_modal_skipped_when_already_seen(empty_db):
     for sentinel in ("The problem", "Hand-normalized", "Competitive intel"):
         assert sentinel not in markdown_blob, sentinel
     # Hub still renders below where the modal would have been.
-    assert "The competitive gaming-laptop reference." in markdown_blob
+    assert "Spec Roster" in markdown_blob
 
 
 def test_welcome_modal_dismisses_on_got_it_click(empty_db):

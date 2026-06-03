@@ -103,7 +103,7 @@ python -m competitive_database ui
 
 Binds to `127.0.0.1` and opens the default browser automatically. Override the DB path with `--db competitive.db` and the port with `--port 8501`.
 
-Landing page is the **hub** — hero line + three metric tiles (products / vendors / days since refresh) over three rounded CTA cards (**Browse**, **Compare**, **Find**) with primary `Open →` buttons. Top-bar nav carries Browse / Compare / Find directly; **Edit** and **Refresh** live under a `···` overflow. The visual direction (Stage 10a, Session 43) is editorial-spec-sheet: light palette, dotted dividers, rounded soft borders, colored `●` dot markers in place of bracketed text tokens. The triage screen is reachable through the CLI today and will be redesigned under Stage 10c.
+Landing page is the **hub** — hero line + three metric tiles (products / vendors / days since refresh) over rounded CTA cards (**Spec Roster** — view one laptop or compare several — and **Find**) with primary `Open →` buttons. **Spec Roster** and **Find** render inline on the hub via a pill switcher; **Edit** and **Refresh** live under a `···` overflow. (Spec Roster replaced the separate Browse + Compare screens in Session 54.) The visual direction (Stage 10a, Session 43) is editorial-spec-sheet: light palette, dotted dividers, rounded soft borders, colored `●` dot markers in place of bracketed text tokens. The triage screen is reachable through the CLI today and will be redesigned under Stage 10c.
 
 The Edit and Refresh screens write through the same library handlers as the `resolve`, `manual-edit`, and `refresh` CLIs — so a UI write and a CLI write produce identical bundles + provenance. See the [`ui` subcommand reference](#ui) below for flags.
 

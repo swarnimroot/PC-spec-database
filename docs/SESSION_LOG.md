@@ -6,6 +6,29 @@ Newest sessions at the top.
 
 ---
 
+## Session 54 — 2026-06-03 (UI rework — Browse + Compare merged into single Spec Roster screen; tests 514/514 green)
+
+**Goal:** Carry out the page-by-page UI rework locked in the `ui_rework_spec_roster` memory note: collapse the separate Browse and Compare screens into one **Spec Roster** screen so a single page handles both "view one laptop" and "compare several side by side."
+
+**Outcome:** Browse + Compare merged into `competitive_database/ui/spec_roster.py`. One page resolves each column from a single `Brand · Series · Product` search combobox plus year + status toggles; one populated column renders the roomy union identity strip + spec table, two or more render the side-by-side comparison grid. Tests green at 514/514.
+
+### What changed
+
+- **Merged screen.** New `ui/spec_roster.py` is the single entry point. The hub now surfaces a **Spec Roster** CTA (plus **Find**) instead of separate Browse / Compare cards; `ui/_chrome.py` top-bar nav updated to match. `ui/app.py` redirects the legacy `browse` / `compare` deep-link views to the inline `spec_roster` hub section.
+- **Deleted.** `ui/browse.py` + `ui/compare.py` and their tests (`tests/ui/test_browse.py`, `tests/ui/test_compare.py`) removed — fully superseded.
+- **Added.** `ui/spec_roster.py` + `tests/ui/test_spec_roster.py`. Three design mockups checked into `docs/`: `find_mockup.html`, `browse_pickers_mockup.html`, `spec_roster_mockup.html`.
+- **Supporting edits.** `ui/_components.py` (shared picker / union-strip / grid helpers reused by the merged screen), `ui/find.py` + `ui/hub.py` (cross-nav + CTA wiring), `db/helpers.py` (query support); tests in `tests/db/test_picker_queries.py`, `tests/ui/test_app_smoke.py`, `tests/ui/test_components.py`, `tests/ui/test_find_apptest.py` updated to the merged surface.
+
+### Files touched this session
+
+**Code:** `ui/spec_roster.py` (new), `ui/app.py`, `ui/_chrome.py`, `ui/_components.py`, `ui/find.py`, `ui/hub.py`, `db/helpers.py`; deleted `ui/browse.py`, `ui/compare.py`.
+
+**Tests:** `tests/ui/test_spec_roster.py` (new); updated `tests/db/test_picker_queries.py`, `tests/ui/test_app_smoke.py`, `tests/ui/test_components.py`, `tests/ui/test_find_apptest.py`; deleted `tests/ui/test_browse.py`, `tests/ui/test_compare.py`. Suite 514/514 green.
+
+**Docs:** `docs/SESSION_LOG.md` (this entry), `docs/TASKS.md` (UI rework row), `README.md` + `docs/ARCHITECTURE.md` (Browse/Compare references updated to Spec Roster), plus three mockups under `docs/`.
+
+---
+
 ## Session 53 — 2026-05-26 (Stage 10c — brainstorm locked + P1 friendly-label swap + P2 sidebar tree restructure; tests 525/525 green throughout)
 
 **Goal:** Pick up Stage 10c (review queue triage redesign), which was queued behind Stage 11 (closed S52). Redesign is purely UI/UX — no data-layer change. Lock the layout, fix the abbreviated conflict-type IDs (`value_dis` / `low_conf` / `new_chip` / `year_inf`), and start shipping the phases.

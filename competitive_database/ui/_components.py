@@ -266,6 +266,41 @@ def dot_marker(marker: str) -> str:
     )
 
 
+# Only these two markers earn a visible flag in the spec table. Verified is
+# the norm (rendered unmarked); vendor-not-published and empty render blank.
+_LABELLED_MARKERS: dict[str, str] = {
+    MARKER_NEEDS_REVIEW: "needs review",
+    MARKER_MANUAL: "manual",
+}
+
+
+def _marker_label_html(marker: str) -> str:
+    """Small trailing text label for needs-review / manual; "" otherwise."""
+    label = _LABELLED_MARKERS.get(marker)
+    if not label:
+        return ""
+    color = _DOT_COLOR.get(marker, PALETTE["text_faint"])
+    return (
+        '<span class="cd-flag" '
+        f'style="color:{color};font-size:var(--cd-size-xs);'
+        'font-weight:500;white-space:nowrap;">'
+        f"{html.escape(label)}</span>"
+    )
+
+
+def _value_pills_html(parts: list[str]) -> str:
+    """Render a list of values as subtle pills."""
+    pills = "".join(
+        '<span class="cd-vpill" style="display:inline-block;'
+        "background:var(--cd-bg-subtle);border:1px solid var(--cd-border);"
+        "border-radius:var(--cd-radius-pill);padding:1px 9px;"
+        "margin:1px 4px 1px 0;font-size:var(--cd-size-sm);line-height:1.7;\">"
+        f"{html.escape(p)}</span>"
+        for p in parts
+    )
+    return f'<span class="cd-vpills">{pills}</span>'
+
+
 # ---------------------------------------------------------------------------
 # Cascading picker (Company → Product → Year)
 # ---------------------------------------------------------------------------
@@ -629,8 +664,23 @@ def _series_cascade(
 
 
 def _value_cell_html(value: str, marker: str) -> str:
-    """Return ``<dot> value`` HTML for one cell. Value is escaped here."""
-    return f"{dot_marker(marker)}{html.escape(value)}"
+    """Return the HTML for one value cell.
+
+    Multi-values (joined with `` · ``) render as pills; a single value is
+    plain escaped text. Only needs-review / manual carry a trailing label;
+    verified is unmarked and vendor-not-published / empty render blank.
+    """
+    label = _marker_label_html(marker)
+    parts = [p for p in value.split(" · ") if p] if value else []
+    if len(parts) > 1:
+        body = _value_pills_html(parts)
+    elif parts:
+        body = html.escape(parts[0])
+    else:
+        body = ""
+    if label:
+        return f"{body} {label}" if body else label
+    return body
 
 
 def _identity_cell_html(label: str, key: str, product: dict[str, Any]) -> str:
@@ -714,19 +764,21 @@ def identity_strip_html(product: dict[str, Any]) -> str:
 
 
 def marker_legend_inline_html() -> str:
-    """Return the small inline legend HTML (verified / needs rev. / manual / vendor n/p)."""
+    """Return the small inline legend HTML.
+
+    Only the exception markers are explained — needs-review and manual.
+    Verified is the unmarked norm; vendor-not-published / empty are blank.
+    """
     entries = [
-        (MARKER_VERIFIED, "verified"),
-        (MARKER_NEEDS_REVIEW, "needs rev."),
+        (MARKER_NEEDS_REVIEW, "needs review"),
         (MARKER_MANUAL, "manual"),
-        (MARKER_VENDOR_NO_PUB, "vendor n/p"),
     ]
     parts: list[str] = []
     for marker, descr in entries:
+        color = _DOT_COLOR.get(marker, PALETTE["text_faint"])
         parts.append(
-            '<span class="cd-legend__entry">'
-            f"{dot_marker(marker)}{html.escape(descr)}"
-            "</span>"
+            '<span class="cd-legend__entry" '
+            f'style="color:{color};font-weight:500;">{html.escape(descr)}</span>'
         )
     return f'<span class="cd-legend">{"".join(parts)}</span>'
 
@@ -740,8 +792,8 @@ def _format_cell(
         return plain, MARKER_VERIFIED
     marker = marker_for_bundle(bundle)
     if marker in (MARKER_EMPTY, MARKER_VENDOR_NO_PUB):
-        return "—", marker
-    value = display_value(bundle, field_path=path) or "—"
+        return "", marker
+    value = display_value(bundle, field_path=path) or ""
     return value, marker
 
 
@@ -753,15 +805,12 @@ def _rollup_row_html(
 ) -> str:
     """One ``<tr>`` carrying a single-row rollup cell.
 
-    Empty rollup renders ``—`` with the empty marker (consistent with
-    the per-section "(no data scraped)" placeholder elsewhere).
+    Empty rollup renders a blank value cell, keeping whatever marker was
+    passed so an unfilled-but-flagged field (e.g. needs-review) still
+    surfaces its label.
     """
-    if value_str:
-        cell_value = value_str
-        cell_marker = marker
-    else:
-        cell_value = "—"
-        cell_marker = MARKER_EMPTY
+    cell_value = value_str
+    cell_marker = marker
     return (
         '<tr class="cd-spec__row cd-spec__row--last">'
         f'<td class="cd-spec__section" rowspan="1">{html.escape(section_name)}</td>'
@@ -788,8 +837,8 @@ def _rollup_rows_html(
     n = len(rows)
     out: list[str] = []
     for i, (label, value_str, marker) in enumerate(rows):
-        cell_value = value_str if value_str else "—"
-        cell_marker = marker if value_str else MARKER_EMPTY
+        cell_value = "" if value_str == "—" else value_str
+        cell_marker = marker
         is_last = i == n - 1
         row_cls = "cd-spec__row cd-spec__row--last" if is_last else "cd-spec__row"
         section_cell = (
@@ -1071,7 +1120,7 @@ def _union_io_rollup_rows(
             if value_str not in parts:
                 parts.append(value_str)
         marker = _union_marker([m for _l, _v, m in per_prod])
-        joined = " · ".join(parts) if parts else "—"
+        joined = " · ".join(parts) if parts else ""
         out.append((label, joined, marker))
     return out
 
@@ -1415,6 +1464,43 @@ def _series_sentinel_to_none(series: str) -> Optional[str]:
     return None if series == _PLACEHOLDER else series
 
 
+def product_search_picker(
+    conn: sqlite3.Connection,
+    key_prefix: str,
+    *,
+    label: str = "Product",
+) -> Optional[dict]:
+    """Single searchable ``Brand · Series · Product`` combobox.
+
+    Replaces the 3-rung cascade with one type-to-filter selectbox listing
+    every product. No default selection — a placeholder shows instead of an
+    em-dash. Returns the picked identity
+    ``{"brand": str, "series": str | None, "product": str}`` or ``None``
+    when nothing is selected yet.
+    """
+    from competitive_database.db.helpers import list_all_product_identities
+
+    identities = list_all_product_identities(conn)
+    label_to_identity: dict[str, dict] = {}
+    labels: list[str] = []
+    for ident in identities:
+        parts = [ident["brand"], ident.get("series"), ident["product"]]
+        lbl = " · ".join(p for p in parts if p)
+        label_to_identity[lbl] = ident
+        labels.append(lbl)
+
+    picked = st.selectbox(
+        label,
+        labels,
+        index=None,
+        placeholder="Search Brand · Series · Product…",
+        key=f"{key_prefix}.search",
+    )
+    if picked is None:
+        return None
+    return label_to_identity.get(picked)
+
+
 def brand_series_product_picker(
     conn: sqlite3.Connection,
     key_prefix: str,
@@ -1521,9 +1607,7 @@ def _cmp_value_cell_html(value: str, marker: str, diverges: bool) -> str:
     cls = "cd-cmp__value"
     if diverges:
         cls += " cd-cmp__value--diverges"
-    return (
-        f'<td class="{cls}">{dot_marker(marker)}{html.escape(value)}</td>'
-    )
+    return f'<td class="{cls}">{_value_cell_html(value, marker)}</td>'
 
 
 def _cmp_rollup_row_html(
@@ -1532,17 +1616,11 @@ def _cmp_rollup_row_html(
     rollups: list[tuple[str, str]],
 ) -> str:
     """Compare-grid ``<tr>`` carrying one rolled-up row across N products."""
-    cells_data: list[tuple[str, str]] = []
-    for value_str, marker in rollups:
-        if value_str:
-            cells_data.append((value_str, marker))
-        else:
-            cells_data.append(("—", MARKER_EMPTY))
-    values = [c[0] for c in cells_data]
+    values = [v for v, _m in rollups]
     diverges_flags = _divergence_flags(values)
     cells_html = "".join(
         _cmp_value_cell_html(value, marker, diverges_flags[idx])
-        for idx, (value, marker) in enumerate(cells_data)
+        for idx, (value, marker) in enumerate(rollups)
     )
     return (
         '<tr class="cd-cmp__row cd-cmp__row--last">'
@@ -1573,12 +1651,10 @@ def _cmp_rollup_rows_html(
     for sub_idx in range(n_sub):
         per_prod = [rows[sub_idx] for rows in per_product_rows]
         label = per_prod[0][0]
-        cells_data: list[tuple[str, str]] = []
-        for _label, value_str, marker in per_prod:
-            if value_str:
-                cells_data.append((value_str, marker))
-            else:
-                cells_data.append(("—", MARKER_EMPTY))
+        cells_data: list[tuple[str, str]] = [
+            (("" if value_str == "—" else value_str), marker)
+            for _label, value_str, marker in per_prod
+        ]
         values = [c[0] for c in cells_data]
         diverges_flags = _divergence_flags(values)
         cells_html = "".join(

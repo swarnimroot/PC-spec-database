@@ -14,27 +14,29 @@ import os
 import streamlit as st
 
 from competitive_database.db.connection import connect
-from competitive_database.ui import _chrome, browse, compare, edit, find, hub, refresh, triage
+from competitive_database.ui import _chrome, edit, hub, refresh, triage
 
 
 def _db_path() -> str:
     return os.environ.get("COMPETITIVE_DB_PATH", "competitive.db")
 
 
+# Top-level views. Spec Roster + Find are NOT here: they render inline on
+# the hub via ``hub.section`` (the hub owns the Spec Roster / Find pills).
 _VIEWS = {
     "hub": hub.render,
-    "browse": browse.render,
-    "compare": compare.render,
-    "find": find.render,
     "queue": triage.render,
     "edit": edit.render,
     "refresh": refresh.render,
 }
 
-# Routes that live under the ``···`` overflow chip — surfaced as
-# ``active="overflow"`` so the chrome can underline the dots, not the
-# hero links.
-_OVERFLOW_ROUTES: frozenset[str] = frozenset({"edit", "refresh", "queue"})
+# Legacy / deep-link views that now resolve to an inline hub section.
+_HUB_SECTION_REDIRECTS = {
+    "browse": "spec_roster",
+    "compare": "spec_roster",
+    "spec_roster": "spec_roster",
+    "find": "find",
+}
 
 
 def main() -> None:
@@ -47,8 +49,10 @@ def main() -> None:
     conn = connect(db_path)
     try:
         view = st.session_state.get("view", "hub")
-        active = "overflow" if view in _OVERFLOW_ROUTES else view
-        _chrome.render_header(active=active)
+        if view in _HUB_SECTION_REDIRECTS:
+            st.session_state["hub.section"] = _HUB_SECTION_REDIRECTS[view]
+            st.session_state["view"] = view = "hub"
+        _chrome.render_header(active=view)
         render = _VIEWS.get(view, hub.render)
         render(conn, db_path=db_path)
         _chrome.render_footer()

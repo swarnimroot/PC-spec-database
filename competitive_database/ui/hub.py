@@ -9,15 +9,21 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from competitive_database.ui import theme
+from competitive_database.ui import find, spec_roster, theme
 from competitive_database.views.orchestrator import _SECTION_REGISTRY
 
 
-# Card definitions: (title, description, route).
+# Home CTA / inline-section definitions: (title, description, section key).
+# Clicking a CTA opens that section inline on the hub (``hub.section``).
 _CTA_CARDS: tuple[tuple[str, str, str], ...] = (
-    ("Browse", "The full catalog, one row per laptop.", "browse"),
-    ("Compare", "Place any two or more laptops side by side.", "compare"),
+    ("Spec Roster", "View one laptop or compare several, side by side.", "spec_roster"),
     ("Find", "Filter by the spec that matters to you.", "find"),
+)
+
+# The inline sections reachable from the hub, in pill order.
+_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("Spec Roster", "spec_roster"),
+    ("Find", "find"),
 )
 
 
@@ -465,6 +471,32 @@ def _welcome_dialog(
             st.rerun()
 
 
+def _render_section_pills(active: str) -> None:
+    """Render the Spec Roster / Find pill switcher above an inline section.
+
+    The hub's logo (top-left) returns to the full home; these pills swap
+    which section is open without leaving the hub.
+    """
+    cols = st.columns([1, 1, 6])
+    for (label, sec), col in zip(_SECTIONS, cols[: len(_SECTIONS)]):
+        is_active = sec == active
+        with col:
+            if st.button(
+                f"● {label}" if is_active else f"○ {label}",
+                key=f"hub_pill_{sec}",
+                use_container_width=True,
+                type="primary" if is_active else "secondary",
+            ):
+                if not is_active:
+                    st.session_state["hub.section"] = sec
+                    st.rerun()
+    st.markdown(
+        f'<div style="border-bottom:1px solid {theme.PALETTE["border"]};'
+        f'margin:{theme.SPACE["sm"]}px 0 {theme.SPACE["lg"]}px 0;"></div>',
+        unsafe_allow_html=True,
+    )
+
+
 def render(conn: sqlite3.Connection, *, db_path: str) -> None:
     """Render the Hub landing screen."""
     del db_path  # chrome handles attribution; no internal IDs leak here.
@@ -490,27 +522,24 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
             welcome_vendor_list,
         )
 
-    p = theme.PALETTE
+    # A section open? Render the pill switcher + that section inline.
+    section = st.session_state.get("hub.section")
+    if section in dict(_SECTIONS).values():
+        _render_section_pills(active=section)
+        if section == "spec_roster":
+            spec_roster.render(conn, db_path="")
+        else:
+            find.render(conn, db_path="")
+        return
 
-    # Hero line.
+    # ---- Full home: metric tiles + CTA cards (no tagline) ----
     st.markdown(
-        f'<div style="'
-        f'margin-top:{theme.SPACE["xxl"]}px;'
-        f'margin-bottom:{theme.SPACE["xxl"]}px;'
-        f'font-size:{theme.TYPE["size_xl"]}px;'
-        f'font-weight:{theme.TYPE["weight_normal"]};'
-        f'color:{p["text_muted"]};'
-        f'">The competitive gaming-laptop reference.</div>',
+        f'<div style="height:{theme.SPACE["lg"]}px"></div>',
         unsafe_allow_html=True,
     )
-
-    # Metric tiles.
     products, vendors = _counts(conn)
     days = _days_since_last_refresh(conn)
-    if products == 0 or days is None:
-        days_value = "—"
-    else:
-        days_value = f"{days} days"
+    days_value = "—" if (products == 0 or days is None) else f"{days} days"
     metric_cols = st.columns(3)
     with metric_cols[0]:
         st.markdown(_tile(str(products), "products"), unsafe_allow_html=True)
@@ -519,22 +548,20 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
     with metric_cols[2]:
         st.markdown(_tile(days_value, "since refresh"), unsafe_allow_html=True)
 
-    # Spacer between metric row and CTA row.
     st.markdown(
-        f'<div style="height:{theme.SPACE["xxl"]}px"></div>',
+        f'<div style="height:{theme.SPACE["xl"]}px"></div>',
         unsafe_allow_html=True,
     )
 
-    # CTA cards.
-    card_cols = st.columns(3)
-    for col, (title, description, route) in zip(card_cols, _CTA_CARDS):
+    card_cols = st.columns(len(_CTA_CARDS))
+    for col, (title, description, sec) in zip(card_cols, _CTA_CARDS):
         with col:
             st.markdown(_card_shell(title, description), unsafe_allow_html=True)
             if st.button(
                 "Open →",
-                key=f"hub_cta_{route}",
+                key=f"hub_cta_{sec}",
                 use_container_width=True,
                 type="primary",
             ):
-                st.session_state["view"] = route
+                st.session_state["hub.section"] = sec
                 st.rerun()

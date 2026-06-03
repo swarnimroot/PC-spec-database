@@ -69,10 +69,12 @@ def test_dot_marker_uses_verified_color():
 
 def test_marker_legend_inline_has_expected_labels():
     html_out = marker_legend_inline_html()
-    assert "verified" in html_out
-    assert "needs rev." in html_out
+    # Only the exception markers are explained now; verified is the
+    # unmarked norm and vendor-not-published renders blank.
+    assert "needs review" in html_out
     assert "manual" in html_out
-    assert "vendor n/p" in html_out
+    assert "verified" not in html_out
+    assert "vendor" not in html_out
 
 
 def test_marker_labels_covers_canonical_tokens():
@@ -175,14 +177,17 @@ def test_union_spec_table_n1_byte_identical_to_spec_table():
     assert actual == expected
 
 
-def test_union_spec_table_n2_differing_rows_join_with_middle_dot():
+def test_union_spec_table_n2_differing_rows_render_as_pills():
     a = _union_stub_row(year=2025, panel_hz="240", panel_type="IPS")
     b = _union_stub_row(year=2026, panel_hz="240", panel_type="OLED")
     out = union_spec_table_html([a, b])
-    # Each row's Display rollup is "16" QHD+ 240Hz <panel>"; the union
-    # should dedupe-join the two distinct values with " · ". The literal
-    # double-quote is HTML-escaped to &quot; in the cell.
-    assert "16&quot; QHD+ 240Hz IPS · 16&quot; QHD+ 240Hz OLED" in out
+    # Two distinct Display rollups now render as separate pills rather than
+    # a " · "-joined string. Each value appears inside a cd-vpill span and
+    # the old plain-text join is gone. Double-quote escapes to &quot;.
+    assert "cd-vpill" in out
+    assert "16&quot; QHD+ 240Hz IPS" in out
+    assert "16&quot; QHD+ 240Hz OLED" in out
+    assert "16&quot; QHD+ 240Hz IPS · 16&quot; QHD+ 240Hz OLED" not in out
 
 
 def test_union_spec_table_n2_identical_rows_collapse_via_dedup():

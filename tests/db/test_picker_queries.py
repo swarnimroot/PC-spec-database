@@ -14,6 +14,7 @@ import json
 
 from competitive_database.db.connection import apply_schema, connect, transaction
 from competitive_database.db.helpers import (
+    list_all_product_identities,
     list_brand_options,
     list_product_options,
     list_series_options,
@@ -129,6 +130,21 @@ def test_list_brand_options_distinct_alphabetical(tmp_path):
     conn = _seeded_db(tmp_path)
     try:
         assert list_brand_options(conn) == ["ASUS", "Lenovo"]
+    finally:
+        conn.close()
+
+
+def test_list_all_product_identities_distinct_sorted(tmp_path):
+    conn = _seeded_db(tmp_path)
+    try:
+        # One identity per (brand, series, product) regardless of year count.
+        # Ordered brand, series, product; NULL series sorts first within Lenovo.
+        assert list_all_product_identities(conn) == [
+            {"brand": "ASUS", "series": "ROG Strix", "product": "Strix G16"},
+            {"brand": "ASUS", "series": "TUF", "product": "TUF A16"},
+            {"brand": "Lenovo", "series": None, "product": "Legion Pro 7 16"},
+            {"brand": "Lenovo", "series": "Legion", "product": "Legion 5 15"},
+        ]
     finally:
         conn.close()
 
