@@ -3,8 +3,8 @@
 The query is one searchable "Section · Feature" combobox + a Match
 operator + a Value; narrow-by uses the single-search product combobox +
 Year + Status toggles. Results render as a table; per-row ``Open →``
-loads one product into Spec Roster, and "Open top N" loads up to four
-matches as Spec Roster compare columns.
+loads one product into Spec Roster, and "Compare selected (N) →" loads
+the ticked rows (1–4) as Spec Roster compare columns.
 
 Widget keys on this screen:
   - ``find.field``        — searchable Section · Feature combobox (index=None)
@@ -12,7 +12,9 @@ Widget keys on this screen:
   - ``find.value_select`` — Value picker (only when op needs a value)
   - ``find.narrow.search``— narrow-by product combobox
   - ``find.year_btn.<yr>`` / ``find.status_btn.<name>`` — toggle pills
-  - ``find.open.<mc>.<yr>`` — per-row Open →; ``find.open_top`` — Open top N
+  - ``find.open.<mc>.<yr>`` — per-row Open →
+  - ``find.pick.<mc>.<yr>`` — per-row compare checkbox
+  - ``find.compare_selected`` — Compare selected (N) → button
 """
 
 from __future__ import annotations
@@ -230,6 +232,28 @@ def _seed_active_and_discontinued(db_path):
         conn.close()
 
 
+def _seed_five_panel_products(db_path):
+    conn = connect(db_path)
+    try:
+        with transaction(conn):
+            for i in range(5):
+                mc = f"panel-{i}"
+                pk = {"model_code": mc, "year": 2026}
+                write_scalar(conn, "products", pk, "brand", _bundle("Acme"))
+                write_scalar(conn, "products", pk, "series", _bundle("S"))
+                write_scalar(
+                    conn, "products", pk, "vendor_full_name",
+                    _bundle(f"Acme {i}"),
+                )
+                write_offerings(
+                    conn, "products", pk,
+                    "display_offerings",
+                    [{"panel_type": _bundle("IPS")}],
+                )
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Query row: field combobox + match + value
 # ---------------------------------------------------------------------------
@@ -404,7 +428,11 @@ def test_results_table_renders_identity_and_open_buttons(empty_db):
     assert "Dell" in blob and "m18" in blob and "dell-x" in blob
     row_opens = [b for b in at.button if b.label == "Open →"]
     assert row_opens, "expected at least one per-row Open → button"
-    assert any(b.key == "find.open_top" for b in at.button)
+    # A per-row compare checkbox and the Compare-selected button exist.
+    assert any(c.key and c.key.startswith("find.pick.") for c in at.checkbox)
+    compare = [b for b in at.button if b.key == "find.compare_selected"]
+    assert compare, "expected Compare selected button"
+    assert "Compare selected (0) →" in compare[0].label
 
 
 def test_open_button_loads_one_product_into_spec_roster(empty_db):
@@ -424,7 +452,7 @@ def test_open_button_loads_one_product_into_spec_roster(empty_db):
     assert at.session_state["spec_roster.col1.search"] == "Dell · m18 · dell-x"
 
 
-def test_open_top_loads_columns_into_spec_roster(empty_db):
+def test_compare_selected_label_reflects_ticked_count(empty_db):
     _seed_two_full_identity(empty_db)
     at = _run()
     at.session_state["find.op_label"] = "has any value"
@@ -432,8 +460,34 @@ def test_open_top_loads_columns_into_spec_roster(empty_db):
     _pick_field(at, "· Panel")
     assert not at.exception, [str(e) for e in at.exception]
     assert "2 products match" in _blob(at)
-    open_top = [b for b in at.button if b.key == "find.open_top"][0]
-    open_top.click().run()
+    # Nothing ticked: button reads (0) and is disabled.
+    compare = [b for b in at.button if b.key == "find.compare_selected"][0]
+    assert "Compare selected (0) →" in compare.label
+    assert compare.disabled
+    # Tick one row → label reflects (1) and enables.
+    picks = [c for c in at.checkbox if c.key and c.key.startswith("find.pick.")]
+    assert len(picks) == 2
+    picks[0].set_value(True).run()
+    compare = [b for b in at.button if b.key == "find.compare_selected"][0]
+    assert "Compare selected (1) →" in compare.label
+    assert not compare.disabled
+
+
+def test_compare_selected_loads_ticked_rows_into_spec_roster(empty_db):
+    _seed_two_full_identity(empty_db)
+    at = _run()
+    at.session_state["find.op_label"] = "has any value"
+    at.run()
+    _pick_field(at, "· Panel")
+    assert not at.exception, [str(e) for e in at.exception]
+    assert "2 products match" in _blob(at)
+    for c in at.checkbox:
+        if c.key and c.key.startswith("find.pick."):
+            c.set_value(True)
+    at.run()
+    compare = [b for b in at.button if b.key == "find.compare_selected"][0]
+    assert "Compare selected (2) →" in compare.label
+    compare.click().run()
     assert at.session_state["view"] == "hub"
     assert at.session_state["hub.section"] == "spec_roster"
     assert at.session_state["spec_roster.column_ids"] == [1, 2]
@@ -442,3 +496,29 @@ def test_open_top_loads_columns_into_spec_roster(empty_db):
         at.session_state["spec_roster.col2.search"],
     }
     assert searches == {"Dell · m18 · dell-x", "HP · Transcend · hp-y"}
+
+
+def test_compare_selected_disabled_over_four_with_hint(empty_db):
+    _seed_five_panel_products(empty_db)
+    at = _run()
+    at.session_state["find.op_label"] = "has any value"
+    at.run()
+    _pick_field(at, "· Panel")
+    assert not at.exception, [str(e) for e in at.exception]
+    assert "5 products match" in _blob(at)
+    # Tick all five — over the 4-column cap.
+    for c in at.checkbox:
+        if c.key and c.key.startswith("find.pick."):
+            c.set_value(True)
+    at.run()
+    compare = [b for b in at.button if b.key == "find.compare_selected"][0]
+    assert "Compare selected (5) →" in compare.label
+    assert "max 4" in compare.label
+    assert compare.disabled
+    # Untick one → back to 4, enabled, no hint.
+    picks = [c for c in at.checkbox if c.key and c.key.startswith("find.pick.")]
+    picks[0].set_value(False).run()
+    compare = [b for b in at.button if b.key == "find.compare_selected"][0]
+    assert "Compare selected (4) →" in compare.label
+    assert "max 4" not in compare.label
+    assert not compare.disabled

@@ -27,6 +27,16 @@ Newest sessions at the top.
 
 **Docs:** `docs/SESSION_LOG.md` (this entry), `docs/TASKS.md` (UI rework row), `README.md` + `docs/ARCHITECTURE.md` (Browse/Compare references updated to Spec Roster), plus three mockups under `docs/`.
 
+### Session 54 cont. — Find screen redesign (tests 516/516 green)
+
+Polish pass on the **Find** screen, continuing the page-by-page UI rework. The single one-criterion query shape (searchable "Section · Feature" + Match operator + Value, narrow-by picker + Year/Status toggles) is kept as-is.
+
+- **Handoff reshaped.** The old "Open top 4 in Spec Roster →" button — which blindly grabbed the first four matches — is replaced by an explicit **checkbox-pick** flow. Each result row gets a per-row checkbox (stable `find.pick.{model_code}.{year}` session key); the bar button reads **"Compare selected (N) →"** with a live count.
+- **Disable rules.** Button is disabled at 0 ticked. With more than four ticked it disables with an inline hint (`Compare selected (N) → · max 4 — untick one`) since Spec Roster's compare grid caps at four columns (`_MAX_COMPARE`). 1–4 ticked opens the chosen products into Spec Roster compare via the existing `_open_in_spec_roster` handoff.
+- **Per-row Open kept.** The per-row `Open →` button (loads one product into Spec Roster) is unchanged. Result-table column weights gained a leading checkbox column.
+
+**Code:** `ui/find.py`. **Tests:** `tests/ui/test_find_apptest.py` — added coverage for checkbox selection, count-in-label, >4 disabled+hint, and ticked rows reaching Spec Roster. Suite 514 → 516 green. **Docs:** `docs/find_mockup.html` (locked checkbox-pick direction), this entry, `docs/TASKS.md` (UI rework row — Find flipped to done).
+
 ---
 
 ## Session 53 — 2026-05-26 (Stage 10c — brainstorm locked + P1 friendly-label swap + P2 sidebar tree restructure; tests 525/525 green throughout)

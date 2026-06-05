@@ -5,8 +5,8 @@ The behavioral core — ``_cell_matches``, ``_expand_template``,
 The query is one searchable "Section · Feature" field + a Match operator
 + a Value; narrow-by uses the single-search product combobox + Year +
 Status toggles. Results render as a table; per-row ``Open →`` loads one
-product into Spec Roster, and "Open top N" loads up to four matches as
-Spec Roster compare columns.
+product into Spec Roster, and "Compare selected (N) →" loads the ticked
+rows (1–4) as Spec Roster compare columns.
 """
 
 from __future__ import annotations
@@ -58,6 +58,9 @@ _OP_LABEL: dict[str, str] = {
 }
 _LABEL_TO_OP: dict[str, str] = {label: op for op, label in _OP_LABEL.items()}
 _OP_LABELS_ORDERED: list[str] = [_OP_LABEL[op] for op in _OPS_ALL]
+
+# Spec Roster's compare grid caps at four columns.
+_MAX_COMPARE = 4
 
 def _list_product_pks(conn: sqlite3.Connection) -> list[tuple[str, int]]:
     rows = conn.execute(
@@ -466,7 +469,16 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
         )
         return
 
-    top = matches[:4]
+    # Which rows are currently ticked (stable per-product checkbox keys).
+    selected: list[dict[str, Any]] = []
+    for prod, _vstr, _marker in matches:
+        mc = prod.get("model_code")
+        yr = _year_of(prod)
+        if st.session_state.get(f"find.pick.{mc}.{yr}"):
+            selected.append(prod)
+    sel_n = len(selected)
+    over_cap = sel_n > _MAX_COMPARE
+
     bar_l, bar_r = st.columns([3, 2])
     with bar_l:
         st.markdown(
@@ -474,22 +486,30 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
             unsafe_allow_html=True,
         )
     with bar_r:
-        if st.button(
-            f"Open top {len(top)} in Spec Roster →",
-            key="find.open_top",
+        if over_cap:
+            st.button(
+                f"Compare selected ({sel_n}) → · max 4 — untick one",
+                key="find.compare_selected",
+                use_container_width=True,
+                disabled=True,
+            )
+        elif st.button(
+            f"Compare selected ({sel_n}) →",
+            key="find.compare_selected",
             use_container_width=True,
+            disabled=sel_n == 0,
         ):
-            _open_in_spec_roster([m[0] for m in top])
+            _open_in_spec_roster(selected)
 
     value_header = field_label.split(" · ")[-1]
-    weights = [3, 1, 1.4, 2.6, 1.2]
+    weights = [0.6, 3, 1, 1.4, 2.6, 1.2]
     _th = (
         '<div style="font-size:var(--cd-size-xs);color:var(--cd-text-faint);'
         "font-weight:600;text-transform:uppercase;letter-spacing:0.05em;"
         'border-bottom:1px solid var(--cd-border-strong);padding-bottom:4px;">{}</div>'
     )
     hdr = st.columns(weights)
-    for col, text in zip(hdr, ("Product", "Year", "Status", value_header, "")):
+    for col, text in zip(hdr, ("", "Product", "Year", "Status", value_header, "")):
         col.markdown(_th.format(html.escape(text)), unsafe_allow_html=True)
 
     for prod, vstr, marker in matches:
@@ -500,19 +520,24 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
         status = _status_of(prod) or "Active"
         crumb = " · ".join(p for p in [brand, series] if p)
         display_v = "" if marker in (MARKER_EMPTY, MARKER_VENDOR_NO_PUB) else vstr
+        mc = prod.get("model_code")
         row = st.columns(weights)
-        row[0].markdown(
+        row[0].checkbox(
+            "Pick for compare",
+            key=f"find.pick.{mc}.{yr}",
+            label_visibility="collapsed",
+        )
+        row[1].markdown(
             f'<span style="color:var(--cd-text-faint)">{html.escape(crumb)} ·</span> '
             f"<strong>{html.escape(product)}</strong>",
             unsafe_allow_html=True,
         )
-        row[1].markdown(str(yr) if yr is not None else "")
-        row[2].markdown(html.escape(status))
-        row[3].markdown(
+        row[2].markdown(str(yr) if yr is not None else "")
+        row[3].markdown(html.escape(status))
+        row[4].markdown(
             _value_cell_html(display_v, marker), unsafe_allow_html=True
         )
-        mc = prod.get("model_code")
-        if row[4].button(
+        if row[5].button(
             "Open →", key=f"find.open.{mc}.{yr}", use_container_width=True
         ):
             _open_in_spec_roster([prod])

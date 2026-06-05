@@ -66,10 +66,16 @@
   .res .open { color:var(--cd-accent); font-weight:600; font-size:13px; }
   .res .stat { font-size:12px; } .res .stat.act { color:var(--cd-verified); } .res .stat.disc { color:var(--cd-gray); }
   .res .rank { color:var(--cd-text-faint); font-size:12px; width:30px; }
-  .res tr.top4 td { background:#fbfdfb; }
+  .res tr.picked td { background:#fbfdfb; }
+  .res .pickcol { width:28px; }
+  .res .ckbox { width:15px; height:15px; border-radius:var(--r-sm); border:1.5px solid var(--cd-border-strong); display:inline-block; vertical-align:middle; background:#fff; }
+  .res .ckbox.on { background:var(--cd-accent); border-color:var(--cd-accent); position:relative; }
+  .res .ckbox.on::after { content:"✓"; color:#fff; font-size:10px; line-height:15px; position:absolute; left:0; right:0; text-align:center; top:-1px; }
   .mockwrap { margin:0 0 var(--s-md) 38px; }
+  .btn-primary[disabled], .btn-primary.off { opacity:.55; }
+  .btn-primary .hint { font-weight:400; color:var(--cd-needs-review); font-size:12px; margin-left:6px; }
 
-  /* compare (what Open top 4 produces) */
+  /* compare (what Compare selected produces) */
   .cmp { width:100%; border-collapse:collapse; font-size:13px; background:#fff; border:1px solid var(--cd-border); border-radius:var(--r-md); overflow:hidden; table-layout:fixed; }
   .cmp th, .cmp td { padding:8px 10px; border-top:1px solid var(--cd-border); border-left:1px solid var(--cd-border); text-align:left; vertical-align:top; }
   .cmp th:first-child, .cmp td:first-child { border-left:none; }
@@ -96,8 +102,8 @@
   <div class="page-head">
     <h1>Find — locked direction</h1>
     <p>Section + Feature merge into one searchable spec-field box (type or pick, same as the product search); operator and value
-       stay as dropdowns. Single criterion only. Results are a table; "Open top 4" loads up to the first four matches as a
-       Spec Roster compare view.</p>
+       stay as dropdowns. Single criterion only. Results are a table; tick the rows you want and "Compare selected" sends them
+       to a Spec Roster compare view (or use a row's "Open →" for one product).</p>
     <p class="real">Results are <b>real matches from competitive.db</b> for the filter shown.</p>
   </div>
 
@@ -160,29 +166,38 @@
 
   <!-- B: results table + open top 4 -->
   <div class="card">
-    <div class="card-head"><span class="badge">B</span><h2>Results table → "Open top 4" into Spec Roster</h2></div>
-    <p class="sub">Matches as a table. Per-row "Open →" sends one product to Spec Roster; the primary button opens up to the first 4 results together as a compare view.</p>
+    <div class="card-head"><span class="badge">B</span><h2>Results table → tick rows → "Compare selected" in Spec Roster</h2></div>
+    <p class="sub">Matches as a table with a checkbox on each row. Tick the products you want and "Compare selected" sends just those to Spec Roster; per-row "Open →" still sends one product on its own.</p>
 
     <div class="resbar">
       <div class="count">3 matches</div>
-      <button class="btn-primary">Open top 4 in Spec Roster →</button>
+      <button class="btn-primary">Compare selected (3) →</button>
     </div>
     <div class="mockwrap">
       <table class="res">
-        <thead><tr><th class="rank">#</th><th>Product</th><th>Year</th><th>Wi-Fi</th><th></th></tr></thead>
+        <thead><tr><th class="pickcol"></th><th class="rank">#</th><th>Product</th><th>Year</th><th>Wi-Fi</th><th></th></tr></thead>
         <tbody>
-          <tr class="top4"><td class="rank">1</td><td><span class="crumb">ASUS · TUF ·</span> <span class="prod">TUF 16</span></td><td>2026 <span class="stat act">Active</span></td><td>Wi-Fi 6E</td><td><span class="open">Open →</span></td></tr>
-          <tr class="top4"><td class="rank">2</td><td><span class="crumb">ASUS · TUF ·</span> <span class="prod">TUF 16</span></td><td>2025 <span class="stat act">Active</span></td><td>Wi-Fi 6E</td><td><span class="open">Open →</span></td></tr>
-          <tr class="top4"><td class="rank">3</td><td><span class="crumb">Lenovo · Legion 5 ·</span> <span class="prod">Legion Pro 5 16</span></td><td>2024 <span class="stat disc">Discontinued</span></td><td>Wi-Fi 6E</td><td><span class="open">Open →</span></td></tr>
+          <tr class="picked"><td class="pickcol"><span class="ckbox on"></span></td><td class="rank">1</td><td><span class="crumb">ASUS · TUF ·</span> <span class="prod">TUF 16</span></td><td>2026 <span class="stat act">Active</span></td><td>Wi-Fi 6E</td><td><span class="open">Open →</span></td></tr>
+          <tr class="picked"><td class="pickcol"><span class="ckbox on"></span></td><td class="rank">2</td><td><span class="crumb">ASUS · TUF ·</span> <span class="prod">TUF 16</span></td><td>2025 <span class="stat act">Active</span></td><td>Wi-Fi 6E</td><td><span class="open">Open →</span></td></tr>
+          <tr class="picked"><td class="pickcol"><span class="ckbox on"></span></td><td class="rank">3</td><td><span class="crumb">Lenovo · Legion 5 ·</span> <span class="prod">Legion Pro 5 16</span></td><td>2024 <span class="stat disc">Discontinued</span></td><td>Wi-Fi 6E</td><td><span class="open">Open →</span></td></tr>
         </tbody>
       </table>
     </div>
-    <div class="note">"Open top 4" takes up to the first 4 rows (3 here) as compare columns. More than 4 matches → only the top 4 open; refine the filter or drop columns in Spec Roster.</div>
+    <div class="note">Each ticked row becomes a compare column. The button counts what you've ticked — untick to drop a column before opening.</div>
 
-    <div class="arrow">Open top 4 produces ↓</div>
+    <div class="mock" style="margin-top:var(--s-md);">
+      <div class="mock-label">more than 4 ticked — Spec Roster only holds 4 columns</div>
+      <div class="resbar" style="margin:0 0 var(--s-sm) 0;">
+        <div class="count">7 matches</div>
+        <button class="btn-primary off" disabled>Compare selected (5) →<span class="hint">max 4 — untick one</span></button>
+      </div>
+      <div class="note" style="margin-left:0;">Past 4 ticks the button gently disables with a "max 4" hint instead of silently dropping anything — you choose which 4 by unticking, then it re-enables.</div>
+    </div>
+
+    <div class="arrow">Compare selected produces ↓</div>
 
     <div class="mock">
-      <div class="mock-label">Spec Roster — compare view, the 3 matches as columns (real data)</div>
+      <div class="mock-label">Spec Roster — compare view, the 3 ticked rows as columns (real data)</div>
       <table class="cmp">
         <thead><tr>
           <th class="rh"></th>
