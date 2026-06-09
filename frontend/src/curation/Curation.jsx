@@ -42,10 +42,112 @@ function fmtVal(v) {
   return String(v);
 }
 
+// String form of a value for the conflict edit box (and change-detection).
+function editableOf(v) {
+  if (v == null) return "";
+  if (Array.isArray(v)) return v.join(", ");
+  return String(v);
+}
+
+// Coerce an edit-box string to a typed value for manual_override (the backend
+// resolve_row writes it as-is, no coercion — mirror cli/resolve coerce_value).
+function coerceValue(raw) {
+  const s = String(raw ?? "").trim();
+  if (s === "") return null;
+  if (s === "true") return true;
+  if (s === "false") return false;
+  if (s === "null") return null;
+  if (/^-?\d+$/.test(s)) return parseInt(s, 10);
+  if (/^-?\d*\.\d+$/.test(s)) return parseFloat(s);
+  return s;
+}
+
+// manual_override is rejected for catalog-vouch rows (new_chip) — no editing.
+const canEditConflict = (it) => it && it.conflict_kind !== "catalog-vouch";
+
 function nameOf(it) {
   if (!it) return "";
   const bits = [it.brand, it.series, modelTail(it.series, it.model)].filter(Boolean);
   return bits.join(" · ");
+}
+
+// Category-importance order (user-approved, S57). The Review queue groups by
+// high-level spec category — not individual field — so the group count stays
+// small (≤17). Order = how much each category tends to drive a buy decision.
+const CATEGORY_ORDER = [
+  "Graphics", "Processor", "Memory", "Storage", "Display",
+  "Thermals", "Battery", "Adapter", "Weight", "Dimensions",
+  "I/O", "Network", "Keyboard", "Camera", "Audio", "Design", "Identity",
+];
+const CATEGORY_RANK = new Map(CATEGORY_ORDER.map((c, i) => [c, i]));
+
+// Field-state items carry `section` (the category). Conflict items don't, so
+// we map the field path's root token to its category. Mirrors the backend
+// _SECTION_REGISTRY grouping in views/orchestrator.py.
+const ROOT_CATEGORY = {
+  vendor: "Identity", vendor_full_name: "Identity", brand: "Identity",
+  sub_brand: "Identity", series: "Identity", status: "Identity", segment: "Identity",
+  cpu_offerings: "Processor", cpu_tdp_max: "Processor",
+  boards: "Graphics",
+  display_offerings: "Display",
+  memory_type: "Memory", memory_max_gb: "Memory", memory_speed_mts: "Memory",
+  memory_slots: "Memory", memory_overclocking: "Memory",
+  storage_slots: "Storage", storage_max_gb: "Storage",
+  keyboard_offerings: "Keyboard",
+  camera_offerings: "Camera",
+  speaker_count: "Audio", tuning_brand: "Audio", has_subwoofer: "Audio",
+  wifi_standard: "Network", ethernet: "Network", bluetooth_version: "Network",
+  usbc_thunderbolt_count: "I/O", usbc_thunderbolt_version: "I/O",
+  usbc_non_thunderbolt_count: "I/O", usbc_non_thunderbolt_version: "I/O",
+  usba_count: "I/O", usba_version: "I/O", hdmi_count: "I/O", hdmi_version: "I/O",
+  sd_card: "I/O", sd_card_speed: "I/O", audio_jack: "I/O",
+  battery_offerings: "Battery",
+  adapter_offerings: "Adapter", adapter_connector: "Adapter",
+  thermal_design: "Thermals", thermal_material: "Thermals", tim: "Thermals", fan_count: "Thermals",
+  width_mm: "Dimensions", depth_mm: "Dimensions", height_mm_min: "Dimensions", height_mm_max: "Dimensions",
+  weight_kg_min: "Weight", weight_kg_max: "Weight",
+  a_cover_material: "Design", c_cover_material: "Design", d_cover_material: "Design",
+  thermal_shelf: "Design", lighting: "Design",
+};
+
+function categoryOf(it) {
+  if (it.section) return it.section;
+  const root = String(it.field_path || "").split(".")[0];
+  return ROOT_CATEGORY[root] || "Other";
+}
+function categoryRank(cat) {
+  const r = CATEGORY_RANK.get(cat);
+  return r == null ? 9999 : r;
+}
+
+// The field's own label, without the redundant "Category · " prefix.
+function fieldLabel(it) {
+  if (it.section && it.label && it.label.startsWith(it.section + " · ")) {
+    return it.label.slice(it.section.length + 3);
+  }
+  return it.label || it.field_path;
+}
+
+// Group queue items by category, ordered by importance; products nested.
+function buildGroups(items) {
+  const map = new Map();
+  for (const it of items) {
+    const cat = categoryOf(it);
+    let g = map.get(cat);
+    if (!g) {
+      g = { key: cat, label: cat, rank: categoryRank(cat), items: [] };
+      map.set(cat, g);
+    }
+    g.items.push(it);
+  }
+  return [...map.values()].sort(
+    (a, b) => a.rank - b.rank || a.label.localeCompare(b.label)
+  );
+}
+
+// Flatten the items inside currently-expanded groups, in display order.
+function visibleItems(groups, expanded) {
+  return groups.filter((g) => expanded.has(g.key)).flatMap((g) => g.items);
 }
 
 export default function Curation() {
@@ -55,6 +157,7 @@ export default function Curation() {
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(null);
   const [selId, setSelId] = useState(null);
+  const [expanded, setExpanded] = useState(() => new Set()); // open field groups
 
   // Editor draft (for the currently selected item).
   const [draft, setDraft] = useState(null);
@@ -83,11 +186,15 @@ export default function Curation() {
       getQueue(t)
         .then((res) => {
           setItems(res.items);
-          setSelId(res.items.length ? res.items[0].id : null);
+          const groups = buildGroups(res.items);
+          // Top (most-important) field open, the rest collapsed.
+          setExpanded(groups.length ? new Set([groups[0].key]) : new Set());
+          setSelId(groups.length ? groups[0].items[0].id : null);
         })
         .catch((e) => {
           setLoadErr(String(e));
           setItems([]);
+          setExpanded(new Set());
           setSelId(null);
         })
         .finally(() => setLoading(false));
@@ -108,6 +215,29 @@ export default function Curation() {
     [items, selId]
   );
 
+  // Field groups (importance order) + the flat list of items in open groups.
+  const groups = useMemo(() => buildGroups(items), [items]);
+  const visible = useMemo(() => visibleItems(groups, expanded), [groups, expanded]);
+
+  const toggle = useCallback(
+    (key) => {
+      const isOpen = expanded.has(key);
+      const next = new Set(expanded);
+      if (isOpen) next.delete(key);
+      else next.add(key);
+      setExpanded(next);
+      // Collapsing the group that holds the selection — move selection to the
+      // next still-visible item (or clear it if nothing is open).
+      if (isOpen) {
+        const vis = visibleItems(groups, next);
+        if (!vis.some((it) => it.id === selId)) {
+          setSelId(vis.length ? vis[0].id : null);
+        }
+      }
+    },
+    [expanded, groups, selId]
+  );
+
   // Rebuild the draft whenever selection changes.
   useEffect(() => {
     if (!sel) {
@@ -119,6 +249,9 @@ export default function Curation() {
         kind: "conflict",
         // which side wins for a value-mismatch: "candidate" | "existing"
         pick: "candidate",
+        // edit box, seeded with the candidate; if changed it drives a
+        // manual_override (write your value) instead of accept/keep.
+        editValue: editableOf(sel.candidate),
         note: "",
       });
     } else {
@@ -157,16 +290,25 @@ export default function Curation() {
   // Advance selection within the current list after a commit (or removal).
   const advanceAfter = useCallback(
     (removedId) => {
-      const idx = items.findIndex((it) => it.id === removedId);
+      const idx = visible.findIndex((it) => it.id === removedId);
       const next = items.filter((it) => it.id !== removedId);
       setItems(next);
-      if (next.length === 0) {
-        setSelId(null);
+      const remVis = visible.filter((it) => it.id !== removedId);
+      if (remVis.length) {
+        // Stay within the open group(s); advance to the next visible item.
+        setSelId(remVis[Math.min(idx, remVis.length - 1)].id);
       } else {
-        setSelId(next[Math.min(idx, next.length - 1)].id);
+        // Open group is now empty — jump to the next most-important field.
+        const ng = buildGroups(next);
+        if (ng.length) {
+          setExpanded(new Set([ng[0].key]));
+          setSelId(ng[0].items[0].id);
+        } else {
+          setSelId(null);
+        }
       }
     },
-    [items]
+    [items, visible]
   );
 
   // ---- commit: field-state item ----
@@ -204,22 +346,30 @@ export default function Curation() {
     (overrideAction) => {
       if (!sel || !draft || draft.kind !== "conflict") return;
       const hasExisting = conflictHasExisting(sel);
+      const edited =
+        canEditConflict(sel) &&
+        (draft.editValue ?? "").trim() !== editableOf(sel.candidate);
       let action = overrideAction;
       if (!action) {
-        action = draft.pick === "existing" ? "kept_existing" : "accept_candidate";
+        // Box changed from the candidate → write your value; else pick a side.
+        action = edited
+          ? "manual_override"
+          : draft.pick === "existing"
+          ? "kept_existing"
+          : "accept_candidate";
       }
       // catalog-vouch / no-existing rows can't keep_existing.
       if (action === "kept_existing" && !hasExisting) action = "dropped";
+      const body = { id: sel.id, action, note: draft.note || null };
+      if (action === "manual_override") body.value = coerceValue(draft.editValue);
       setBusy(true);
-      postResolve({
-        id: sel.id,
-        action,
-        note: draft.note || null,
-      })
+      postResolve(body)
         .then(() => {
           setResolvedCount((n) => n + 1);
           const lbl =
-            action === "accept_candidate"
+            action === "manual_override"
+              ? "Corrected value saved"
+              : action === "accept_candidate"
               ? "Candidate accepted"
               : action === "kept_existing"
               ? "Existing kept"
@@ -242,14 +392,14 @@ export default function Curation() {
         if (e.key === "Escape") document.activeElement.blur();
         return;
       }
-      if (!items.length) return;
-      const idx = items.findIndex((it) => it.id === selId);
+      if (!visible.length) return;
+      const idx = visible.findIndex((it) => it.id === selId);
       if (e.key === "ArrowDown" || e.key === "j") {
         e.preventDefault();
-        setSelId(items[Math.min(idx + 1, items.length - 1)].id);
+        setSelId(visible[Math.min(idx + 1, visible.length - 1)].id);
       } else if (e.key === "ArrowUp" || e.key === "k") {
         e.preventDefault();
-        setSelId(items[Math.max(idx - 1, 0)].id);
+        setSelId(visible[Math.max(idx - 1, 0)].id);
       } else if (busy) {
         return;
       } else if (isConflict(sel)) {
@@ -263,7 +413,7 @@ export default function Curation() {
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [items, selId, sel, busy, commitField, commitConflict]);
+  }, [visible, selId, sel, busy, commitField, commitConflict]);
 
   if (loadErr) {
     return (
@@ -308,35 +458,49 @@ export default function Curation() {
               Clean.
             </div>
           ) : (
-            items.map((it) => {
-              const conf = isConflict(it);
-              const valTxt = conf ? fmtVal(it.candidate) : fmtVal(it.value);
+            groups.map((g) => {
+              const open = expanded.has(g.key);
               return (
-                <div
-                  key={it.id}
-                  className={"cur-qitem" + (it.id === selId ? " sel" : "")}
-                  onClick={() => setSelId(it.id)}
-                >
-                  <div className="qi-top">
-                    <span className="qi-model">{nameOf(it)}</span>
-                    {conf ? (
-                      <span className={"qi-kind k-" + it.conflict_kind}>
-                        {it.conflict_type_label}
-                      </span>
-                    ) : (
-                      <StateDot s={it.state} />
-                    )}
-                  </div>
-                  <div className="qi-field">
-                    {conf ? it.field_path : it.label} · {it.year}
-                  </div>
-                  {valTxt ? (
-                    <div className="qi-val">{valTxt}</div>
-                  ) : (
-                    <div className="qi-val empty">
-                      {conf ? "(no candidate)" : it.state === "not_published" ? "vendor doesn't publish" : "no value yet"}
-                    </div>
-                  )}
+                <div key={g.key} className="cur-group">
+                  <button
+                    className={"cur-ghead" + (open ? " open" : "")}
+                    onClick={() => toggle(g.key)}
+                  >
+                    <span className="cur-gcaret">{open ? "▼" : "▶"}</span>
+                    <span className="cur-glabel">{g.label}</span>
+                    <span className="cur-gn">{g.items.length}</span>
+                  </button>
+                  {open &&
+                    g.items.map((it) => {
+                      const conf = isConflict(it);
+                      const valTxt = conf ? fmtVal(it.candidate) : fmtVal(it.value);
+                      return (
+                        <div
+                          key={it.id}
+                          className={"cur-qitem" + (it.id === selId ? " sel" : "")}
+                          onClick={() => setSelId(it.id)}
+                        >
+                          <div className="qi-top">
+                            <span className="qi-model">{nameOf(it)}</span>
+                            {conf ? (
+                              <span className={"qi-kind k-" + it.conflict_kind}>
+                                {it.conflict_type_label}
+                              </span>
+                            ) : (
+                              <StateDot s={it.state} />
+                            )}
+                          </div>
+                          <div className="qi-field">{fieldLabel(it)} · {it.year}</div>
+                          {valTxt ? (
+                            <div className="qi-val">{valTxt}</div>
+                          ) : (
+                            <div className="qi-val empty">
+                              {conf ? "(no candidate)" : it.state === "not_published" ? "vendor doesn't publish" : "no value yet"}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               );
             })
@@ -409,7 +573,7 @@ export default function Curation() {
                     disabled={busy}
                     onClick={() => commitConflict()}
                   >
-                    Resolve &amp; next <span className="k">↵</span>
+                    Approve &amp; next <span className="k">↵</span>
                   </button>
                 </Fragment>
               ) : (
@@ -517,6 +681,17 @@ function ConflictEditor({ item, draft, setDraft }) {
       </div>
 
       <div className="cur-editor">
+        {canEditConflict(item) ? (
+          <div className="field-row">
+            <div className="el">Correct value</div>
+            <input
+              className="vinput"
+              value={draft.editValue ?? ""}
+              placeholder="Type the right value to override both sides…"
+              onChange={(e) => setDraft({ ...draft, editValue: e.target.value })}
+            />
+          </div>
+        ) : null}
         <div className="field-row">
           <div className="el">Resolver note</div>
           <input
