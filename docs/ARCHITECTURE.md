@@ -462,6 +462,8 @@ Endpoints:
 | GET | `/api/schema` | our categories + fields (from `all_field_paths`) |
 | GET | `/api/catalog` | all models (one per Brand·Series·Product identity spanning its years) |
 | GET | `/api/model/{id}?year=` | one decoded product |
+| GET | `/api/model/{id}/detail?year=` | raw per-leaf detail values grouped by Compare section (`year` required; 422 if missing) — actual CPU/GPU model names, display specs, raw ports; powers the Compare accordion (Session 58) |
+| GET | `/api/schema/detail` | every possible detail leaf per Compare section, for the Compare field-visibility panel (Session 58) |
 | POST | `/api/find` | `{field_path, operator, value, narrow_by}` → matches (query engine); powers facets + advanced query |
 | GET | `/api/queue` | review queue (Conflicts + Unverified + Missing + Manual buckets) |
 | GET | `/api/queue/counts` | queue tab counts |
@@ -474,6 +476,8 @@ Endpoints:
 
 The **conflict-queue listing** is extracted from `ui/triage.py` into a streamlit-free `competitive_database/curation/queue.py` (`queue.py` + `__init__.py`); `ui/` itself was not edited.
 
+The **detail serializers** (`model_detail()` / `detail_schema()` in `serializers.py`, Session 58) group raw values by **leaf id** (the last path segment) into Compare sections, joining multiple offerings with ` · ` and applying a `_FRIENDLY_LEAF` label map; Graphics adds a synthetic **GPU** row because the canonical field walk omits GPU names. These back `/api/model/{id}/detail` and `/api/schema/detail`.
+
 ### Frontend (`frontend/`)
 
 Vite + React (plain JSX). The Vite config sets `base: '/competitive-database/'` and `server.port: 8501` (`strictPort`). `src/api.js` is the API client. `src/shared/` holds reusable primitives — `StateDot` (5 value-states), `ValueCell` (lead + alt values, blank / not-published), and `data.js` helpers (`latestYear` / `resolve` / `lead` / value parsers).
@@ -482,8 +486,8 @@ Five screens shipped and verified on the real DB:
 
 - **Home** (`src/home/`) — hero + live counts (Products / Vendors / Conflicts / Unverified, read from `/api/catalog` + `/api/queue/counts`), clickable stat cards (Products/Vendors → Spec Finder; Conflicts/Unverified → Review), clickable screen cards, and a per-session welcome modal persisted in sessionStorage. The default screen; the brandmark routes here (Session 55).
 - **Spec Finder** (`src/finder/`) — faceted filters with live counts + an **Advanced** field+operator query mode that preserves `is_empty` / `vendor_unavailable` / numeric `gte`/`lte` against the real granular field paths.
-- **Compare Matrix** (`src/compare/`) — rows = our spec sections, ≤4 columns added via drag-shelf + typeahead, per-column year scrubber, differences-only toggle.
-- **Review** (`src/curation/` — route id / folder unchanged) — a unified queue with **Conflicts / Unverified / Missing / Manual** buckets (Conflicts = pick between two disagreeing values; Unverified = confirm one uncertain needs-review value; Missing = blank or not-published; Manual = human-entered), an adaptive center editor (resolve-conflict vs edit-value) with keyboard commit, and a responsive provenance slide-over. Replaces the old Streamlit Edit + Triage screens.
+- **Compare Matrix** (`src/compare/`) — rows = our spec sections, ≤4 columns added via drag-shelf + typeahead, per-column year scrubber, differences-only toggle. Sections are **collapsible accordions** (Session 58): collapsed shows the rollup summary; expanding fetches `/api/model/{id}/detail` and shows the real per-leaf values (actual CPU/GPU model names, display specs, raw ports), cached per `(model, year)`. A **☰ Fields** left-drawer toggles individual detail fields and whole sections on/off.
+- **Review** (`src/curation/` — route id / folder unchanged) — a unified queue with **Conflicts / Unverified / Missing / Manual** buckets (Conflicts = pick between two disagreeing values; Unverified = confirm one uncertain needs-review value; Missing = blank or not-published; Manual = human-entered), an adaptive center editor (resolve-conflict vs edit-value) with keyboard commit, and a responsive provenance slide-over. Replaces the old Streamlit Edit + Triage screens. The left queue **groups by spec category in importance order** (Graphics → Processor → Memory → … → Identity), top group expanded and the rest collapsed, with `j`/`k` traversing only visible items; the Conflicts tab has a **"Correct value"** edit box that routes resolution through `manual_override` (off catalog-vouch rows) (Session 57).
 - **Refresh** (`src/refresh/`) — "All eligible products" (`POST /api/refresh {all:true}`) or "One product" (catalog dropdown + year → `from_db` re-scrape) modes, a confirm step, a running spinner, and a results rollup (stat grid, errors/skipped lists, conflict callout to Review) (Session 55).
 
 Top nav (`App.jsx`): **Home | Spec Finder | Compare | Review | Refresh**.
@@ -497,7 +501,7 @@ The browser calls the API **same-origin** under the base path (`/competitive-dat
 ### Status / parked
 
 - **Rebuild complete (Session 55):** the React Refresh screen, the Home + once-ever welcome modal, and the Phase 4 cutover (Streamlit `ui/`, `ui-launch` CLI, and `tests/ui/` deleted; `ui` optional dependency dropped) are all done. The React frontend is the sole UI.
-- **Parked hiccups:** (1) Compare empty-state — **fixed S56** (add-column search + drop zone factored into a shared element rendered in both the empty state and the header); (2) Finder repeated row-label names ("V V16", etc.) — **fixed S56** (display-only `modelTail()` helper in `frontend/src/shared/data.js` strips the series word the DB `product` name already includes; no data change); (3) Review flat-queue readability — **still open** (needs grouping + field-importance prioritization; the Curation→Review rename itself shipped S55). See `REACT_REBUILD_PLAN.md` § Parked hiccups.
+- **Parked hiccups:** (1) Compare empty-state — **fixed S56** (add-column search + drop zone factored into a shared element rendered in both the empty state and the header); (2) Finder repeated row-label names ("V V16", etc.) — **fixed S56** (display-only `modelTail()` helper in `frontend/src/shared/data.js` strips the series word the DB `product` name already includes; no data change); (3) Review flat-queue readability — **fixed S57** (left queue groups by spec category in importance order, top group expanded + rest collapsed, `j`/`k` traverses visible only; the Curation→Review rename itself shipped S55). See `REACT_REBUILD_PLAN.md` § Parked hiccups.
 
 ---
 

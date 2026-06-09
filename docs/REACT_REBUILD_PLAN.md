@@ -163,10 +163,15 @@ For a backend-only run:
   "Show data state" toggle, per-model detail slide-over, ⌘K command palette,
   and the **Advanced** query mode.
 - `src/compare/` — Compare Matrix: rows = our sections, ≤4 columns via drag-shelf +
-  typeahead, per-column year scrubber, differences-only toggle.
+  typeahead, per-column year scrubber, differences-only toggle. Sections are collapsible
+  accordions (S58): collapsed = rollup summary, expand fetches `/api/model/{id}/detail`
+  for the real per-leaf values (cached per model·year); ☰ Fields drawer toggles
+  fields/sections on/off.
 - `src/curation/` — Review (route id / folder unchanged): unified queue with
   Conflicts / Unverified / Missing / Manual buckets → adaptive editor (resolve-conflict
-  vs edit-value, keyboard commit) → responsive provenance slide-over.
+  vs edit-value, keyboard commit) → responsive provenance slide-over. Queue groups by
+  spec category in importance order (S57); Conflicts tab has a "Correct value" box →
+  `manual_override`.
 - `src/refresh/` — Refresh: "All eligible products" / "One product" modes over
   `POST /api/refresh`, confirm step, running spinner, results rollup with conflict
   callout to Review.
@@ -182,9 +187,12 @@ Top nav (`App.jsx`): **Home | Spec Finder | Compare | Review | Refresh**.
    **FIXED S56** — the DB `product` name already includes the series word; added a display-only
    `modelTail(series, model)` helper in `frontend/src/shared/data.js` that strips the redundant
    prefix at every label site (dim-series + bold-model look). No data change.
-3. **Review queue readability.** *(still open)* The Curation Cockpit was renamed to **Review**
-   (S55); its left-rail queue is still a hard-to-read flat list — needs groupings + field-importance
-   prioritization. Revisit in a later brainstorm.
+3. **Review queue readability.** ~~The Curation Cockpit's left-rail queue is a hard-to-read flat
+   list — needs groupings + field-importance prioritization.~~ **FIXED S57** — the left queue now
+   groups by spec category in importance order (Graphics → Processor → … → Identity), top group
+   expanded and the rest collapsed, with `j`/`k` traversing visible items only. The Conflicts tab
+   also gained a "Correct value" edit box (routes resolution through `manual_override`, off
+   catalog-vouch rows). (The Curation→Review rename itself shipped S55.)
 
 ### Facets vs. real fields
 Kept: Brand, Sub-brand (segment), Wi-Fi (network rollup), Display = OLED,

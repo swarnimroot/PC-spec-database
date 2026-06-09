@@ -6,6 +6,63 @@ Newest sessions at the top.
 
 ---
 
+## Session 58 — 2026-06-09 (Compare accordion + new per-leaf detail endpoints; tests 499 → 505)
+
+**Goal:** Make the Compare grid drill from the rolled-up section summaries down to the real per-leaf spec values (actual CPU/GPU model names, display specs, raw ports) on demand, and give the user control over which fields show. This needed new read-only backend endpoints (the existing `/api/model` returns the canonical field walk, which deliberately omits raw per-leaf detail) plus a frontend accordion.
+
+**Outcome:** Compare's spec sections are now collapsible accordions: collapsed they show the rollup summary; expanding fetches the real per-leaf detail for that model and shows actual values. Two new read-only API endpoints back this, plus a "Fields" drawer to toggle individual fields and whole sections on/off. Tests **499 → 505** (+6 new API tests). Backend and frontend committed separately (f68dc7b backend, a4e0216 frontend).
+
+### What changed
+
+- **New backend detail endpoints** (`competitive_database/api/app.py` + `serializers.py`):
+  - `GET /api/model/{model_id}/detail?year=<int>` — `year` is **required** (422 if missing; 404 on unknown model). Returns `{id, year, sections:{<section_key>:[{key,label,value:{v,s,src,ts,note}}]}}` — the raw per-leaf detail values (actual CPU model names, GPU names, display specs) grouped by Compare section, **one row per leaf** (multiple offerings joined by ` · `), with friendly labels. Graphics includes a synthetic **GPU** row, because the canonical field walk omits GPU names.
+  - `GET /api/schema/detail` — `{sections:{<section_key>:[{key,label}]}}` — every possible detail leaf per Compare section, for the field-visibility panel.
+  - New `serializers` helpers: `model_detail()` and `detail_schema()`, grouped by **leaf id** (last path segment), with a `_FRIENDLY_LEAF` label map.
+- **Compare accordion** (`frontend/src/compare/Compare.jsx` + `compare.css`, `api.js`). Each spec section collapses/expands: collapsed shows the rollup summary (e.g. `ARL-HX R`, `MB1`) — which also removed the redundant section-header / field-label duplicate row; expanding fetches `/api/model/{id}/detail` and shows the real per-leaf values (e.g. `CPU model: Core Ultra 9 386H`, `GPU: RTX 5070 Ti · RTX 5080`). Detail is cached per `(model, year)`. I/O keeps its 4 sub-rows and also expands to raw port detail.
+- **"Fields" drawer.** A new left-drawer panel (☰ Fields button in the control bar) toggles individual detail fields **and** whole sections on/off. Also added breathing room between the status dot and the divider line.
+- **`api.js`** gained `getModelDetail()` + `getDetailSchema()`.
+
+### Files touched this session
+
+**Code:** `competitive_database/api/app.py` (two new read-only endpoints), `competitive_database/api/serializers.py` (`model_detail` / `detail_schema` helpers + `_FRIENDLY_LEAF` map).
+
+**Frontend:** `frontend/src/compare/Compare.jsx` + `compare.css` (collapsible accordions + Fields drawer + dot spacing), `frontend/src/api.js` (`getModelDetail` + `getDetailSchema`).
+
+**Tests:** +6 new API tests; suite **499 → 505**.
+
+**Docs:** `docs/SESSION_LOG.md` (this entry), `docs/TASKS.md` (Compare accordion + detail endpoints row), `docs/ARCHITECTURE.md` (endpoint table + Compare screen description), `README.md` (endpoint list + test count).
+
+### Pickup pointers
+
+- Still open: Review queue flat-list readability (grouping shipped S57 — see below — but field-importance / further polish may surface); Stage 11 Phase 8 spot-checks.
+
+---
+
+## Session 57 — 2026-06-09 (Review queue grouped by spec category + conflict edit box; frontend-only, tests 499)
+
+**Goal:** Address the last parked React hiccup — the Review screen's left queue was a hard-to-read flat list. Group it by spec category in importance order, and let the user type a corrected value when resolving a conflict (instead of only picking between the two stored candidates).
+
+**Outcome:** The Review queue now groups by high-level spec category in importance order, with the most-important group expanded and the rest collapsed. The Conflicts tab gained a "Correct value" edit box that routes resolution through `manual_override`. Both changes are **frontend-only** — no backend change (`resolve_row` already supported `manual_override`). Tests unchanged at **499** (no Python touched). Committed fac63bc.
+
+### What changed
+
+- **Queue grouped by spec category** (`frontend/src/curation/Curation.jsx` + `curation.css`). The flat left queue now **groups by high-level spec category** in importance order: Graphics, Processor, Memory, Storage, Display, Thermals, Battery, Adapter, Weight, Dimensions, I/O, Network, Keyboard, Camera, Audio, Design, Identity. The top (most-important) group is expanded; the rest collapsed. Products nest under each category. `j`/`k` keyboard nav traverses only the **visible** (expanded) items.
+- **Conflict "Correct value" edit box.** The Conflicts tab gained an edit box seeded with the scraped candidate. Editing it routes **"Approve & next"** to `action=manual_override` (writes the user's value + marks the conflict resolved) instead of accept-candidate / keep-existing. Gated **off** catalog-vouch (`new_chip`) rows. No backend change — `resolve_row` already supported `manual_override`.
+
+### Files touched this session
+
+**Frontend:** `frontend/src/curation/Curation.jsx` (category grouping + importance order + visible-only j/k nav + conflict edit box → `manual_override`) + `frontend/src/curation/curation.css`.
+
+**Tests:** none changed — frontend-only, no Python touched. Suite stays **499 passed**.
+
+**Docs:** `docs/SESSION_LOG.md` (this entry), `docs/TASKS.md` (Review readability hiccup → DONE S57), `docs/ARCHITECTURE.md` + `docs/REACT_REBUILD_PLAN.md` (§ Parked hiccups: Review readability resolved; Review screen description).
+
+### Pickup pointers
+
+- Still open: Stage 11 Phase 8 spot-checks (older-year Discontinued rows for products still on sale).
+
+---
+
 ## Session 56 — 2026-06-09 (React polish — two parked hiccups fixed: Compare empty-state bug + duplicate model labels; display-only, no DB/API change)
 
 **Goal:** Clear the two concrete bugs parked after the React rebuild's first live look (per `docs/REACT_REBUILD_PLAN.md` § Parked hiccups): the Compare empty-state lockout and the duplicated model labels. The third parked hiccup (Review queue readability) is a UX rework, left for a brainstorm.
