@@ -38,6 +38,18 @@ export function getModel(id, year) {
   return getJSON(`/api/model/${encodeURIComponent(id)}${q}`);
 }
 
+// GET /api/model/{id}/detail?year= -> {id, year, sections:{key:[{key,label,value}]}}
+// Raw per-leaf detail (actual CPU/GPU names, display specs) for the accordion.
+export function getModelDetail(id, year) {
+  return getJSON(`/api/model/${encodeURIComponent(id)}/detail?year=${year}`);
+}
+
+// GET /api/schema/detail -> {sections:{key:[{key,label}]}} — every detail leaf
+// per compare section, for the field-visibility panel.
+export function getDetailSchema() {
+  return getJSON("/api/schema/detail");
+}
+
 // POST /api/find — canonical Op string in {eq,gte,lte,contains,is_set,is_empty,vendor_unavailable}
 export function find({ field_path, operator, value = "", narrow_by = {} }) {
   return getJSON("/api/find", {

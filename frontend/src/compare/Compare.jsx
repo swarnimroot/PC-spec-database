@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, Fragment } from "react";
-import { getCatalog, getSchema } from "../api.js";
+import { getCatalog, getSchema, getModelDetail, getDetailSchema } from "../api.js";
 import { latestYear, resolve, valArray, modelTail } from "../shared/data.js";
 import ValueCell from "../shared/ValueCell.jsx";
 import "./compare.css";
@@ -136,6 +136,7 @@ function ColHead({ model, year, onYear, onRemove }) {
 export default function Compare() {
   const [models, setModels] = useState(null);
   const [schema, setSchema] = useState(null);
+  const [detailSchema, setDetailSchema] = useState(null);
   const [loadErr, setLoadErr] = useState(null);
 
   const [cols, setCols] = useState([]); // [{ modelId, year }]
@@ -143,11 +144,22 @@ export default function Compare() {
   const [dropping, setDropping] = useState(false);
   const [draggingId, setDraggingId] = useState(null);
 
+  // Accordion + detail
+  const [expanded, setExpanded] = useState(() => new Set()); // open section ids
+  const [detailCache, setDetailCache] = useState({}); // `${modelId}:${year}` -> detail
+  const pendingRef = useRef(new Set());
+
+  // Field-visibility panel
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [hiddenSections, setHiddenSections] = useState(() => new Set());
+  const [hiddenFields, setHiddenFields] = useState(() => new Set());
+
   useEffect(() => {
-    Promise.all([getCatalog(), getSchema()])
-      .then(([cat, sch]) => {
+    Promise.all([getCatalog(), getSchema(), getDetailSchema()])
+      .then(([cat, sch, dsch]) => {
         setModels(cat);
         setSchema(sch);
+        setDetailSchema(dsch);
       })
       .catch((e) => setLoadErr(String(e)));
   }, []);
@@ -170,6 +182,56 @@ export default function Compare() {
 
   const used = cols.map((c) => c.modelId);
   const resolved = cols.map((c) => resolve(modelById.get(c.modelId), c.year));
+
+  // ---- accordion detail ----
+  const detailKey = (c) => `${c.modelId}:${c.year}`;
+
+  // Fetch per-column detail once any section is expanded (detail is whole-model).
+  useEffect(() => {
+    if (expanded.size === 0) return;
+    cols.forEach((c) => {
+      const k = detailKey(c);
+      if (detailCache[k] || pendingRef.current.has(k)) return;
+      pendingRef.current.add(k);
+      getModelDetail(c.modelId, c.year)
+        .then((d) => setDetailCache((prev) => ({ ...prev, [k]: d })))
+        .catch(() => {})
+        .finally(() => pendingRef.current.delete(k));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded, cols, detailCache]);
+
+  const detailLoaded = (c) => !!detailCache[detailKey(c)];
+  const detailCell = (c, fieldKey) => {
+    const secs = detailCache[detailKey(c)]?.sections;
+    if (!secs) return null;
+    const rows = secs[fieldKey.split(".")[0]] || [];
+    const row = rows.find((r) => r.key === fieldKey);
+    return row ? row.value : null;
+  };
+  const detailDiff = (fieldKey) => {
+    if (cols.length < 2 || !cols.every(detailLoaded)) return false;
+    return new Set(cols.map((c) => norm(detailCell(c, fieldKey)))).size > 1;
+  };
+
+  const toggleExpand = (id) =>
+    setExpanded((p) => {
+      const n = new Set(p);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  const toggleHiddenSection = (id) =>
+    setHiddenSections((p) => {
+      const n = new Set(p);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  const toggleHiddenField = (key) =>
+    setHiddenFields((p) => {
+      const n = new Set(p);
+      n.has(key) ? n.delete(key) : n.add(key);
+      return n;
+    });
 
   const addModel = (id) =>
     setCols((cs) => {
@@ -260,6 +322,9 @@ export default function Compare() {
         >
           <span className="switch" /> Differences only
         </div>
+        <button className="fieldsbtn" onClick={() => setPanelOpen(true)}>
+          ☰ Fields
+        </button>
       </div>
 
       {/* drag shelf */}
@@ -343,32 +408,96 @@ export default function Compare() {
             </thead>
             <tbody>
               {cats.map((cat) => {
-                const fields = cat.fields.filter(
-                  (f) => !diffOnly || fieldDiff(f.key)
-                );
-                if (diffOnly && fields.length === 0) return null;
+                if (hiddenSections.has(cat.id)) return null;
+                const single = cat.fields.length === 1;
+                const open = expanded.has(cat.id);
+                const headKey = single ? cat.fields[0].key : null;
+                const headDiff = single ? fieldDiff(headKey) : false;
+                const subFields = single
+                  ? []
+                  : cat.fields.filter((f) => !hiddenFields.has(f.key));
+                const sectionHasDiff = single
+                  ? headDiff
+                  : subFields.some((f) => fieldDiff(f.key));
+                // "Differences only" hides sections whose rollup doesn't differ —
+                // unless the user expanded it (detail is opt-in).
+                if (diffOnly && !sectionHasDiff && !open) return null;
+                const shownSub = diffOnly
+                  ? subFields.filter((f) => fieldDiff(f.key))
+                  : subFields;
+                const leaves = open
+                  ? (detailSchema?.sections?.[cat.id] || []).filter(
+                      (l) => !hiddenFields.has(l.key)
+                    )
+                  : [];
+                const shownLeaves = diffOnly
+                  ? leaves.filter((l) => detailDiff(l.key))
+                  : leaves;
+                const addCell = showAdd ? (
+                  <td>
+                    <div className="vcell addslot" />
+                  </td>
+                ) : null;
                 return (
                   <Fragment key={cat.id}>
-                    <tr className="cat-row">
-                      <td colSpan={nCols + (showAdd ? 2 : 1)}>
-                        <div className="catwrap">{cat.label}</div>
+                    {/* section header = accordion toggle; for single-rollup
+                        sections the rollup value lives right here (no dup row) */}
+                    <tr className={"srow" + (single && headDiff ? " diff" : "")}>
+                      <td
+                        className="lab seclab"
+                        onClick={() => toggleExpand(cat.id)}
+                      >
+                        <span className="caret">{open ? "▾" : "▸"}</span>
+                        <span className="secname">{cat.label}</span>
                       </td>
+                      {single
+                        ? cols.map((c, i) => (
+                            <td key={c.modelId} className="vcell">
+                              <ValueCell cell={resolved[i][headKey]} />
+                            </td>
+                          ))
+                        : cols.map((c) => (
+                            <td key={c.modelId} className="vcell sec-empty" />
+                          ))}
+                      {addCell}
                     </tr>
-                    {fields.map((f) => {
+                    {/* multi-section rollup sub-rows (e.g. I/O) */}
+                    {shownSub.map((f) => {
                       const diff = fieldDiff(f.key);
                       return (
-                        <tr key={f.key} className={"frow" + (diff ? " diff" : "")}>
-                          <td className="lab">{f.label}</td>
+                        <tr
+                          key={f.key}
+                          className={"frow sub" + (diff ? " diff" : "")}
+                        >
+                          <td className="lab sublab">{f.label}</td>
                           {cols.map((c, i) => (
                             <td key={c.modelId} className="vcell">
                               <ValueCell cell={resolved[i][f.key]} />
                             </td>
                           ))}
-                          {showAdd ? (
-                            <td>
-                              <div className="vcell addslot" />
+                          {addCell}
+                        </tr>
+                      );
+                    })}
+                    {/* expanded detail rows — the real per-leaf values */}
+                    {shownLeaves.map((l) => {
+                      const diff = detailDiff(l.key);
+                      return (
+                        <tr
+                          key={l.key}
+                          className={"frow drow" + (diff ? " diff" : "")}
+                        >
+                          <td className="lab detlab">{l.label}</td>
+                          {cols.map((c) => (
+                            <td key={c.modelId} className="vcell">
+                              {detailLoaded(c) ? (
+                                <ValueCell cell={detailCell(c, l.key)} />
+                              ) : (
+                                <div className="vc-blank">…</div>
+                              )}
                             </td>
-                          ) : null}
+                          ))}
+                          {addCell}
                         </tr>
                       );
                     })}
@@ -379,6 +508,62 @@ export default function Compare() {
           </table>
         )}
       </div>
+
+      {/* field-visibility panel — toggle individual detail fields / sections */}
+      {panelOpen && (
+        <Fragment>
+          <div className="vp-scrim" onClick={() => setPanelOpen(false)} />
+          <div className="vpanel">
+            <div className="vp-head">
+              <span>Show fields</span>
+              <button className="vp-x" onClick={() => setPanelOpen(false)}>
+                ×
+              </button>
+            </div>
+            <div className="vp-body">
+              {cats.map((cat) => {
+                const single = cat.fields.length === 1;
+                const leaves = detailSchema?.sections?.[cat.id] || [];
+                return (
+                  <div key={cat.id} className="vp-sec">
+                    <label className="vp-seclab">
+                      <input
+                        type="checkbox"
+                        checked={!hiddenSections.has(cat.id)}
+                        onChange={() => toggleHiddenSection(cat.id)}
+                      />
+                      {cat.label}
+                    </label>
+                    <div className="vp-fields">
+                      {!single &&
+                        cat.fields.map((f) => (
+                          <label key={f.key}>
+                            <input
+                              type="checkbox"
+                              checked={!hiddenFields.has(f.key)}
+                              onChange={() => toggleHiddenField(f.key)}
+                            />
+                            {f.label}
+                          </label>
+                        ))}
+                      {leaves.map((l) => (
+                        <label key={l.key}>
+                          <input
+                            type="checkbox"
+                            checked={!hiddenFields.has(l.key)}
+                            onChange={() => toggleHiddenField(l.key)}
+                          />
+                          {l.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </Fragment>
+      )}
     </div>
   );
 }
