@@ -42,3 +42,52 @@ export function find({ field_path, operator, value = "", narrow_by = {} }) {
     body: JSON.stringify({ field_path, operator, value, narrow_by }),
   });
 }
+
+// ---- Curation Cockpit (queue + write endpoints) ----
+
+// GET /api/queue/counts -> {conflicts, review, missing, hand}
+export function getQueueCounts() {
+  return getJSON("/api/queue/counts");
+}
+
+// GET /api/queue?tab=conflicts|review|missing|hand -> {tab, items[], count}
+export function getQueue(tab) {
+  return getJSON(`/api/queue?tab=${encodeURIComponent(tab)}`);
+}
+
+// GET /api/value/history -> {model_code, year, field_path, value, provenance{...}}
+export function getValueHistory({ model_code, field_path, year }) {
+  const q = new URLSearchParams({ model_code, field_path });
+  if (year != null) q.set("year", year);
+  return getJSON(`/api/value/history?${q.toString()}`);
+}
+
+// POST /api/value — field-state edit via manual_edit_cell.
+// Body: {model_code, year?, field_path, value, status?, note?, entered_by?, source_url?}
+export function postValue(payload) {
+  return getJSON("/api/value", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+// POST /api/resolve — conflict resolution via resolve_row.
+// Body: {id|row_id, action, value?, note?, entered_by?}
+export function postResolve(payload) {
+  return getJSON("/api/resolve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+// POST /api/refresh — HEAVY / EXTERNAL re-scrape. Do not call casually.
+// Body: {all:true} or {brand, model|url, from_db?, year?}
+export function postRefresh(payload) {
+  return getJSON("/api/refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}

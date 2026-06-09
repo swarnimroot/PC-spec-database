@@ -59,6 +59,17 @@ Start of the React rebuild locked in `docs/REACT_REBUILD_PLAN.md` (approved 2026
 
 **Code:** `competitive_database/query/` (new), `competitive_database/api/` (new), `ui/find.py` (rewired). **Frontend:** `frontend/` (new Vite + React project; `node_modules`/`dist`/`.env` gitignored). **Tests:** `tests/query/test_engine.py`, `tests/api/test_endpoints.py` (new). Suite 516 → 549 green. **Docs:** `docs/REACT_REBUILD_PLAN.md` (plan + run-note), `README.md` (API launch section), this entry, `docs/TASKS.md` (React rebuild kickoff row).
 
+### Session 54 cont. — Curation Cockpit (unifies Edit + Triage; tests 561/561 green)
+
+Third React screen — a **Curation Cockpit** that merges the old Edit and Triage surfaces into one 3-pane workbench. Backed by new write/queue endpoints on the FastAPI layer, with the conflict-listing logic extracted out of the Streamlit `ui/triage.py` into a reusable, Streamlit-free package.
+
+- **Unified queue.** One left-rail queue spans both worlds: unresolved `review_queue` **conflicts (229)** plus field-state cells in **review / missing / hand** state, derived by walking every loaded product's field paths and reading each value's status.
+- **3-pane workbench.** Queue list → adaptive center editor → responsive provenance slide-over. The editor adapts to the row: **resolve conflicts** (pick a candidate) vs **edit field values** (type a new value), with **keyboard commit**.
+- **Backend.** New endpoints on `competitive_database/api/app.py`: `GET /api/queue`, `GET /api/queue/counts`, `POST /api/value`, `POST /api/resolve`, `GET /api/value/history`, `POST /api/refresh`. The conflict queue is extracted from `ui/triage.py` into a new Streamlit-free `competitive_database/curation/` package (`queue.py` + `__init__.py`); `ui/` itself was **not** edited. Writes route through the existing `cli/manual_edit` + `cli/resolve`. Real DB is safe — tests run against a copy.
+- **Frontend.** New `frontend/src/curation/Curation.jsx` + `curation.css`; `frontend/src/api.js` gains the curation methods; `App.jsx` gains a **Curation** nav tab.
+
+**Code:** `competitive_database/api/app.py` (curation endpoints), `competitive_database/curation/` (new — conflict queue extracted from `ui/triage.py`). **Frontend:** `frontend/src/curation/Curation.jsx` + `curation.css` (new), `frontend/src/api.js`, `frontend/src/App.jsx` (Curation nav). **Tests:** `tests/api/test_curation.py` (new). Suite 549 → 561 green. **Docs:** this entry, `docs/TASKS.md` (React rebuild row).
+
 ---
 
 ## Session 53 — 2026-05-26 (Stage 10c — brainstorm locked + P1 friendly-label swap + P2 sidebar tree restructure; tests 525/525 green throughout)
