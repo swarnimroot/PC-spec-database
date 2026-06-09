@@ -163,10 +163,11 @@ For a backend-only run:
   "Show data state" toggle, per-model detail slide-over, ⌘K command palette,
   and the **Advanced** query mode.
 - `src/compare/` — Compare Matrix: rows = our sections, ≤4 columns via drag-shelf +
-  typeahead, per-column year scrubber, differences-only toggle. Sections are collapsible
-  accordions (S58): collapsed = rollup summary, expand fetches `/api/model/{id}/detail`
-  for the real per-leaf values (cached per model·year); ☰ Fields drawer toggles
-  fields/sections on/off.
+  typeahead, per-column year scrubber, differences-only toggle. Only Processor / Graphics /
+  I/O are collapsible accordions (S58): collapsed = rollup summary, expand fetches
+  `/api/model/{id}/detail` for the real per-leaf values (multi-offering leaves stacked on
+  separate lines, cached per model·year); every other section is a plain row. ☰ Fields
+  drawer toggles fields/sections on/off.
 - `src/curation/` — Review (route id / folder unchanged): unified queue with
   Conflicts / Unverified / Missing / Manual buckets → adaptive editor (resolve-conflict
   vs edit-value, keyboard commit) → responsive provenance slide-over. Queue groups by
