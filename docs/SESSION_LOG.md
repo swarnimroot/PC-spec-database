@@ -70,6 +70,29 @@ Third React screen — a **Curation Cockpit** that merges the old Edit and Triag
 
 **Code:** `competitive_database/api/app.py` (curation endpoints), `competitive_database/curation/` (new — conflict queue extracted from `ui/triage.py`). **Frontend:** `frontend/src/curation/Curation.jsx` + `curation.css` (new), `frontend/src/api.js`, `frontend/src/App.jsx` (Curation nav). **Tests:** `tests/api/test_curation.py` (new). Suite 549 → 561 green. **Docs:** this entry, `docs/TASKS.md` (React rebuild row).
 
+### Session 54 wrap — React rebuild day end-to-end (tests 561/561 green)
+
+Consolidating wrap over the day. After the Streamlit-side UI rework (Browse + Compare merged into Spec Roster; Find checkbox-pick handoff), the session pivoted to the **React rebuild** approved in `docs/REACT_REBUILD_PLAN.md` (2026-06-08): a React frontend + FastAPI backend over the unchanged Python/SQLite core. The Streamlit `ui/` layer is being superseded but is **not yet retired** — React parity is partial, so both UIs exist and work today.
+
+**The day's arc, in order:**
+1. **Query extraction (Phase 1).** Criteria-matching logic pulled out of `ui/find.py` into a pure, Streamlit-free `competitive_database/query/engine.py` (canonical operators `eq` / `gte` / `lte` / `contains` / `is_set` / `is_empty` / `vendor_unavailable`). Behavior-preserving; `ui/find.py` rewired to import it. Unit-tested in `tests/query/`.
+2. **FastAPI backend (Phase 2 + curation backend).** New `competitive_database/api/` (`app.py` + `serializers.py`) wraps the importable data/query layer with no Streamlit dependency. Endpoints: `GET /api/health`, `/api/schema`, `/api/catalog`, `/api/model/{id}`, `POST /api/find`, `GET /api/queue`, `/api/queue/counts`, `POST /api/value`, `/api/resolve`, `GET /api/value/history`, `POST /api/refresh`. A "model" = one Brand·Series·Product identity spanning its years (**37 models**; id = latest year's model_code; base + per-year `byYear` overrides). Values serialize to `{v, s, src, ts, note}`; the 6 stored statuses map to 5 display states (verified+vouched→confirmed, vendor-doesn't-publish→not_published, manual→hand, needs-review→review, empty→blank). Writes route through the existing `cli/manual_edit` + `cli/resolve`. Conflict-queue listing extracted from `ui/triage.py` into a streamlit-free `competitive_database/curation/queue.py`. DB path from `COMPETITIVE_DB_PATH`; CORS allows :3000 / :5173 / :8501.
+3. **React Spec Finder.** New `frontend/` (Vite + React, plain JSX) with shared `src/shared/` lib (`StateDot`, `ValueCell`, `data.js`). Faceted filters with live counts + an **Advanced** field+operator query preserving `is_empty` / `vendor_unavailable` / numeric ops. Verified on the real DB.
+4. **React Compare Matrix** (`src/compare/`) — rows = our sections, ≤4 columns via drag-shelf + typeahead, per-column year scrubber, differences-only toggle.
+5. **React Curation Cockpit** (`src/curation/`) — unified queue (conflicts + field-state review/missing/hand), adaptive editor (resolve-conflict vs edit-value) with keyboard commit, responsive provenance slide-over; intended to replace Edit + Triage.
+6. **One-command launch.** `cd frontend && npm run dev` runs both halves via `concurrently` + `cross-env` (uvicorn :8011 + Vite :8501); app at **http://localhost:8501/competitive-database/** (Vite `base` + `strictPort`). Uses the real `competitive.db`. (Launch-config commit is pending separately.)
+
+**Commits this session:** 5fe0723 (query engine), 34ffeff (FastAPI backend), aa17b6e (React Finder), f7a10d5 (Compare), 39b90cb (curation backend), 97c62eb (Curation Cockpit); launch-config commit pending.
+
+**Tests:** 561 passing.
+
+**Three parked hiccups (recorded, not fixed — see `docs/REACT_REBUILD_PLAN.md` § Parked hiccups):**
+1. Compare empty-state bug — removing all columns blanks the area and breaks drag/select of a first product.
+2. Finder repeated names in row labels ("V V16", "Strix Strix G16", "Area-51 Area-51 16") — likely series + model duplicated.
+3. Curation should be renamed simpler; its left queue is a hard-to-read flat list needing groupings + field-importance prioritization.
+
+**Remaining (not done):** Refresh screen (React), Home (lightened) + once-ever welcome modal, Phase 4 cutover (retire Streamlit `ui/` + its AppTests). All three hiccups parked for a later brainstorm once the baseline is complete.
+
 ---
 
 ## Session 53 — 2026-05-26 (Stage 10c — brainstorm locked + P1 friendly-label swap + P2 sidebar tree restructure; tests 525/525 green throughout)

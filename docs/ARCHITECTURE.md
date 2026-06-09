@@ -6,12 +6,18 @@ For project scope and policy, see [`README.md`](../README.md). For full schema, 
 
 ## Overview
 
-Four parts:
+The system is now **two-tier** as of Session 54: an unchanged Python/SQLite core with a small FastAPI backend, fronted by a React app. The Streamlit `ui/` layer still exists and works but is **legacy** — being superseded by the React frontend, not yet retired.
+
+Core parts:
 
 1. **SQLite database** — three core tables (`cpu_catalog`, `gpu_catalog`, `products`) plus one operational table (`review_queue`). Per-cell provenance is bundled with each value as JSON.
 2. **Bridge layer** — Python modules that take `scrapers-lib`'s text output, decode each vendor's idioms, and emit candidate product records. One module per vendor.
 3. **Ingestion runner** — orchestrates fetch → parse → catalog-resolve → diff → write-or-queue.
-4. **CLI helpers** — the operational surface for refresh, conflict resolution, and manual entry. The Phase 2 UI (see [§UI layer](#ui-layer-phase-2)) sits on top of these helpers; the helpers are the only writers to the DB.
+4. **CLI helpers** — the operational surface for refresh, conflict resolution, and manual entry; the only writers to the DB.
+5. **Query engine** (`query/`) — pure, streamlit-free criteria matching extracted from `ui/find.py` (Session 54). Powers both the legacy Find screen and the FastAPI `/api/find`.
+6. **FastAPI backend** (`api/`) + **curation queue** (`curation/`) — a localhost JSON API over the importable data/query layer, with no Streamlit dependency (Session 54). See [§React frontend + FastAPI backend](#react-frontend--fastapi-backend-session-54).
+7. **React frontend** (`frontend/`) — the current primary UI (Vite + React). See same section.
+8. **Streamlit UI** (`ui/`) — legacy; the original Phase 2 UI. See [§UI layer (Phase 2 — Streamlit, legacy)](#ui-layer-phase-2--streamlit-legacy).
 
 ---
 
@@ -313,6 +319,13 @@ competitive-database/
 │   ├── ingest/
 │   │   ├── runner.py
 │   │   └── catalog_resolve.py
+│   ├── query/                  # S54 — streamlit-free query engine (extracted from ui/find.py)
+│   │   └── engine.py
+│   ├── api/                    # S54 — FastAPI backend (no Streamlit dependency)
+│   │   ├── app.py
+│   │   └── serializers.py
+│   ├── curation/               # S54 — streamlit-free conflict-queue listing (extracted from ui/triage.py)
+│   │   └── queue.py
 │   ├── views/
 │   │   ├── __init__.py
 │   │   ├── formatting.py        # shared markers + leaf helpers
@@ -349,9 +362,20 @@ competitive-database/
 │   ├── fixtures/              # sample ProductSnapshot JSON per vendor
 │   ├── bridge/
 │   ├── ingest/
-│   └── cli/
+│   ├── cli/
+│   ├── query/                # S54 — query engine unit tests
+│   └── api/                  # S54 — FastAPI endpoint + curation tests
+├── frontend/                 # S54 — Vite + React app (Spec Finder | Compare | Curation)
+│   └── src/
+│       ├── api.js            # API client
+│       ├── shared/           # StateDot, ValueCell, data.js helpers
+│       ├── finder/           # Spec Finder
+│       ├── compare/          # Compare Matrix
+│       └── curation/         # Curation Cockpit
 └── competitive.db             # gitignored
 ```
+
+(The `competitive_database/ui/` Streamlit package is omitted from this core-layout sketch; it is the legacy UI — see [§UI layer (Phase 2 — Streamlit, legacy)](#ui-layer-phase-2--streamlit-legacy). The `frontend/node_modules` / `dist` / `.env` are gitignored.)
 
 ---
 
@@ -417,7 +441,64 @@ The split is purely presentational — no data is hidden from the DB, the bridge
 
 ---
 
-## UI layer (Phase 2)
+## React frontend + FastAPI backend (Session 54)
+
+Approved in [`REACT_REBUILD_PLAN.md`](REACT_REBUILD_PLAN.md) (2026-06-08) and started Session 54: the Streamlit `ui/` layer is being replaced by a React frontend over a FastAPI backend, keeping the entire Python/SQLite layer as a local backend. The Streamlit app (next section) is **legacy** — still present and working, but superseded; React parity is partial, so it is **not yet retired**.
+
+### Query engine (`competitive_database/query/`)
+
+`engine.py` is the criteria-matching logic lifted out of `ui/find.py` (behavior-preserving). Pure functions, no Streamlit import. Canonical operators: `eq` / `gte` / `lte` / `contains` / `is_set` / `is_empty` / `vendor_unavailable`. Both the legacy Find screen and `POST /api/find` call it. Unit-tested in `tests/query/`.
+
+### Backend (`competitive_database/api/`)
+
+FastAPI app (`app.py` + `serializers.py`) wrapping the importable data/query layer — no Streamlit dependency. DB path from the `COMPETITIVE_DB_PATH` env var (falls back to `competitive.db`). CORS allows the localhost dev origins (3000 / 5173 / 8501). Writes route through the existing `cli/manual_edit` + `cli/resolve` handlers — the same single-writer invariant the CLIs and Streamlit UI use.
+
+Endpoints:
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/health` | liveness |
+| GET | `/api/schema` | our categories + fields (from `all_field_paths`) |
+| GET | `/api/catalog` | all models (one per Brand·Series·Product identity spanning its years) |
+| GET | `/api/model/{id}?year=` | one decoded product |
+| POST | `/api/find` | `{field_path, operator, value, narrow_by}` → matches (query engine); powers facets + advanced query |
+| GET | `/api/queue` | curation queue (conflicts + field-state review / missing / hand) |
+| GET | `/api/queue/counts` | queue tab counts |
+| POST | `/api/value` | write edited value + state + provenance (`manual_edit_cell`) |
+| POST | `/api/resolve` | triage resolution (`resolve_row`) |
+| GET | `/api/value/history` | provenance history for a cell |
+| POST | `/api/refresh` | real scrape/refresh (wraps `cli/refresh`) |
+
+**A "model"** = one Brand·Series·Product identity spanning its years (37 models in the live DB; `id` = the latest year's `model_code`; the serialized shape is a `base` object + per-year `byYear` overrides). **Value objects** serialize to `{v, s, src, ts, note}`. **Status mapping:** the 6 stored statuses collapse to 5 display states — `verified` + `vouched` → `confirmed`, `vendor-doesn't-publish` → `not_published`, `manual` → `hand`, `needs-review` → `review`, empty → `blank`.
+
+The **conflict-queue listing** is extracted from `ui/triage.py` into a streamlit-free `competitive_database/curation/queue.py` (`queue.py` + `__init__.py`); `ui/` itself was not edited.
+
+### Frontend (`frontend/`)
+
+Vite + React (plain JSX). The Vite config sets `base: '/competitive-database/'` and `server.port: 8501` (`strictPort`). `src/api.js` is the API client. `src/shared/` holds reusable primitives — `StateDot` (5 value-states), `ValueCell` (lead + alt values, blank / not-published), and `data.js` helpers (`latestYear` / `resolve` / `lead` / value parsers).
+
+Three screens shipped and verified on the real DB:
+
+- **Spec Finder** (`src/finder/`) — faceted filters with live counts + an **Advanced** field+operator query mode that preserves `is_empty` / `vendor_unavailable` / numeric `gte`/`lte` against the real granular field paths.
+- **Compare Matrix** (`src/compare/`) — rows = our spec sections, ≤4 columns added via drag-shelf + typeahead, per-column year scrubber, differences-only toggle.
+- **Curation Cockpit** (`src/curation/`) — a unified queue (unresolved conflicts + field-state review / missing / hand), an adaptive center editor (resolve-conflict vs edit-value) with keyboard commit, and a responsive provenance slide-over. Intended to replace the Streamlit Edit + Triage screens.
+
+Top nav (`App.jsx`): **Spec Finder | Compare | Curation**.
+
+### Launch (one command)
+
+`cd frontend && npm run dev` runs both halves via `concurrently` + `cross-env`: the backend (`uvicorn competitive_database.api.app:app --reload --app-dir .. --port 8011`, with `COMPETITIVE_DB_PATH=../competitive.db`) and the Vite dev server (:8501). App at **http://localhost:8501/competitive-database/**, against the real `competitive.db`. `VITE_API_BASE` (default `http://localhost:8011`) in `frontend/.env` overrides the API base.
+
+### Not yet done / parked
+
+- **Not done:** React Refresh screen; lightened Home + once-ever welcome modal; Phase 4 cutover (retire Streamlit `ui/` + AppTests).
+- **Parked hiccups** (recorded, not fixed): (1) Compare empty-state — removing all columns blanks the area + breaks adding a first product; (2) Finder repeated row-label names ("V V16", etc.) — likely series + model duplicated; (3) Curation rename + flat-queue readability (needs grouping + field-importance prioritization). See `REACT_REBUILD_PLAN.md` § Parked hiccups.
+
+---
+
+## UI layer (Phase 2 — Streamlit, legacy)
+
+> **Legacy.** This is the original Streamlit Phase 2 UI. As of Session 54 it is being superseded by the React frontend + FastAPI backend (see the section above) and is **not yet retired**. The narrative below is retained as the historical record.
 
 Scoped Session 25 (2026-05-12); skeleton + launch shipped Session 26 (T8.0). Phase 2 promotes the `inspect-product` view + the CLI write paths to a clickable surface. Same plumbing, browser front end. Scope and workflow shape live in [`PRD.md` §Phase 2 — UI](PRD.md#phase-2--ui-stage-8); this section covers how it's built.
 

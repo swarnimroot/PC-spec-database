@@ -37,7 +37,16 @@ layer is replaced.
 
 ## Phases
 
-### Phase 1 — Backend API (the foundation)
+> **Progress (Session 54, 2026-06-03):** Phase 1 (query engine) and Phase 2 (FastAPI
+> backend + React Spec Finder) are **DONE** and verified on the real `competitive.db`.
+> The **Compare Matrix** and **Curation Cockpit** screens from Phase 3 are also **DONE**.
+> A one-command launch (`cd frontend && npm run dev`) is wired (see §Running below).
+> **Remaining:** the Refresh screen (React), the lightened Home + once-ever welcome modal,
+> and the Phase 4 cutover (retiring the Streamlit `ui/` + its AppTests). The legacy Streamlit
+> app still exists and works — React parity is partial, so it is **not yet retired**.
+> Tests: **561 passing**.
+
+### Phase 1 — Backend API (the foundation) — DONE (S54)
 1. **Extract the query engine** out of `ui/find.py` into `competitive_database/query/`
    (the 7 operators, `_union_templates`, `_find_matches`, distinct-values, narrow-by).
    Pure functions, unit-tested. De-risks Find regardless of frontend.
@@ -57,7 +66,7 @@ layer is replaced.
      prototype's mocked "Pull fresh data"
    - `GET /api/value/{id}/history` — provenance (see Open Decisions re: real audit log)
 
-### Phase 2 — Frontend scaffold + FIRST screen end-to-end (prove the stack)
+### Phase 2 — Frontend scaffold + FIRST screen end-to-end (prove the stack) — DONE (S54)
 - Vite + React project under `frontend/`. Convert prototype globals → imports, swap
   `window.DB` for an API client of the same shape. Factor the triplicated primitives into
   a shared lib: `<StateDot>`, `<ValueCell>` (multi-option + blank handling), data helpers.
@@ -67,16 +76,17 @@ layer is replaced.
   (is-empty / marked-unavailable / numeric) all working, look matches the prototype.
 
 ### Phase 3 — remaining screens (each wired to real data, one at a time)
-- **Compare Matrix** (→ our Spec Roster): drag-tray, per-column year scrubber, differences-only,
-  using OUR sections/fields, gen-level CPU/GPU.
-- **Curation Cockpit** (→ Edit + the parked Triage work): queue + editor + provenance; C/N/R
-  commit → `/api/value`; "Pull fresh data" → `/api/refresh`; year-diff strip. **Responsive fix:**
-  collapse the provenance pane to a slide-over below laptop width (the prototype's flagged
-  density problem).
-- **Home (lightened)** + welcome modal (once-ever).
-- **Refresh** screen.
+- **Compare Matrix** (→ our Spec Roster) — **DONE (S54)**: drag-shelf + typeahead to add
+  columns (≤4), per-column year scrubber, differences-only toggle, using OUR sections/fields,
+  gen-level CPU/GPU. Reuses shared `StateDot` / `ValueCell`.
+- **Curation Cockpit** (→ Edit + the parked Triage work) — **DONE (S54)**: UNIFIED queue
+  (unresolved conflicts + field-state review/missing/hand), adaptive center editor
+  (resolve-conflict vs edit-value) with keyboard commit → `/api/value` / `/api/resolve`;
+  responsive provenance slide-over; `/api/refresh` wired. Intended to replace Edit + Triage.
+- **Home (lightened)** + welcome modal (once-ever, localStorage) — **NOT YET DONE**.
+- **Refresh** screen (React) — **NOT YET DONE**.
 
-### Phase 4 — cutover & cleanup
+### Phase 4 — cutover & cleanup — NOT YET DONE
 - Run React to parity; keep Streamlit alive until then (never without a working app).
 - Retire `ui/` (Streamlit) + its AppTest suite once parity is reached; keep & grow
   `db/`/`views/`/`query/` tests; add API + a few frontend tests.
@@ -98,37 +108,55 @@ layer is replaced.
 - Our schema (16+ categories) is larger than the prototype's (10) — layouts must handle more
   rows/fields gracefully (esp. the compare matrix and which facets to expose).
 
-## Running the Spec Finder (Phase 2 — shipped)
+## Running the app (Spec Finder | Compare | Curation — all shipped)
 
-The first screen lives in `frontend/` (Vite + React, plain JSX) and renders
-REAL `/api/catalog` + `/api/schema` data (no fake `data.js`). Two commands,
-from the project root, in two terminals (Windows PowerShell):
-
-```powershell
-# 1) Backend — FRESH port 8011 (8000 is occupied by an unrelated process)
-$env:COMPETITIVE_DB_PATH = "$PWD\competitive.db"
-.venv\Scripts\python -m uvicorn competitive_database.api.app:app --port 8011
-```
+The frontend lives in `frontend/` (Vite + React, plain JSX) and renders REAL data
+from the FastAPI backend (no fake `data.js`). **One command** starts both halves
+together — `concurrently` runs the backend (uvicorn) and the Vite dev server, with
+`cross-env` injecting `COMPETITIVE_DB_PATH=../competitive.db`:
 
 ```powershell
-# 2) Frontend
 cd frontend
 npm install   # first run only
-npm run dev   # default http://localhost:5173/
+npm run dev
 ```
 
+This opens the app at **http://localhost:8501/competitive-database/** (Vite `base`
+`/competitive-database/` + `strictPort` 8501) backed by uvicorn on **:8011**. CORS on
+the backend allows the localhost dev origins (3000 / 5173 / 8501). The backend reads
+the **real `competitive.db`** in the project root.
+
 The API base URL is configurable via `frontend/.env`
-(`VITE_API_BASE`, default `http://localhost:8011`).
+(`VITE_API_BASE`, default `http://localhost:8011`). For a backend-only run:
+`.venv\Scripts\python -m uvicorn competitive_database.api.app:app --reload --port 8011`
+(set `COMPETITIVE_DB_PATH` first).
 
 ### Frontend layout
-- `src/api.js` — API client (catalog / schema / model / find).
+- `src/api.js` — API client (catalog / schema / model / find / queue / value / resolve / refresh / history).
 - `src/shared/` — reusable primitives: `StateDot` (5 value-states),
   `ValueCell` (lead + alt values, blank / not-published), `data.js` helpers
-  (`latestYear`, `resolve`, `lead`, value parsers). Reused by later screens.
-- `src/finder/` — facet rail with live counts, result cards (matched spec
+  (`latestYear`, `resolve`, `lead`, value parsers). Reused by every screen.
+- `src/finder/` — Spec Finder: facet rail with live counts, result cards (matched spec
   highlighted, year-change `→YY` markers), active-filter chips, sort,
   "Show data state" toggle, per-model detail slide-over, ⌘K command palette,
   and the **Advanced** query mode.
+- `src/compare/` — Compare Matrix: rows = our sections, ≤4 columns via drag-shelf +
+  typeahead, per-column year scrubber, differences-only toggle.
+- `src/curation/` — Curation Cockpit: unified queue (conflicts + field-state
+  review/missing/hand) → adaptive editor (resolve-conflict vs edit-value, keyboard
+  commit) → responsive provenance slide-over.
+
+Top nav (`App.jsx`): **Spec Finder | Compare | Curation**.
+
+## Parked hiccups (record only — do not fix; revisit in a later brainstorm once the baseline is complete)
+1. **Compare empty-state bug.** Removing all columns blanks the compare area and breaks
+   drag/select of a first product (can't recover to add a column).
+2. **Finder repeated names in row labels.** Result row labels show duplicated tokens
+   ("V V16", "Strix Strix G16", "Area-51 Area-51 16") — likely series + model name
+   concatenated when they already overlap.
+3. **Curation naming + queue readability.** The "Curation Cockpit" name should be renamed
+   to something simpler, and its left-rail queue is a hard-to-read flat list — needs
+   groupings + field-importance prioritization.
 
 ### Facets vs. real fields
 Kept: Brand, Sub-brand (segment), Wi-Fi (network rollup), Display = OLED,
