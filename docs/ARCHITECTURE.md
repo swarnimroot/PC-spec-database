@@ -497,7 +497,7 @@ The browser calls the API **same-origin** under the base path (`/competitive-dat
 ### Status / parked
 
 - **Rebuild complete (Session 55):** the React Refresh screen, the Home + once-ever welcome modal, and the Phase 4 cutover (Streamlit `ui/`, `ui-launch` CLI, and `tests/ui/` deleted; `ui` optional dependency dropped) are all done. The React frontend is the sole UI.
-- **Parked hiccups** (recorded, not fixed): (1) Compare empty-state — removing all columns blanks the area + breaks adding a first product; (2) Finder repeated row-label names ("V V16", etc.) — likely series + model duplicated; (3) Review flat-queue readability (needs grouping + field-importance prioritization; the Curation→Review rename itself shipped S55). See `REACT_REBUILD_PLAN.md` § Parked hiccups.
+- **Parked hiccups:** (1) Compare empty-state — **fixed S56** (add-column search + drop zone factored into a shared element rendered in both the empty state and the header); (2) Finder repeated row-label names ("V V16", etc.) — **fixed S56** (display-only `modelTail()` helper in `frontend/src/shared/data.js` strips the series word the DB `product` name already includes; no data change); (3) Review flat-queue readability — **still open** (needs grouping + field-importance prioritization; the Curation→Review rename itself shipped S55). See `REACT_REBUILD_PLAN.md` § Parked hiccups.
 
 ---
 

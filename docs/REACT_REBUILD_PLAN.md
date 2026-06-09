@@ -173,15 +173,18 @@ For a backend-only run:
 
 Top nav (`App.jsx`): **Home | Spec Finder | Compare | Review | Refresh**.
 
-## Parked hiccups (record only — do not fix; revisit in a later brainstorm once the baseline is complete)
-1. **Compare empty-state bug.** Removing all columns blanks the compare area and breaks
-   drag/select of a first product (can't recover to add a column).
-2. **Finder repeated names in row labels.** Result row labels show duplicated tokens
-   ("V V16", "Strix Strix G16", "Area-51 Area-51 16") — likely series + model name
-   concatenated when they already overlap.
-3. **Review queue readability.** The Curation Cockpit was renamed to **Review** (S55); its
-   left-rail queue is still a hard-to-read flat list — needs groupings + field-importance
-   prioritization.
+## Parked hiccups
+1. **Compare empty-state bug.** ~~Removing all columns blanks the compare area and breaks
+   drag/select of a first product.~~ **FIXED S56** — the add-column search box + drop zone
+   lived inside the `<table>` that the empty state replaced; factored into a shared
+   `addDropZone` element now rendered in both the empty state and the header.
+2. **Finder repeated names in row labels.** ~~Duplicated tokens ("V V16", "Strix Strix G16").~~
+   **FIXED S56** — the DB `product` name already includes the series word; added a display-only
+   `modelTail(series, model)` helper in `frontend/src/shared/data.js` that strips the redundant
+   prefix at every label site (dim-series + bold-model look). No data change.
+3. **Review queue readability.** *(still open)* The Curation Cockpit was renamed to **Review**
+   (S55); its left-rail queue is still a hard-to-read flat list — needs groupings + field-importance
+   prioritization. Revisit in a later brainstorm.
 
 ### Facets vs. real fields
 Kept: Brand, Sub-brand (segment), Wi-Fi (network rollup), Display = OLED,

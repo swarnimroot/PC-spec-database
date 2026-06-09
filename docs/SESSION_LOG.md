@@ -6,6 +6,32 @@ Newest sessions at the top.
 
 ---
 
+## Session 56 — 2026-06-09 (React polish — two parked hiccups fixed: Compare empty-state bug + duplicate model labels; display-only, no DB/API change)
+
+**Goal:** Clear the two concrete bugs parked after the React rebuild's first live look (per `docs/REACT_REBUILD_PLAN.md` § Parked hiccups): the Compare empty-state lockout and the duplicated model labels. The third parked hiccup (Review queue readability) is a UX rework, left for a brainstorm.
+
+**Outcome:** Both bugs fixed and visually verified in the running app (Playwright drive + screenshots). Frontend builds clean; both fixes are display-only — no schema, API, or data changes. Tests unchanged at **499 passed** (no Python touched).
+
+### What changed
+
+- **Compare empty-state bug fixed.** Removing all columns swapped the entire `<table>` for the empty-state message — but the add-column **search box + drop zone lived inside that table**, so with zero columns there was no way to search or drop (only clicking a catalog chip still worked). Fix: factored the drop zone into a single `addDropZone` element rendered in **both** the empty state and the header (`frontend/src/compare/Compare.jsx`), plus an `.empty-add` style (`compare.css`) to fit it in the empty state. Verified: the "Add a model…" box + "or drop a chip here" now appear with zero columns and re-adding works.
+- **Duplicate model labels fixed.** Every screen rendered `series + " " + model`, but the DB `product` column already includes the series word (series "Strix", product "Strix G16") → labels read "Strix Strix G16". Root cause is the data shape, but the fix is **display-only** (the full product name is the real vendor name — left untouched): added `modelTail(series, model)` in `frontend/src/shared/data.js`, which strips a redundant leading series word, applied at every visible label site. User chose the **dim-series + bold-model** look ("Strix" dim, "G16" bold). Search/sort strings left as-is (the redundancy there is harmless and aids matching).
+
+### Files touched this session
+
+**Frontend:** `frontend/src/shared/data.js` (new `modelTail` helper), `frontend/src/compare/Compare.jsx` (shared `addDropZone` + `modelTail` at head/chip/typeahead) + `compare.css` (`.empty-add`), `frontend/src/finder/ResultRow.jsx`, `frontend/src/finder/Finder.jsx`, `frontend/src/finder/Detail.jsx`, `frontend/src/finder/Palette.jsx`, `frontend/src/curation/Curation.jsx` (all: `modelTail` at the visible label).
+
+**Tests:** none changed — frontend-only, no Python touched. Suite stays **499 passed**.
+
+**Docs:** `docs/SESSION_LOG.md` (this entry), `docs/TASKS.md` (two parked hiccups → DONE S56), `docs/ARCHITECTURE.md` + `docs/REACT_REBUILD_PLAN.md` (§ Parked hiccups: mark the two fixed, Review readability still open).
+
+### Pickup pointers
+
+- Remaining parked hiccup: **Review queue flat-list readability** — needs grouping + a notion of field importance; this is a brainstorm, not a quick fix.
+- Still open: Stage 11 Phase 8 spot-checks (older-year Discontinued rows for products still on sale).
+
+---
+
 ## Session 55 — 2026-06-09 (React rebuild finished — Refresh + Home screens shipped; Streamlit retired in Phase 4 cutover; tests 499 passed)
 
 **Goal:** Finish the React rebuild (`docs/REACT_REBUILD_PLAN.md`): build the two remaining screens (Refresh, Home), then run the Phase 4 cutover — retire the Streamlit `ui/` layer now that the React frontend is at parity.
