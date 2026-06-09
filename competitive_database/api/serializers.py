@@ -33,9 +33,11 @@ from ..views import (
     io,
     memory,
     network,
+    orchestrator,
     storage,
     weight,
 )
+from ..query.engine import resolve_path
 from ..views.formatting import (
     MARKER_EMPTY,
     MARKER_MANUAL,
@@ -346,6 +348,299 @@ def model_object(conn: sqlite3.Connection, model_code: str) -> dict[str, Any]:
         "base": base_spec,
         "byYear": by_year,
     }
+
+
+# ---------------------------------------------------------------------------
+# Detail (accordion "expand") — raw leaf values, not the rollup codes.
+#
+# The visual spec map (``_spec_map``) collapses each section to one rollup
+# string (e.g. CPU "ARL-HX R", Graphics "MB1"). The Compare accordion needs
+# the underlying RAW leaves: actual CPU model names, display specs, GPU model
+# strings, etc. Those come from ``orchestrator.all_field_paths`` (the canonical
+# per-field walk) resolved against the loaded product via ``resolve_path``.
+# ---------------------------------------------------------------------------
+
+#: ``all_field_paths`` section_label -> compare schema section key. Built from
+#: ``_SINGLE_SECTIONS`` (which already pairs field_key with its render label)
+#: plus the I/O special case. Sections NOT in this map (Identity, Keyboard,
+#: Thermals) are intentionally skipped — they don't surface on Compare.
+_LABEL_TO_SECTION_KEY: dict[str, str] = {
+    label: field_key for field_key, label, _fn, _catalog in _SINGLE_SECTIONS
+}
+_LABEL_TO_SECTION_KEY["I/O"] = "io"
+
+#: Compare section order (the order the accordion renders sections in).
+_DETAIL_SECTION_ORDER: list[str] = [field_key for field_key, _l, _f, _c in _SINGLE_SECTIONS]
+_DETAIL_SECTION_ORDER.append("io")
+
+
+
+#: Display-state precedence for the worst-state rollup across a leaf group.
+#: review (most urgent) > not_published > hand > confirmed; anything else
+#: (e.g. blank) loses to all of these and leaves the group state blank.
+_STATE_PRECEDENCE: dict[str, int] = {
+    "review": 4,
+    "not_published": 3,
+    "hand": 2,
+    "confirmed": 1,
+}
+
+#: Friendly display label per leaf id (the last path segment). Detail rows are
+#: grouped by leaf id (so all CPU offerings collapse into one "CPU model" row),
+#: and this maps the snake_case id to a clean label. Anything missing falls
+#: back to a generic prettifier (_friendly_leaf).
+_FRIENDLY_LEAF: dict[str, str] = {
+    "model": "CPU model",
+    "cpu_tdp_max": "Max TDP",
+    "gpu": "GPU",
+    "tgp_max": "TGP",
+    "tpp_max": "TPP",
+    "arch_marker": "Architecture",
+    "size_inches": "Size",
+    "panel_type": "Panel",
+    "resolution_label": "Resolution",
+    "resolution_pixels": "Resolution (px)",
+    "refresh_rate_hz": "Refresh rate",
+    "nits_peak": "Brightness (nits)",
+    "hdr_certification": "HDR",
+    "dci_p3_pct": "DCI-P3 %",
+    "srgb_pct": "sRGB %",
+    "response_time_ms": "Response time",
+    "vrr": "VRR",
+    "anti_glare": "Anti-glare",
+    "tier": "Tier",
+    "memory_type": "Type",
+    "memory_max_gb": "Max capacity",
+    "memory_speed_mts": "Speed (MT/s)",
+    "memory_slots": "Slots",
+    "memory_overclocking": "Overclocking",
+    "storage_max_gb": "Max capacity",
+    "gen": "Slot gen",
+    "resolution": "Resolution",
+    "ir_supported": "IR camera",
+    "privacy_shutter": "Privacy shutter",
+    "speaker_count": "Speakers",
+    "tuning_brand": "Tuning",
+    "has_subwoofer": "Subwoofer",
+    "wifi_standard": "Wi-Fi",
+    "ethernet": "Ethernet",
+    "bluetooth_version": "Bluetooth",
+    "wattage_wh": "Capacity (Wh)",
+    "cell_count": "Cells",
+    "wattage_w": "Wattage",
+    "adapter_connector": "Connector",
+    "width_mm": "Width (mm)",
+    "depth_mm": "Depth (mm)",
+    "height_mm_min": "Height min (mm)",
+    "height_mm_max": "Height max (mm)",
+    "weight_kg_min": "Weight min (kg)",
+    "weight_kg_max": "Weight max (kg)",
+    "a_cover_material": "A-cover",
+    "c_cover_material": "C-cover",
+    "d_cover_material": "D-cover",
+    "thermal_shelf": "Thermal shelf",
+    "lighting": "Lighting",
+    "description": "Description",
+    "has_numpad": "Numpad",
+    "usbc_thunderbolt_count": "Thunderbolt ports",
+    "usbc_thunderbolt_version": "Thunderbolt version",
+    "usbc_non_thunderbolt_count": "USB-C ports",
+    "usbc_non_thunderbolt_version": "USB-C version",
+    "usba_count": "USB-A ports",
+    "usba_version": "USB-A version",
+    "hdmi_count": "HDMI ports",
+    "hdmi_version": "HDMI version",
+    "sd_card": "SD card",
+    "sd_card_speed": "SD card speed",
+    "audio_jack": "Audio jack",
+}
+
+_LEAF_ACRONYMS = {"hdr", "vrr", "usb", "sd", "io"}
+
+
+def _friendly_leaf(leaf_id: str) -> str:
+    """Friendly label for a leaf id, via the override map or a generic prettify."""
+    if leaf_id in _FRIENDLY_LEAF:
+        return _FRIENDLY_LEAF[leaf_id]
+    words = leaf_id.split("_")
+    return " ".join(w.upper() if w in _LEAF_ACRONYMS else w.capitalize() for w in words)
+
+
+def _gpu_value_objects(product: dict[str, Any]) -> list[dict[str, Any]]:
+    """One value object per GPU on every board.
+
+    ``all_field_paths`` for Graphics yields only tgp_max / tpp_max /
+    arch_marker — never the GPU name. The GPU model lives in
+    ``product["boards"][n]["gpus"][m]`` where each entry is either a
+    provenance bundle (``{"value": ...}``) or a plain string (see
+    ``views.boards._bundle_value``). ``value_object`` already handles both
+    shapes, so pass each raw entry straight through.
+    """
+    out: list[dict[str, Any]] = []
+    for board in product.get("boards") or []:
+        for gpu in board.get("gpus") or []:
+            out.append(value_object(gpu))
+    return out
+
+
+def _merge_group(value_objects: list[dict[str, Any]]) -> dict[str, Any]:
+    """Collapse a leaf group's value objects into one ``{v, s, src, ts, note}``.
+
+    ``v`` is the distinct non-null values joined by " · " (None if all empty);
+    ``s`` is the worst display-state by ``_STATE_PRECEDENCE`` (blank if none of
+    the precedence states are present); ``src`` / ``ts`` / ``note`` come from
+    the first value object that carries each.
+    """
+    parts: list[str] = []
+    for vo in value_objects:
+        v = vo.get("v")
+        if v is None:
+            continue
+        if isinstance(v, list):
+            pieces = [str(x) for x in v if x is not None and str(x) != ""]
+        else:
+            pieces = [str(v)] if str(v) != "" else []
+        for piece in pieces:
+            if piece not in parts:
+                parts.append(piece)
+
+    best_state = ""
+    best_rank = 0
+    for vo in value_objects:
+        rank = _STATE_PRECEDENCE.get(vo.get("s", ""), 0)
+        if rank > best_rank:
+            best_rank = rank
+            best_state = vo["s"]
+
+    src = next((vo.get("src") for vo in value_objects if vo.get("src")), None)
+    ts = next((vo.get("ts") for vo in value_objects if vo.get("ts")), None)
+    note = next((vo.get("note") for vo in value_objects if vo.get("note")), None)
+
+    return {
+        "v": " · ".join(parts) if parts else None,
+        "s": best_state,
+        "src": src,
+        "ts": ts,
+        "note": note,
+    }
+
+
+def _detail_rows(product: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Build ``{section_key: [row, ...]}`` of raw detail leaves for a product.
+
+    Walks ``all_field_paths``, mapping each section_label to a compare section
+    key (skipping unmapped sections), grouping leaves by (section_key,
+    leaf_label) in first-seen order. The Graphics GPU synthetic leaf is
+    prepended so the actual GPU model names surface on expand.
+    """
+    # (section_key, leaf_label) -> list[value object], first-seen order kept by
+    # ``order`` so dict insertion order = render order per section.
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    order: dict[str, list[str]] = {}
+
+    def _add(section_key: str, leaf_label: str, vo: dict[str, Any]) -> None:
+        gkey = (section_key, leaf_label)
+        if gkey not in groups:
+            groups[gkey] = []
+            order.setdefault(section_key, []).append(leaf_label)
+        groups[gkey].append(vo)
+
+    # Graphics GPU synthetic leaf — PREPENDED (registered before the walk so
+    # it sorts first within the graphics section).
+    gpu_objs = _gpu_value_objects(product)
+    if gpu_objs:
+        for vo in gpu_objs:
+            _add("graphics", "gpu", vo)
+
+    # Group by LEAF ID (the last path segment) so every offering / board of a
+    # given attribute collapses into one row (all CPUs → one "CPU model" row),
+    # rather than one ragged row per offering index.
+    for section_label, field_path, _leaf_label in orchestrator.all_field_paths(product):
+        section_key = _LABEL_TO_SECTION_KEY.get(section_label)
+        if section_key is None:
+            continue
+        leaf_id = field_path.split(".")[-1]
+        bundle, plain = resolve_path(product, field_path)
+        if plain is not None:
+            vo = value_object(plain)
+        else:
+            vo = value_object(bundle)
+        _add(section_key, leaf_id, vo)
+
+    sections: dict[str, list[dict[str, Any]]] = {}
+    for section_key in _DETAIL_SECTION_ORDER:
+        leaf_ids = order.get(section_key)
+        if not leaf_ids:
+            continue
+        rows = []
+        for leaf_id in leaf_ids:
+            merged = _merge_group(groups[(section_key, leaf_id)])
+            rows.append(
+                {
+                    "key": f"{section_key}.{leaf_id}",
+                    "label": _friendly_leaf(leaf_id),
+                    "value": merged,
+                }
+            )
+        sections[section_key] = rows
+    return sections
+
+
+def model_detail(
+    conn: sqlite3.Connection, model_code: str, year: int
+) -> dict[str, Any]:
+    """Raw detail leaves for one (model_code, year), grouped by compare section.
+
+    Resolves the identity the same way ``model_object`` does (a missing
+    model_code raises ``LookupError``), loads the row for ``year``, then walks
+    every fillable cell to surface the actual underlying values (CPU model
+    names, GPU names, display specs, ...) the rollup hides.
+
+    Returns ``{id, year, sections: {section_key: [rows...]}}`` with only the
+    sections that have at least one row, in compare section order.
+    """
+    identity = _identity_for_model_code(conn, model_code)
+    if identity is None:
+        raise LookupError(f"no product with model_code={model_code!r}")
+    product = load_product(conn, model_code, year)
+    return {
+        "id": model_code,
+        "year": year,
+        "sections": _detail_rows(product),
+    }
+
+
+def detail_schema(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Union of every possible detail leaf per compare section, across all models.
+
+    Scans every product, collecting the DISTINCT (section_key, leaf_label) set
+    in first-seen order per section (same grouping + Graphics GPU synthetic
+    leaf as ``model_detail``). Feeds the field-visibility panel, so it lists
+    every leaf any model could expose even if a given model lacks it.
+
+    Returns ``{sections: {section_key: [{key, label}, ...]}}`` covering every
+    compare section, in compare section order.
+    """
+    # section_key -> ordered list of {key, label} (first-seen across all models),
+    # deduped by key.
+    seen: dict[str, list[dict[str, str]]] = {}
+    seen_keys: dict[str, set[str]] = {}
+
+    rows = conn.execute("SELECT model_code, year FROM products").fetchall()
+    for row in rows:
+        product = load_product(conn, row["model_code"], row["year"])
+        for section_key, leaves in _detail_rows(product).items():
+            bucket = seen.setdefault(section_key, [])
+            keyset = seen_keys.setdefault(section_key, set())
+            for leaf in leaves:
+                if leaf["key"] not in keyset:
+                    keyset.add(leaf["key"])
+                    bucket.append({"key": leaf["key"], "label": leaf["label"]})
+
+    sections: dict[str, list[dict[str, str]]] = {
+        section_key: seen.get(section_key, []) for section_key in _DETAIL_SECTION_ORDER
+    }
+    return {"sections": sections}
 
 
 def catalog(conn: sqlite3.Connection) -> list[dict[str, Any]]:

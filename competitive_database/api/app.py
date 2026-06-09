@@ -115,6 +115,36 @@ def get_model(model_id: str, year: Optional[int] = Query(default=None)) -> dict[
     }
 
 
+@app.get("/api/model/{model_id}/detail")
+def get_model_detail(
+    model_id: str, year: Optional[int] = Query(default=None)
+) -> dict[str, Any]:
+    """Raw detail leaves (accordion expand) for one (model, year).
+
+    ``year`` is REQUIRED here — a detail expand always targets a concrete
+    year's row, not the identity's latest. Missing year → 422.
+    """
+    if year is None:
+        raise HTTPException(status_code=422, detail="year is required")
+    conn = _open_conn()
+    try:
+        return serializers.model_detail(conn, model_id, year)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    finally:
+        conn.close()
+
+
+@app.get("/api/schema/detail")
+def get_detail_schema() -> dict[str, Any]:
+    """Union of every possible detail leaf per section (field-visibility panel)."""
+    conn = _open_conn()
+    try:
+        return serializers.detail_schema(conn)
+    finally:
+        conn.close()
+
+
 @app.post("/api/find")
 def post_find(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     field_path = payload.get("field_path")
