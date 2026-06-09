@@ -107,6 +107,16 @@ Landing page is the **hub** — hero line + three metric tiles (products / vendo
 
 The Edit and Refresh screens write through the same library handlers as the `resolve`, `manual-edit`, and `refresh` CLIs — so a UI write and a CLI write produce identical bundles + provenance. See the [`ui` subcommand reference](#ui) below for flags.
 
+### Launching the API (React Spec Finder backend)
+
+A read-only local FastAPI backend (`competitive_database/api/`) serves the React "Spec Finder" screen. It wraps the importable data/query layer (no Streamlit dependency). Requires `fastapi` + `uvicorn` (now in core `dependencies`).
+
+```bash
+.venv\Scripts\python -m uvicorn competitive_database.api.app:app --reload --port 8000
+```
+
+DB path comes from the `COMPETITIVE_DB_PATH` env var (falls back to `competitive.db` in the project root). Endpoints: `GET /api/health`, `GET /api/schema`, `GET /api/catalog`, `GET /api/model/{id}?year=`, `POST /api/find`. CORS allows the localhost dev origins (ports 3000 / 5173).
+
 ---
 
 ## Scope
