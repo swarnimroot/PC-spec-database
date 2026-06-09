@@ -232,10 +232,14 @@ def test_model_detail_processor_has_cpu_model_string(client):
     body = client.get(f"/api/model/{mid}/detail", params={"year": year}).json()
     proc = body["sections"]["processor"]
     assert proc, "processor section should have rows"
-    # At least one processor row carries an actual CPU model name string.
+    # At least one processor row carries an actual CPU model name — as a
+    # string, or a list of strings when the model ships multiple CPUs.
     values = [r["value"]["v"] for r in proc if r["value"]["v"]]
     assert values, "expected at least one populated processor leaf (CPU model)"
-    assert any(isinstance(v, str) and v.strip() for v in values)
+    flat = []
+    for v in values:
+        flat.extend(v if isinstance(v, list) else [v])
+    assert any(isinstance(v, str) and v.strip() for v in flat)
 
 
 def test_model_detail_graphics_has_gpu_row(client):

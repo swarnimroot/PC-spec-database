@@ -6,6 +6,11 @@ import "./compare.css";
 
 const MAX = 4;
 
+// Only these sections reveal genuinely new info on expand (real CPU/GPU names,
+// raw I/O ports). Every other section's "detail" just re-splits its rollup, so
+// those stay plain non-expandable rows.
+const EXPANDABLE = new Set(["processor", "graphics", "io"]);
+
 // Normalize a resolved cell to a comparable token for the diff test.
 function norm(cell) {
   if (!cell || cell.v == null) return "∅";
@@ -410,7 +415,8 @@ export default function Compare() {
               {cats.map((cat) => {
                 if (hiddenSections.has(cat.id)) return null;
                 const single = cat.fields.length === 1;
-                const open = expanded.has(cat.id);
+                const expandable = EXPANDABLE.has(cat.id);
+                const open = expandable && expanded.has(cat.id);
                 const headKey = single ? cat.fields[0].key : null;
                 const headDiff = single ? fieldDiff(headKey) : false;
                 const subFields = single
@@ -444,10 +450,14 @@ export default function Compare() {
                         sections the rollup value lives right here (no dup row) */}
                     <tr className={"srow" + (single && headDiff ? " diff" : "")}>
                       <td
-                        className="lab seclab"
-                        onClick={() => toggleExpand(cat.id)}
+                        className={"lab seclab" + (expandable ? "" : " static")}
+                        onClick={
+                          expandable ? () => toggleExpand(cat.id) : undefined
+                        }
                       >
-                        <span className="caret">{open ? "▾" : "▸"}</span>
+                        {expandable ? (
+                          <span className="caret">{open ? "▾" : "▸"}</span>
+                        ) : null}
                         <span className="secname">{cat.label}</span>
                       </td>
                       {single
@@ -523,7 +533,9 @@ export default function Compare() {
             <div className="vp-body">
               {cats.map((cat) => {
                 const single = cat.fields.length === 1;
-                const leaves = detailSchema?.sections?.[cat.id] || [];
+                const leaves = EXPANDABLE.has(cat.id)
+                  ? detailSchema?.sections?.[cat.id] || []
+                  : [];
                 return (
                   <div key={cat.id} className="vp-sec">
                     <label className="vp-seclab">

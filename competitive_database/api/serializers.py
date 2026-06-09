@@ -517,7 +517,9 @@ def _merge_group(value_objects: list[dict[str, Any]]) -> dict[str, Any]:
     note = next((vo.get("note") for vo in value_objects if vo.get("note")), None)
 
     return {
-        "v": " · ".join(parts) if parts else None,
+        # Multiple distinct values -> a list so the UI renders them on
+        # separate lines (ValueCell stacks list items); single -> scalar.
+        "v": parts if len(parts) > 1 else (parts[0] if parts else None),
         "s": best_state,
         "src": src,
         "ts": ts,

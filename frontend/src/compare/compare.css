@@ -483,7 +483,10 @@ table.mx col.label-col {
   border-top: 1px solid var(--border-default);
   user-select: none;
 }
-.srow .lab.seclab:hover {
+.srow .lab.seclab.static {
+  cursor: default;
+}
+.srow .lab.seclab:not(.static):hover {
   color: var(--text-primary);
 }
 .srow .vcell {
