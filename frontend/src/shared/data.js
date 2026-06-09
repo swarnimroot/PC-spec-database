@@ -9,8 +9,8 @@
 export const STATE_LABEL = {
   confirmed: "Confirmed",
   not_published: "Vendor doesn't publish",
-  hand: "Hand-entered",
-  review: "Needs review",
+  hand: "Manual",
+  review: "Unverified",
   blank: "Missing",
 };
 

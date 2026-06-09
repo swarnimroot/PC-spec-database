@@ -1,0 +1,273 @@
+/* Refresh screen — trigger live re-scrapes and show the result rollup.
+   Reuses the app's shared tokens (defined in finder.css :root). */
+.refresh {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 28px 24px 64px;
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+}
+
+.rf-head h1 {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+.rf-head p {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0 0 8px;
+}
+.rf-warn {
+  color: var(--status-danger) !important;
+  font-size: 13px !important;
+}
+
+.rf-card {
+  margin-top: 20px;
+  padding: 20px;
+  background: var(--surface-default);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-8);
+  box-shadow: var(--shadow-card);
+}
+
+.rf-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.rf-modes label {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-4);
+  cursor: pointer;
+}
+.rf-modes label.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.rf-modes input {
+  grid-row: 1 / 3;
+  align-self: center;
+}
+.rf-mode-t {
+  font-weight: 600;
+  font-size: 14px;
+}
+.rf-mode-d {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.rf-pickers {
+  display: flex;
+  gap: 16px;
+  margin-top: 16px;
+}
+.rf-pickers label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.rf-pickers select {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  padding: 7px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-4);
+  background: var(--surface-default);
+  color: var(--text-primary);
+  min-width: 260px;
+}
+.rf-pickers label:last-child select {
+  min-width: 100px;
+}
+
+.rf-run {
+  margin-top: 20px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 9px 18px;
+  border: 0;
+  border-radius: var(--radius-4);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.rf-run:hover {
+  background: var(--accent-hover);
+}
+.rf-run:disabled {
+  background: var(--st-np);
+  cursor: not-allowed;
+}
+
+.rf-cancel {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 9px 18px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-4);
+  background: var(--surface-default);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.rf-confirm {
+  margin-top: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-4);
+  font-size: 14px;
+}
+.rf-confirm-btns {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.rf-confirm-btns .rf-run {
+  margin-top: 0;
+}
+
+.rf-running {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.rf-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: rf-spin 0.7s linear infinite;
+}
+@keyframes rf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.rf-err {
+  font-size: 13px;
+  color: var(--status-danger);
+}
+.rf-err-block {
+  margin-top: 20px;
+  padding: 12px 16px;
+  border: 1px solid var(--status-danger);
+  border-radius: var(--radius-4);
+  background: #fbeaea;
+}
+
+.rf-results {
+  margin-top: 28px;
+}
+.rf-results h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.rf-rollup {
+  display: flex;
+  gap: 16px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+.rf-rollup .ok {
+  color: var(--st-confirmed);
+}
+.rf-rollup .bad {
+  color: var(--status-danger);
+}
+.rf-rollup .muted {
+  color: var(--text-muted);
+}
+
+.rf-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 10px;
+}
+.rf-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-4);
+  background: var(--surface-alt);
+}
+.rf-stat .n {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.rf-stat .l {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  text-align: center;
+}
+
+.rf-note {
+  margin-top: 16px;
+  padding: 12px 16px;
+  border-left: 3px solid var(--st-review);
+  background: var(--st-review-soft);
+  border-radius: var(--radius-4);
+  font-size: 14px;
+}
+
+.rf-block {
+  margin-top: 20px;
+}
+.rf-block h3,
+.rf-block summary {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  cursor: pointer;
+}
+.rf-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+}
+.rf-list li {
+  display: flex;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-default);
+}
+.rf-pk {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex: none;
+  min-width: 200px;
+}
+.rf-emsg {
+  color: var(--text-muted);
+}

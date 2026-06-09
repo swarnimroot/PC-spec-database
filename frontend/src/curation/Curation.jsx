@@ -14,9 +14,9 @@ import "./curation.css";
 // field-state queues driven by the stored value status.
 const TABS = [
   { id: "conflicts", label: "Conflicts", cls: "t-conflict" },
-  { id: "review", label: "Needs review", cls: "t-review" },
+  { id: "review", label: "Unverified", cls: "t-review" },
   { id: "missing", label: "Missing", cls: "t-blank" },
-  { id: "hand", label: "Hand-entered", cls: "" },
+  { id: "hand", label: "Manual", cls: "" },
 ];
 
 // Value-state control: display-state -> the bundle status the backend expects

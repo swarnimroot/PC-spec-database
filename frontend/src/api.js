@@ -1,7 +1,11 @@
 // API client for the Competitive Spec DB FastAPI backend.
-// Base URL is configurable via VITE_API_BASE (default http://localhost:8011).
+// By default the API is reached on the app's OWN origin under its base path
+// (e.g. /competitive-database/api/...), which the Vite dev server proxies to
+// the backend. This keeps it same-origin so it works locally and through the
+// Tailscale Funnel with no hardcoded host. Override with VITE_API_BASE.
 
-const BASE = import.meta.env.VITE_API_BASE || "http://localhost:8011";
+const BASE =
+  import.meta.env.VITE_API_BASE || import.meta.env.BASE_URL.replace(/\/$/, "");
 
 async function getJSON(path, opts) {
   const res = await fetch(BASE + path, opts);

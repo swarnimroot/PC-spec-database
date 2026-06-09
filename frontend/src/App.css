@@ -15,6 +15,10 @@
   display: flex;
   align-items: center;
   gap: 9px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
 }
 .appnav .brandmark .sq {
   width: 18px;
