@@ -112,7 +112,7 @@ Multi-field aggregation (e.g., *"rank products by total Thunderbolt + USB-C port
 | Phase | Status |
 |---|---|
 | 1 — Data layer (this PRD) | In progress, schema-ready |
-| 2 — UI / dashboard | Streamlit UI Stages 8 / 10a / 10b / 11 complete (Sessions 35–52). **Session 54: pivoting to a React frontend + FastAPI backend** over the unchanged core — Spec Finder, Compare Matrix, and Curation Cockpit shipped; the Streamlit `ui/` is now legacy (not yet retired). See [Phase 2 — UI](#phase-2--ui-stage-8) below + [`REACT_REBUILD_PLAN.md`](REACT_REBUILD_PLAN.md) |
+| 2 — UI / dashboard | Streamlit UI Stages 8 / 10a / 10b / 11 complete (Sessions 35–52). **Session 54: pivoting to a React frontend + FastAPI backend** over the unchanged core — Spec Finder, Compare Matrix, and Review (then named Curation Cockpit) shipped; the Streamlit `ui/` is now legacy (not yet retired). See [Phase 2 — UI](#phase-2--ui-stage-8) below + [`REACT_REBUILD_PLAN.md`](REACT_REBUILD_PLAN.md) |
 | 3 — Chatbot | Deferred |
 | 4 — History / audit layer | Deferred |
 
@@ -120,7 +120,7 @@ Multi-field aggregation (e.g., *"rank products by total Thunderbolt + USB-C port
 
 ## Phase 2 — UI (Stage 8)
 
-> **Current state (Session 54).** The Phase 2 UI was originally built in **Streamlit** (the screens described below: Browse / Spec Roster / Compare / Find / Triage / Edit / Refresh). As of Session 54 the UI is being **rebuilt in React over a FastAPI backend** (`competitive_database/api/` + `frontend/`), keeping the Python/SQLite core unchanged. Three React screens are shipped and verified on the real DB — **Spec Finder** (the Find workflow), **Compare Matrix** (the browse + compare workflow), and **Curation Cockpit** (unifying the Triage + Edit workflows). The Streamlit `ui/` app is now **legacy** — still present and working, **not yet retired** (React parity is partial; the React Refresh screen + a lightened Home are not yet built). The product goals below are unchanged; only the rendering layer is moving. See [`REACT_REBUILD_PLAN.md`](REACT_REBUILD_PLAN.md). The screen-by-screen narrative below describes the Streamlit surface and is retained as the historical/spec record.
+> **Current state (Session 54).** The Phase 2 UI was originally built in **Streamlit** (the screens described below: Browse / Spec Roster / Compare / Find / Triage / Edit / Refresh). As of Session 54 the UI is being **rebuilt in React over a FastAPI backend** (`competitive_database/api/` + `frontend/`), keeping the Python/SQLite core unchanged. Three React screens are shipped and verified on the real DB — **Spec Finder** (the Find workflow), **Compare Matrix** (the browse + compare workflow), and **Review** (then named Curation Cockpit; unifying the Triage + Edit workflows). The Streamlit `ui/` app is now **legacy** — still present and working, **not yet retired** (React parity is partial; the React Refresh screen + a lightened Home are not yet built). The product goals below are unchanged; only the rendering layer is moving. See [`REACT_REBUILD_PLAN.md`](REACT_REBUILD_PLAN.md). The screen-by-screen narrative below describes the Streamlit surface and is retained as the historical/spec record.
 
 The data layer is at a zero-issue baseline (508/508 tests, `review_queue` unresolved = 0, both catalog tables `needs-review` = 0). Phase 2 turns the DB into a tool the owner and team can drive without CLI fluency.
 

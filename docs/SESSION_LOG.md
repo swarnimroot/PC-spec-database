@@ -6,6 +6,33 @@ Newest sessions at the top.
 
 ---
 
+## Session 55 — 2026-06-09 (React rebuild finished — Refresh + Home screens shipped; Streamlit retired in Phase 4 cutover; tests 499 passed)
+
+**Goal:** Finish the React rebuild (`docs/REACT_REBUILD_PLAN.md`): build the two remaining screens (Refresh, Home), then run the Phase 4 cutover — retire the Streamlit `ui/` layer now that the React frontend is at parity.
+
+**Outcome:** React Refresh + Home screens shipped and verified on the real DB; the Streamlit UI fully retired. The React frontend is now the sole UI. Tests: **499 passed** (down from 561 after deleting the `tests/ui/` AppTest suite).
+
+### What changed
+
+- **React Refresh screen.** New `frontend/src/refresh/Refresh.jsx` + `refresh.css`. Two modes: **"All eligible products"** (`POST /api/refresh {all:true}`) and **"One product"** (catalog dropdown + year → `from_db` re-scrape). Confirm step → running spinner → results rollup (stat grid, errors/skipped lists, and a conflict callout that routes to Review).
+- **React Home dashboard.** New `frontend/src/home/Home.jsx` + `home.css`. Hero, live counts (Products / Vendors / Conflicts / Unverified, read from `/api/catalog` + `/api/queue/counts`), clickable screen cards, and a welcome modal. Home is now the **default screen** and the brandmark routes home. Nav order: **Home, Spec Finder, Compare, Review, Refresh**.
+- **Streamlit UI retired (Phase 4 cutover complete).** Deleted `competitive_database/ui/`, `competitive_database/cli/ui_launch.py`, and `tests/ui/`. Removed the `ui_launch` import + subparser from `__main__.py`, and the `ui = ["streamlit>=1.40"]` optional dependency from `pyproject.toml`. The React frontend is the sole UI; the `refresh` CLI and `POST /api/refresh` remain as the non-UI refresh path.
+- **Same-origin API + Tailscale Funnel exposure.** The browser now calls the API on its own origin under the base path (`/competitive-database/api/...`) instead of a hardcoded `http://localhost:8011`. `frontend/src/api.js` BASE defaults to `import.meta.env.BASE_URL` with `VITE_API_BASE` as an optional override; `frontend/vite.config.js` gained `server.allowedHosts: ['.ts.net']` and a `server.proxy` entry mapping `/competitive-database/api` → `http://localhost:8011` (overridable via `VITE_API_TARGET`); `frontend/.env` no longer hardcodes `VITE_API_BASE` (left unset → same-origin default). Net effect: the same build works on localhost and exposed publicly via the existing Tailscale Funnel mapping (`/competitive-database` → `localhost:8501/competitive-database/`), with no host baked into the browser bundle.
+- **"Curation" renamed to "Review" + bucket relabel.** The nav label, Home card, and welcome modal now say **Review** (the internal route id / `frontend/src/curation/` folder is unchanged). Queue buckets relabeled for clarity: "Needs review" → **Unverified**, "Hand-entered" → **Manual** (Conflicts and Missing unchanged). Per-cell state labels in `frontend/src/shared/data.js` aligned too (review → "Unverified", hand → "Manual"). Bucket meanings: Conflicts = pick between two disagreeing values; Unverified = confirm one uncertain (needs-review) value; Missing = blank OR not-published (kept grouped); Manual = human-entered.
+- **Home stat cards clickable + per-session welcome modal.** The Home stat cards now route on click (Products / Vendors → Spec Finder; Conflicts / Unverified → Review). The welcome modal is now **per-session** (sessionStorage) instead of once-ever (localStorage `cdb_welcome_seen_v1`).
+
+### Files touched this session
+
+**Frontend:** `frontend/src/refresh/Refresh.jsx` + `refresh.css` (new), `frontend/src/home/Home.jsx` + `home.css` (new), `frontend/src/App.jsx` (Home default + brandmark route + 5-tab nav; Curation→Review label), `frontend/src/curation/` (Review rename + Unverified/Manual bucket labels), `frontend/src/shared/data.js` (state labels review→Unverified, hand→Manual), `frontend/src/api.js` (same-origin BASE default), `frontend/vite.config.js` (`allowedHosts` `.ts.net` + `/competitive-database/api` proxy), `frontend/.env` (drop hardcoded `VITE_API_BASE`).
+
+**Code:** deleted `competitive_database/ui/`, `competitive_database/cli/ui_launch.py`; edited `competitive_database/__main__.py` (drop `ui_launch` subparser), `pyproject.toml` (drop `ui` optional dependency).
+
+**Tests:** deleted `tests/ui/`. Suite 561 → **499 passed**.
+
+**Docs:** `docs/SESSION_LOG.md` (this entry), `docs/TASKS.md` (Refresh + Home + Phase 4 cutover rows → done; same-origin API + Curation→Review rename + Home clickable/per-session rows added), `docs/ARCHITECTURE.md` (UI layer now React-only; Streamlit section reframed as retired; Review naming + same-origin API + buckets), `docs/REACT_REBUILD_PLAN.md` (Refresh + Home + Phase 4 phases marked complete; Review naming + same-origin/Funnel deployment + buckets), `README.md` (Streamlit launch + `ui` CLI sections removed; React noted as sole UI; Review naming + same-origin/Funnel note + buckets).
+
+---
+
 ## Session 54 — 2026-06-03 (UI rework — Browse + Compare merged into single Spec Roster screen; tests 514/514 green)
 
 **Goal:** Carry out the page-by-page UI rework locked in the `ui_rework_spec_roster` memory note: collapse the separate Browse and Compare screens into one **Spec Roster** screen so a single page handles both "view one laptop" and "compare several side by side."

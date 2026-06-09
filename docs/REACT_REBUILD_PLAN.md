@@ -1,6 +1,7 @@
 # React Rebuild — Build Plan
 
-Status: APPROVED 2026-06-08. Replaces the Streamlit UI with a React frontend built
+Status: APPROVED 2026-06-08; **COMPLETE 2026-06-09 (Session 55)** — all phases done; the
+Streamlit UI has been retired. Replaces the Streamlit UI with a React frontend built
 from the claude.ai/design prototypes, keeping the entire Python/SQLite layer as a
 local backend. Goal: pixel-faithful to the prototypes + the real interactions
 (drag-to-compare, year scrubber, ⌘K, keyboard queue commit), which Streamlit cannot do.
@@ -19,7 +20,7 @@ Two pieces, both running locally on your machine (still local-first — nothing 
   its fake `data.js` swapped for calls to the backend. This is the part you see in the browser.
 
 Your DB, scrapers, all 10 CLIs, and core logic are untouched — only the Streamlit `ui/`
-layer is replaced.
+layer is replaced (and, as of Session 55, deleted).
 
 ## What we keep from our current app (NOT the prototype's choices)
 
@@ -31,20 +32,18 @@ layer is replaced.
   handful of facets. We preserve our full power (query ANY field; operators incl. is-empty,
   marked-unavailable, numeric ≥/≤) as an "advanced" mode behind the facets. This is the one
   capability that would otherwise be lost.
-- **Welcome guide modal** — ported and upgraded to fire **once-ever** (persisted in
-  localStorage) instead of once-per-session, with a "show guide again" link. Revisited when
-  we lighten the home page.
+- **Welcome guide modal** — ported to the Home screen. As shipped (S55) it fires
+  **per-session** (persisted in sessionStorage). Revisited when we lighten the home page.
 
 ## Phases
 
-> **Progress (Session 54, 2026-06-03):** Phase 1 (query engine) and Phase 2 (FastAPI
-> backend + React Spec Finder) are **DONE** and verified on the real `competitive.db`.
-> The **Compare Matrix** and **Curation Cockpit** screens from Phase 3 are also **DONE**.
-> A one-command launch (`cd frontend && npm run dev`) is wired (see §Running below).
-> **Remaining:** the Refresh screen (React), the lightened Home + once-ever welcome modal,
-> and the Phase 4 cutover (retiring the Streamlit `ui/` + its AppTests). The legacy Streamlit
-> app still exists and works — React parity is partial, so it is **not yet retired**.
-> Tests: **561 passing**.
+> **Progress (Session 55, 2026-06-09): COMPLETE.** All phases done. Phase 1 (query engine)
+> and Phase 2 (FastAPI backend + React Spec Finder) DONE (S54). Phase 3 — Compare Matrix +
+> Review (formerly Curation Cockpit) DONE (S54); **Home + per-session welcome modal DONE (S55)**; **Refresh
+> screen DONE (S55)**. Phase 4 cutover **DONE (S55)** — the Streamlit `ui/` package, the
+> `ui-launch` CLI, and `tests/ui/` were deleted and the `ui` optional dependency dropped from
+> `pyproject.toml`; the React frontend is the sole UI. A one-command launch
+> (`cd frontend && npm run dev`) runs both halves (see §Running below). Tests: **499 passing**.
 
 ### Phase 1 — Backend API (the foundation) — DONE (S54)
 1. **Extract the query engine** out of `ui/find.py` into `competitive_database/query/`
@@ -59,7 +58,7 @@ layer is replaced.
    - `GET /api/model/{id}?year=` — one decoded product (`load_product`)
    - `POST /api/find` — `{field_path, operator, value, narrow_by}` → matches (extracted engine).
      Powers BOTH facets and advanced query.
-   - `GET /api/queue` — curation queue (needs-review / blank / hand-entered tabs)
+   - `GET /api/queue` — review queue (Conflicts / Unverified / Missing / Manual buckets)
    - `POST /api/value` — write edited value+state+provenance (`manual_edit_cell`)
    - `POST /api/resolve` — triage resolution (`resolve_row`)
    - `POST /api/refresh` — real scrape/refresh (wraps `cli/refresh`) — replaces the
@@ -79,18 +78,29 @@ layer is replaced.
 - **Compare Matrix** (→ our Spec Roster) — **DONE (S54)**: drag-shelf + typeahead to add
   columns (≤4), per-column year scrubber, differences-only toggle, using OUR sections/fields,
   gen-level CPU/GPU. Reuses shared `StateDot` / `ValueCell`.
-- **Curation Cockpit** (→ Edit + the parked Triage work) — **DONE (S54)**: UNIFIED queue
-  (unresolved conflicts + field-state review/missing/hand), adaptive center editor
-  (resolve-conflict vs edit-value) with keyboard commit → `/api/value` / `/api/resolve`;
-  responsive provenance slide-over; `/api/refresh` wired. Intended to replace Edit + Triage.
-- **Home (lightened)** + welcome modal (once-ever, localStorage) — **NOT YET DONE**.
-- **Refresh** screen (React) — **NOT YET DONE**.
+- **Review** (formerly Curation Cockpit; → Edit + the parked Triage work) — **DONE (S54;
+  renamed S55)**: UNIFIED queue with **Conflicts / Unverified / Missing / Manual** buckets,
+  adaptive center editor (resolve-conflict vs edit-value) with keyboard commit →
+  `/api/value` / `/api/resolve`; responsive provenance slide-over; `/api/refresh` wired.
+  Intended to replace Edit + Triage. (Route id / `src/curation/` folder unchanged.)
+- **Home (lightened)** + welcome modal (per-session, sessionStorage) — **DONE (S55)**: `src/home/`
+  — hero, live counts (Products / Vendors / Conflicts / Unverified from
+  `/api/catalog` + `/api/queue/counts`), clickable stat cards (Products/Vendors → Spec Finder;
+  Conflicts/Unverified → Review), clickable screen cards, per-session welcome modal. Default
+  screen; brandmark routes here.
+- **Refresh** screen (React) — **DONE (S55)**: `src/refresh/` — "All eligible products"
+  (`POST /api/refresh {all:true}`) or "One product" (catalog dropdown + year → `from_db`
+  re-scrape) modes, confirm step, running spinner, results rollup (stat grid, errors/skipped
+  lists, conflict callout to Review).
 
-### Phase 4 — cutover & cleanup — NOT YET DONE
-- Run React to parity; keep Streamlit alive until then (never without a working app).
-- Retire `ui/` (Streamlit) + its AppTest suite once parity is reached; keep & grow
-  `db/`/`views/`/`query/` tests; add API + a few frontend tests.
-- Docs: ARCHITECTURE (new two-tier), README run instructions, single dev-launch command.
+### Phase 4 — cutover & cleanup — DONE (S55)
+- React reached parity; the Streamlit app was retired in this cutover.
+- Deleted `competitive_database/ui/` (Streamlit) + its AppTest suite (`tests/ui/`) + the
+  `cli/ui_launch.py` launcher; removed the `ui_launch` subparser from `__main__.py` and the
+  `ui = ["streamlit>=1.40"]` optional dependency from `pyproject.toml`. `db/`/`views/`/`query/`/
+  `api/` tests retained; suite now **499 passing**. The `refresh` CLI + `POST /api/refresh`
+  remain as the non-UI refresh path.
+- Docs: ARCHITECTURE (two-tier), README run instructions, single dev-launch command — updated.
 
 ## Open decisions (small, not blocking the plan)
 1. **Visual identity** — prototype used a different accent per direction. A single app needs
@@ -108,7 +118,7 @@ layer is replaced.
 - Our schema (16+ categories) is larger than the prototype's (10) — layouts must handle more
   rows/fields gracefully (esp. the compare matrix and which facets to expose).
 
-## Running the app (Spec Finder | Compare | Curation — all shipped)
+## Running the app (Home | Spec Finder | Compare | Review | Refresh — all shipped)
 
 The frontend lives in `frontend/` (Vite + React, plain JSX) and renders REAL data
 from the FastAPI backend (no fake `data.js`). **One command** starts both halves
@@ -126,8 +136,16 @@ This opens the app at **http://localhost:8501/competitive-database/** (Vite `bas
 the backend allows the localhost dev origins (3000 / 5173 / 8501). The backend reads
 the **real `competitive.db`** in the project root.
 
-The API base URL is configurable via `frontend/.env`
-(`VITE_API_BASE`, default `http://localhost:8011`). For a backend-only run:
+**Same-origin API / deployment story.** The browser calls the API **same-origin** under
+the base path (`/competitive-database/api/...`) — `src/api.js` defaults its base to
+`import.meta.env.BASE_URL`, and the Vite dev server proxies `/competitive-database/api`
+→ `http://localhost:8011` (target overridable via `VITE_API_TARGET`). Because no host is
+baked into the bundle, the same build serves both localhost and a reverse proxy: the
+existing **Tailscale Funnel** mapping (`/competitive-database` → `localhost:8501/competitive-database/`)
+exposes the app publicly with no code change. `vite.config.js` sets
+`server.allowedHosts: ['.ts.net']` so the Funnel host can load the dev server.
+`VITE_API_BASE` in `frontend/.env` is an optional override (left unset → same-origin default).
+For a backend-only run:
 `.venv\Scripts\python -m uvicorn competitive_database.api.app:app --reload --port 8011`
 (set `COMPETITIVE_DB_PATH` first).
 
@@ -136,17 +154,24 @@ The API base URL is configurable via `frontend/.env`
 - `src/shared/` — reusable primitives: `StateDot` (5 value-states),
   `ValueCell` (lead + alt values, blank / not-published), `data.js` helpers
   (`latestYear`, `resolve`, `lead`, value parsers). Reused by every screen.
+- `src/home/` — Home dashboard: hero, live counts (Products / Vendors / Conflicts /
+  Unverified), clickable stat cards (Products/Vendors → Spec Finder; Conflicts/Unverified
+  → Review), clickable screen cards, and a per-session welcome modal (sessionStorage).
+  Default screen; the brandmark routes here.
 - `src/finder/` — Spec Finder: facet rail with live counts, result cards (matched spec
   highlighted, year-change `→YY` markers), active-filter chips, sort,
   "Show data state" toggle, per-model detail slide-over, ⌘K command palette,
   and the **Advanced** query mode.
 - `src/compare/` — Compare Matrix: rows = our sections, ≤4 columns via drag-shelf +
   typeahead, per-column year scrubber, differences-only toggle.
-- `src/curation/` — Curation Cockpit: unified queue (conflicts + field-state
-  review/missing/hand) → adaptive editor (resolve-conflict vs edit-value, keyboard
-  commit) → responsive provenance slide-over.
+- `src/curation/` — Review (route id / folder unchanged): unified queue with
+  Conflicts / Unverified / Missing / Manual buckets → adaptive editor (resolve-conflict
+  vs edit-value, keyboard commit) → responsive provenance slide-over.
+- `src/refresh/` — Refresh: "All eligible products" / "One product" modes over
+  `POST /api/refresh`, confirm step, running spinner, results rollup with conflict
+  callout to Review.
 
-Top nav (`App.jsx`): **Spec Finder | Compare | Curation**.
+Top nav (`App.jsx`): **Home | Spec Finder | Compare | Review | Refresh**.
 
 ## Parked hiccups (record only — do not fix; revisit in a later brainstorm once the baseline is complete)
 1. **Compare empty-state bug.** Removing all columns blanks the compare area and breaks
@@ -154,9 +179,9 @@ Top nav (`App.jsx`): **Spec Finder | Compare | Curation**.
 2. **Finder repeated names in row labels.** Result row labels show duplicated tokens
    ("V V16", "Strix Strix G16", "Area-51 Area-51 16") — likely series + model name
    concatenated when they already overlap.
-3. **Curation naming + queue readability.** The "Curation Cockpit" name should be renamed
-   to something simpler, and its left-rail queue is a hard-to-read flat list — needs
-   groupings + field-importance prioritization.
+3. **Review queue readability.** The Curation Cockpit was renamed to **Review** (S55); its
+   left-rail queue is still a hard-to-read flat list — needs groupings + field-importance
+   prioritization.
 
 ### Facets vs. real fields
 Kept: Brand, Sub-brand (segment), Wi-Fi (network rollup), Display = OLED,
