@@ -520,6 +520,16 @@ table.mx col.label-col {
 .detrow .vcell {
   font-size: 12.5px;
 }
+/* Expanded options are equal peers (e.g. the CPUs/GPUs a model offers) —
+   give them ONE uniform font, not the first-line-bold / rest-lighter split
+   that ValueCell uses elsewhere. The status dot is dropped in JSX for
+   Processor/Graphics since the section's rollup row already shows it. */
+.detrow .vc-lead,
+.detrow .vc-alt {
+  font-weight: 400;
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
 
 /* ---------- control-bar Fields button ---------- */
 .fieldsbtn {

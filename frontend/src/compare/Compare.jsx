@@ -501,7 +501,10 @@ export default function Compare() {
                           {cols.map((c) => (
                             <td key={c.modelId} className="vcell">
                               {detailLoaded(c) ? (
-                                <ValueCell cell={detailCell(c, l.key)} />
+                                <ValueCell
+                                  cell={detailCell(c, l.key)}
+                                  showDot={cat.id === "io"}
+                                />
                               ) : (
                                 <div className="vc-blank">…</div>
                               )}
