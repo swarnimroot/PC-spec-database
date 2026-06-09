@@ -7,6 +7,7 @@ import {
   lead,
   changedInfo,
   weightKg,
+  modelTail,
 } from "../shared/data.js";
 import { buildFacets } from "./facets.js";
 import { ADVANCED_FIELDS, OPERATORS } from "./advancedFields.js";
@@ -423,7 +424,7 @@ export default function Finder() {
                           {m ? (
                             <>
                               <span className="ser">{m.series || m.brand}</span>{" "}
-                              {m.model}
+                              {modelTail(m.series, m.model)}
                               <span className="seg">
                                 {m.brand} · {m.segment || "—"}
                               </span>

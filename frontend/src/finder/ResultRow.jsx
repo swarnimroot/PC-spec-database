@@ -3,6 +3,7 @@ import {
   resolve,
   lead,
   changedInfo,
+  modelTail,
 } from "../shared/data.js";
 
 // Key specs shown on each result card; `group` ties a column to a facet group
@@ -26,7 +27,7 @@ export default function ResultRow({ m, activeGroups, showState, onOpen }) {
         </div>
         <div className="nm">
           <span className="ser">{m.series ? m.series + " " : ""}</span>
-          {m.model}
+          {modelTail(m.series, m.model)}
         </div>
         <div className="yrs">
           {m.years.map((y) => (

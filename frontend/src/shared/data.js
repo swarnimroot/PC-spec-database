@@ -17,6 +17,21 @@ export const STATE_LABEL = {
 export const latestYear = (m) => m.years[m.years.length - 1];
 export const earliestYear = (m) => m.years[0];
 
+// The stored `model` (product) name already includes the series word
+// (e.g. series "Strix", model "Strix G16"). Strip that redundant leading
+// series so a "<dim series> <bold model>" label reads "Strix G16", not
+// "Strix Strix G16". Display-only — the underlying data is unchanged.
+export function modelTail(series, model) {
+  if (!series || !model) return model || "";
+  const s = String(series).trim();
+  const lower = model.toLowerCase();
+  if (lower === s.toLowerCase()) return "";
+  if (lower.startsWith(s.toLowerCase() + " ")) {
+    return model.slice(s.length).trimStart();
+  }
+  return model;
+}
+
 // Merge base + the override for a given year into a concrete spec map.
 export function resolve(m, year) {
   const y = year == null ? latestYear(m) : year;

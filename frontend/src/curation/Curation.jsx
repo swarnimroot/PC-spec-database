@@ -7,7 +7,7 @@ import {
   postResolve,
 } from "../api.js";
 import StateDot from "../shared/StateDot.jsx";
-import { STATE_LABEL } from "../shared/data.js";
+import { STATE_LABEL, modelTail } from "../shared/data.js";
 import "./curation.css";
 
 // Tab id -> label. Conflicts is the scrape-conflict queue; the rest are
@@ -44,7 +44,7 @@ function fmtVal(v) {
 
 function nameOf(it) {
   if (!it) return "";
-  const bits = [it.brand, it.series, it.model].filter(Boolean);
+  const bits = [it.brand, it.series, modelTail(it.series, it.model)].filter(Boolean);
   return bits.join(" · ");
 }
 

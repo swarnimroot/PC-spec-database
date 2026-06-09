@@ -6,6 +6,7 @@ import {
   resolve,
   changedKeys,
   STATE_LABEL,
+  modelTail,
 } from "../shared/data.js";
 import ValueCell from "../shared/ValueCell.jsx";
 
@@ -87,7 +88,7 @@ function DetailBody({ m, schema, year, setYear, onClose }) {
         </div>
         <h2>
           <span className="ser">{m.series ? m.series + " " : ""}</span>
-          {m.model}
+          {modelTail(m.series, m.model)}
         </h2>
         <div className="yrs">
           {m.years.map((y) => (

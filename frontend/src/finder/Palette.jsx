@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { latestYear } from "../shared/data.js";
+import { latestYear, modelTail } from "../shared/data.js";
 
 // ⌘K command palette — jump to a model or toggle a facet. Lifted from the
 // prototype, now driven by live models + facets.
@@ -23,7 +23,7 @@ export default function Palette({
     .map((m) => ({
       type: "model",
       id: m.id,
-      title: (m.series ? m.series + " " : "") + m.model,
+      title: (m.series ? m.series + " " : "") + modelTail(m.series, m.model),
       sub: m.brand + " · " + (m.segment || "—"),
       s: (m.brand + " " + (m.series || "") + " " + m.model).toLowerCase(),
     }))
