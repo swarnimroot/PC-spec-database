@@ -37,6 +37,17 @@ Polish pass on the **Find** screen, continuing the page-by-page UI rework. The s
 
 **Code:** `ui/find.py`. **Tests:** `tests/ui/test_find_apptest.py` — added coverage for checkbox selection, count-in-label, >4 disabled+hint, and ticked rows reaching Spec Roster. Suite 514 → 516 green. **Docs:** `docs/find_mockup.html` (locked checkbox-pick direction), this entry, `docs/TASKS.md` (UI rework row — Find flipped to done).
 
+### Session 54 cont. — React Compare Matrix screen (Spec Roster)
+
+Second React screen built on the proven Phase 2 stack: a **Compare Matrix** that puts laptops side by side. Rows are our spec sections; columns are the products being compared (up to 4). Built entirely under `frontend/` — no Python touched.
+
+- **Layout.** Rows = our existing sections (driven by the shared schema); up to **4 columns**. Columns are added via a **drag-shelf** plus a **typeahead** search over the catalog.
+- **Per-column controls.** Each column has its own **year scrubber** so a single product can be compared across model years. A **differences-only toggle** collapses rows where every column agrees, surfacing just the spec deltas.
+- **Reuse.** Pulls in the shared `StateDot` / `ValueCell` primitives and the shared data helpers (`resolve` / `latestYear` / `valArray`) rather than re-implementing cell rendering. Styles in `compare/compare.css` reuse the app-wide Dell-base tokens + blue accent already loaded via `finder.css`.
+- **Nav.** `App.jsx` gains a Finder↔Compare tab switcher (`appnav` / `navtabs`); `App.css` trimmed/extended for the nav. Verified end-to-end against the real DB.
+
+**Frontend:** `frontend/src/compare/Compare.jsx` + `frontend/src/compare/compare.css` (new); `frontend/src/App.jsx` + `frontend/src/App.css` (Finder↔Compare nav). **Docs:** this entry, `docs/TASKS.md` (React rebuild row).
+
 ### Session 54 cont. — React rebuild kickoff (Phase 1 + Phase 2; tests 549/549 green)
 
 Start of the React rebuild locked in `docs/REACT_REBUILD_PLAN.md` (approved 2026-06-08): the Streamlit `ui/` layer is being replaced by a local React frontend backed by a FastAPI server that wraps the existing Python/SQLite layer. Phases 1 (query-engine extraction) and 2 (FastAPI backend + React Spec Finder, stack proven on real data) landed this session.
