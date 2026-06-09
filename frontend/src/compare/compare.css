@@ -383,7 +383,10 @@ table.mx col.label-col {
 
 .mx tbody td {
   border-bottom: 1px solid #eff0f3;
-  padding: 0;
+  /* Single source of truth for body-cell padding (wins over .lab/.vcell by
+     specificity): vertical = midway row density, horizontal = breathing room
+     so labels + status dots aren't jammed against the left edge. */
+  padding: 6px 18px;
   vertical-align: top;
 }
 .lab {
@@ -402,9 +405,9 @@ table.mx col.label-col {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 .vcell {
-  padding: 9px 16px 9px 22px;
+  /* padding comes from `.mx tbody td`; no min-height — it made row height
+     vary with column count (honored at 1-2 cols, ignored at 4). */
   border-right: 1px solid #eff0f3;
-  min-height: 38px;
   font-size: 13px;
 }
 .frow.diff .vcell {
