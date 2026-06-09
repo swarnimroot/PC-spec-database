@@ -1,7 +1,8 @@
 """Find products — searchable spec-field + Match + Value query → results table.
 
-The behavioral core — ``_cell_matches``, ``_expand_template``,
-``_distinct_values_for_template``, ``_union_templates`` — is unchanged.
+The behavioral core now lives in ``competitive_database.query`` (a pure,
+Streamlit-free module a future API can call); this screen maps its
+plain-English Match labels onto the canonical operators and delegates.
 The query is one searchable "Section · Feature" field + a Match operator
 + a Value; narrow-by uses the single-search product combobox + Year +
 Status toggles. Results render as a table; per-row ``Open →`` loads one
@@ -17,6 +18,18 @@ from typing import Any
 
 import streamlit as st
 
+from competitive_database.query import (
+    Op,
+    OPS_NEED_VALUE,
+    company_of,
+    distinct_values_for_template,
+    find_matches,
+    series_of,
+    status_of,
+    union_templates,
+    year_of,
+)
+from competitive_database.query.engine import apply_narrow_by
 from competitive_database.ui._components import (
     _value_cell_html,
     friendly_field_label,
@@ -24,40 +37,26 @@ from competitive_database.ui._components import (
     status_toggle_block,
     year_toggle_block,
 )
-from competitive_database.ui._markers import resolve_path
-from competitive_database.views import load, orchestrator
+from competitive_database.views import load
 from competitive_database.views.formatting import (
     MARKER_EMPTY,
     MARKER_VENDOR_NO_PUB,
-    MARKER_VERIFIED,
-    canonicalize_display,
-    display_value,
-    marker_for_bundle,
 )
 
 
-_OP_EQ = "="
-_OP_CONTAINS = "contains"
-_OP_GE = "≥"
-_OP_LE = "≤"
-_OP_IS_SET = "is set"
-_OP_IS_EMPTY = "is empty"
-_OP_NO_PUB = "vendor doesn't publish"
-_OPS_NEED_VALUE = {_OP_EQ, _OP_CONTAINS, _OP_GE, _OP_LE}
-_OPS_ALL = [_OP_EQ, _OP_GE, _OP_LE, _OP_CONTAINS, _OP_IS_SET, _OP_IS_EMPTY, _OP_NO_PUB]
-
-# Plain-English op labels shown in the Match dropdown.
+# Plain-English op labels shown in the Match dropdown, mapped to the
+# canonical query operators. Order here is the dropdown order.
 _OP_LABEL: dict[str, str] = {
-    _OP_EQ: "equals",
-    _OP_GE: "is at least",
-    _OP_LE: "is at most",
-    _OP_CONTAINS: "contains",
-    _OP_IS_SET: "has any value",
-    _OP_IS_EMPTY: "is empty",
-    _OP_NO_PUB: "marked unavailable",
+    Op.EQ: "equals",
+    Op.GTE: "is at least",
+    Op.LTE: "is at most",
+    Op.CONTAINS: "contains",
+    Op.IS_SET: "has any value",
+    Op.IS_EMPTY: "is empty",
+    Op.VENDOR_UNAVAILABLE: "marked unavailable",
 }
 _LABEL_TO_OP: dict[str, str] = {label: op for op, label in _OP_LABEL.items()}
-_OP_LABELS_ORDERED: list[str] = [_OP_LABEL[op] for op in _OPS_ALL]
+_OP_LABELS_ORDERED: list[str] = list(_OP_LABEL.values())
 
 # Spec Roster's compare grid caps at four columns.
 _MAX_COMPARE = 4
@@ -75,209 +74,6 @@ def _load_all(
     return [load.load_product(conn, mc, year=yr) for mc, yr in pks]
 
 
-def _template_of(path: str) -> str:
-    """Collapse offering index in a 3-part path to ``*``."""
-    parts = path.split(".")
-    if len(parts) == 3:
-        return f"{parts[0]}.*.{parts[2]}"
-    return path
-
-
-def _union_templates(
-    products: list[dict[str, Any]],
-) -> list[tuple[str, str]]:
-    """Union of (section, template) across products, render order preserved."""
-    seen: set[tuple[str, str]] = set()
-    section_order: list[str] = []
-    section_templates: dict[str, list[str]] = {}
-    for prod in products:
-        for section, path, _label in orchestrator.all_field_paths(prod):
-            template = _template_of(path)
-            key = (section, template)
-            if key in seen:
-                continue
-            seen.add(key)
-            if section not in section_templates:
-                section_order.append(section)
-                section_templates[section] = []
-            section_templates[section].append(template)
-    out: list[tuple[str, str]] = []
-    for section in section_order:
-        for template in section_templates[section]:
-            out.append((section, template))
-    return out
-
-
-def _expand_template(
-    prod: dict[str, Any], template: str
-) -> list[str]:
-    """All concrete paths on ``prod`` that match ``template``."""
-    parts = template.split(".")
-    if "*" not in parts:
-        return [template]
-    col, _, leaf = parts
-    offerings = prod.get(col)
-    if not isinstance(offerings, list):
-        return []
-    return [f"{col}.{i}.{leaf}" for i in range(len(offerings))]
-
-
-def _coerce_number(s: Any) -> float | None:
-    try:
-        return float(str(s).strip())
-    except (TypeError, ValueError):
-        return None
-
-
-def _cell_matches(
-    bundle: dict | None,
-    plain: str | None,
-    op: str,
-    value: str,
-    field_path: str,
-) -> bool:
-    if op == _OP_IS_EMPTY:
-        if plain is not None:
-            return False
-        if bundle is None:
-            return True
-        if bundle.get("status") == "vendor-doesn't-publish":
-            return False
-        return bundle.get("value") is None
-    if op == _OP_NO_PUB:
-        return (
-            bundle is not None
-            and bundle.get("status") == "vendor-doesn't-publish"
-        )
-    if op == _OP_IS_SET:
-        if plain is not None:
-            return True
-        if bundle is None:
-            return False
-        if bundle.get("status") == "vendor-doesn't-publish":
-            return False
-        return bundle.get("value") is not None
-
-    if plain is not None:
-        rendered = canonicalize_display(field_path, plain)
-    elif bundle is not None and bundle.get("status") != "vendor-doesn't-publish":
-        if bundle.get("value") is None:
-            return False
-        rendered = display_value(bundle, field_path=field_path)
-    else:
-        return False
-
-    if op == _OP_CONTAINS:
-        return value.casefold() in rendered.casefold()
-    if op == _OP_EQ:
-        if rendered.casefold() == value.casefold():
-            return True
-        a, b = _coerce_number(rendered), _coerce_number(value)
-        return a is not None and b is not None and a == b
-    if op == _OP_GE:
-        a, b = _coerce_number(rendered), _coerce_number(value)
-        return a is not None and b is not None and a >= b
-    if op == _OP_LE:
-        a, b = _coerce_number(rendered), _coerce_number(value)
-        return a is not None and b is not None and a <= b
-    return False
-
-
-def _distinct_values_for_template(
-    products: list[dict[str, Any]], template: str
-) -> list[str]:
-    """Sorted distinct rendered values across products for this template."""
-    seen: set[str] = set()
-    for prod in products:
-        for concrete_path in _expand_template(prod, template):
-            bundle, plain = resolve_path(prod, concrete_path)
-            if plain is not None:
-                seen.add(canonicalize_display(template, plain))
-                continue
-            if bundle is None:
-                continue
-            if bundle.get("status") == "vendor-doesn't-publish":
-                continue
-            if bundle.get("value") is None:
-                continue
-            seen.add(display_value(bundle, field_path=template))
-
-    def _sort_key(s: str) -> tuple[int, float | str]:
-        n = _coerce_number(s)
-        return (0, n) if n is not None else (1, s.casefold())
-
-    return sorted(seen, key=_sort_key)
-
-
-def _scalar_bundle_str(bundle: Any) -> str | None:
-    if not isinstance(bundle, dict):
-        return None
-    v = bundle.get("value")
-    if isinstance(v, str) and v:
-        return v
-    return None
-
-
-def _company_of(prod: dict[str, Any]) -> str:
-    return _scalar_bundle_str(prod.get("brand")) or "Unknown"
-
-
-def _sub_brand_of(prod: dict[str, Any]) -> str | None:
-    return _scalar_bundle_str(prod.get("sub_brand"))
-
-
-def _series_of(prod: dict[str, Any]) -> str | None:
-    return _scalar_bundle_str(prod.get("series"))
-
-
-def _year_of(prod: dict[str, Any]) -> int | None:
-    yr_raw = prod.get("year")
-    try:
-        return int(yr_raw) if yr_raw is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _status_of(prod: dict[str, Any]) -> str | None:
-    return _scalar_bundle_str(prod.get("status"))
-
-
-def _format_match(
-    bundle: dict | None, plain: str | None, field_path: str
-) -> tuple[str, str]:
-    """Return ``(value_str, marker_token)`` for a matched cell."""
-    if plain is not None:
-        return plain, MARKER_VERIFIED
-    marker = marker_for_bundle(bundle)
-    if marker in (MARKER_EMPTY, MARKER_VENDOR_NO_PUB):
-        return ("vendor doesn't publish" if marker == MARKER_VENDOR_NO_PUB else "—"), marker
-    value = display_value(bundle, field_path=field_path) or "—"
-    return value, marker
-
-
-def _find_matches(
-    products: list[dict[str, Any]],
-    template: str,
-    op: str,
-    value: str,
-) -> list[tuple[dict[str, Any], str, str]]:
-    """Return matched products with one representative ``(value, marker)`` each.
-
-    A product matches if at least one concrete path on it satisfies the
-    op. The representative is taken from the first matching cell so each
-    card shows one line, not a sub-list.
-    """
-    out: list[tuple[dict[str, Any], str, str]] = []
-    for prod in products:
-        for concrete_path in _expand_template(prod, template):
-            bundle, plain = resolve_path(prod, concrete_path)
-            if _cell_matches(bundle, plain, op, value, concrete_path):
-                vstr, marker = _format_match(bundle, plain, concrete_path)
-                out.append((prod, vstr, marker))
-                break
-    return out
-
-
 def _open_in_spec_roster(prods: list[dict[str, Any]]) -> None:
     """Load up to four matched products into Spec Roster as columns.
 
@@ -290,8 +86,8 @@ def _open_in_spec_roster(prods: list[dict[str, Any]]) -> None:
     ids = list(range(1, len(prods) + 1))
     st.session_state["spec_roster.column_ids"] = ids
     for cid, prod in zip(ids, prods):
-        brand = _company_of(prod)
-        series = _series_of(prod)
+        brand = company_of(prod)
+        series = series_of(prod)
         product = prod.get("product")
         label = " · ".join(p for p in [brand, series, product] if p)
         st.session_state[f"spec_roster.col{cid}.search"] = label
@@ -362,7 +158,7 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
         return
 
     products = _load_all(conn, pks)
-    paths = _union_templates(products)
+    paths = union_templates(products)
     if not paths:
         st.info("No filterable cells in this database.")
         return
@@ -403,8 +199,8 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
 
     value = ""
     inline_empty = False
-    if op in _OPS_NEED_VALUE:
-        values = _distinct_values_for_template(products, template)
+    if op in OPS_NEED_VALUE:
+        values = distinct_values_for_template(products, template)
         with c_value:
             st.markdown('<div class="cd-find__label">Value</div>', unsafe_allow_html=True)
             if values:
@@ -439,26 +235,26 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
     # Year/status pill options are scoped to ``base_matches`` (products
     # matching the Section/Feature/Match/Value query) so each axis only
     # surfaces values that would actually narrow the result set.
-    matches = _find_matches(products, template, op, value)
+    matches = find_matches(products, template, op, value)
     brand_pick, series_pick, product_pick, active_years, active_statuses = (
         _render_narrow_by(conn, [m[0] for m in matches])
     )
 
-    if brand_pick is not None:
-        matches = [m for m in matches if _company_of(m[0]) == brand_pick]
-    if series_pick is not None:
-        matches = [m for m in matches if _series_of(m[0]) == series_pick]
-    if product_pick is not None:
-        matches = [m for m in matches if m[0].get("product") == product_pick]
-    if active_years:
-        year_set = set(active_years)
-        matches = [m for m in matches if _year_of(m[0]) in year_set]
-    if active_statuses:
-        status_set = set(active_statuses)
-        matches = [
-            m for m in matches
-            if (_status_of(m[0]) or "Active") in status_set
-        ]
+    # apply_narrow_by works on products; map the kept products (by object
+    # identity, preserved across the filter) back onto the match tuples so
+    # each row keeps its representative (value, marker).
+    kept = {
+        id(p): None
+        for p in apply_narrow_by(
+            [m[0] for m in matches],
+            brands=brand_pick,
+            series=series_pick,
+            products_names=product_pick,
+            years=active_years,
+            statuses=active_statuses,
+        )
+    }
+    matches = [m for m in matches if id(m[0]) in kept]
 
     n = len(matches)
     if n == 0:
@@ -473,7 +269,7 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
     selected: list[dict[str, Any]] = []
     for prod, _vstr, _marker in matches:
         mc = prod.get("model_code")
-        yr = _year_of(prod)
+        yr = year_of(prod)
         if st.session_state.get(f"find.pick.{mc}.{yr}"):
             selected.append(prod)
     sel_n = len(selected)
@@ -513,11 +309,11 @@ def render(conn: sqlite3.Connection, *, db_path: str) -> None:
         col.markdown(_th.format(html.escape(text)), unsafe_allow_html=True)
 
     for prod, vstr, marker in matches:
-        brand = _company_of(prod)
-        series = _series_of(prod)
+        brand = company_of(prod)
+        series = series_of(prod)
         product = prod.get("product") or ""
-        yr = _year_of(prod)
-        status = _status_of(prod) or "Active"
+        yr = year_of(prod)
+        status = status_of(prod) or "Active"
         crumb = " · ".join(p for p in [brand, series] if p)
         display_v = "" if marker in (MARKER_EMPTY, MARKER_VENDOR_NO_PUB) else vstr
         mc = prod.get("model_code")
@@ -577,7 +373,7 @@ def _render_narrow_by(
         brand_pick = series_pick = product_pick = None
 
     years_int = sorted(
-        {_year_of(p) for p in base_prods if _year_of(p) is not None},
+        {year_of(p) for p in base_prods if year_of(p) is not None},
         reverse=True,
     )
     active_years = year_toggle_block(
