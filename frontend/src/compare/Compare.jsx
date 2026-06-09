@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, Fragment } from "react";
 import { getCatalog, getSchema } from "../api.js";
-import { latestYear, resolve, valArray } from "../shared/data.js";
+import { latestYear, resolve, valArray, modelTail } from "../shared/data.js";
 import ValueCell from "../shared/ValueCell.jsx";
 import "./compare.css";
 
@@ -90,7 +90,7 @@ function Typeahead({ models, onPick, exclude }) {
                 <span className="bs">
                   {o.m.brand} · {o.m.series}
                 </span>
-                <span className="md">{o.m.model}</span>
+                <span className="md">{modelTail(o.m.series, o.m.model)}</span>
                 <span className="seg">{o.m.segment}</span>
               </div>
             ))
@@ -114,7 +114,7 @@ function ColHead({ model, year, onYear, onRemove }) {
       </div>
       <div className="name">
         <span className="ser">{model.series} </span>
-        {model.model}
+        {modelTail(model.series, model.model)}
       </div>
       <div className="updated">Updated {model.updated}</div>
       <div className={"yrs" + (single ? " single" : "")}>
@@ -219,6 +219,34 @@ export default function Compare() {
   const nCols = cols.length;
   const showAdd = nCols < MAX;
 
+  // Add-column drop zone + search — shared by the empty state and the header
+  // so adding the first product (search or drag) works even with no columns.
+  const addDropZone = (
+    <div
+      className={"addcol" + (dropping ? " dropping" : "")}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        setDropping(true);
+      }}
+      onDragLeave={() => setDropping(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        const id = e.dataTransfer.getData("text/plain");
+        if (id) addModel(id);
+        setDropping(false);
+        setDraggingId(null);
+      }}
+    >
+      <div className="addcol-inner">
+        <Typeahead models={models} onPick={addModel} exclude={used} />
+        <div className="add-hint">
+          or <b>drop a chip</b> here
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="compare-root">
       {/* control bar */}
@@ -266,7 +294,7 @@ export default function Compare() {
             <span className="bs">
               {m.brand}·{m.series}{" "}
             </span>
-            <span className="md">{m.model}</span>
+            <span className="md">{modelTail(m.series, m.model)}</span>
           </div>
         ))}
       </div>
@@ -280,6 +308,7 @@ export default function Compare() {
               Search, click, or drag models from the catalog above. Up to four
               at a time.
             </p>
+            <div className="empty-add">{addDropZone}</div>
           </div>
         ) : (
           <table className="mx">
@@ -309,37 +338,7 @@ export default function Compare() {
                     />
                   </th>
                 ))}
-                {showAdd ? (
-                  <th>
-                    <div
-                      className={"addcol" + (dropping ? " dropping" : "")}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "copy";
-                        setDropping(true);
-                      }}
-                      onDragLeave={() => setDropping(false)}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const id = e.dataTransfer.getData("text/plain");
-                        if (id) addModel(id);
-                        setDropping(false);
-                        setDraggingId(null);
-                      }}
-                    >
-                      <div className="addcol-inner">
-                        <Typeahead
-                          models={models}
-                          onPick={addModel}
-                          exclude={used}
-                        />
-                        <div className="add-hint">
-                          or <b>drop a chip</b> here
-                        </div>
-                      </div>
-                    </div>
-                  </th>
-                ) : null}
+                {showAdd ? <th>{addDropZone}</th> : null}
               </tr>
             </thead>
             <tbody>

@@ -458,3 +458,12 @@ table.mx col.label-col {
   font-size: 13px;
   margin: 0;
 }
+.empty-add {
+  max-width: 280px;
+  margin: 20px auto 0;
+  text-align: left;
+}
+.empty-add .addcol {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-4);
+}
