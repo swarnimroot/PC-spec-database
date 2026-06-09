@@ -37,6 +37,17 @@ Polish pass on the **Find** screen, continuing the page-by-page UI rework. The s
 
 **Code:** `ui/find.py`. **Tests:** `tests/ui/test_find_apptest.py` — added coverage for checkbox selection, count-in-label, >4 disabled+hint, and ticked rows reaching Spec Roster. Suite 514 → 516 green. **Docs:** `docs/find_mockup.html` (locked checkbox-pick direction), this entry, `docs/TASKS.md` (UI rework row — Find flipped to done).
 
+### Session 54 cont. — React rebuild kickoff (Phase 1 + Phase 2; tests 549/549 green)
+
+Start of the React rebuild locked in `docs/REACT_REBUILD_PLAN.md` (approved 2026-06-08): the Streamlit `ui/` layer is being replaced by a local React frontend backed by a FastAPI server that wraps the existing Python/SQLite layer. Phases 1 (query-engine extraction) and 2 (FastAPI backend + React Spec Finder, stack proven on real data) landed this session.
+
+- **Phase 1 — query engine extracted.** The criteria-matching logic that lived inline in `ui/find.py` is pulled into a standalone, Streamlit-free `competitive_database/query/` package (`engine.py`). `ui/find.py` is rewired to import from it — behavior unchanged (−257/+53 lines). New `tests/query/test_engine.py` covers the engine directly.
+- **Phase 2 — FastAPI backend.** New read-only `competitive_database/api/` package (`app.py` + `serializers.py`) exposes `GET /api/health`, `GET /api/schema`, `GET /api/catalog`, `GET /api/model/{id}?year=`, and `POST /api/find`. It wraps the importable data/query layer with no Streamlit dependency; DB path from `COMPETITIVE_DB_PATH` (falls back to `competitive.db`); CORS allows the localhost dev origins (3000 / 5173). `tests/api/test_endpoints.py` covers the endpoints via `httpx`.
+- **Phase 2 — React Spec Finder.** New `frontend/` Vite + React project (Spec Finder screen: facets + advanced field/operator query, result rows, detail pane, command palette). Verified end-to-end against the real DB — 37 models load, facets and advanced query both working.
+- **Deps.** `pyproject.toml` gains `fastapi` + `uvicorn[standard]` in core `dependencies` and `httpx` as a dev dep.
+
+**Code:** `competitive_database/query/` (new), `competitive_database/api/` (new), `ui/find.py` (rewired). **Frontend:** `frontend/` (new Vite + React project; `node_modules`/`dist`/`.env` gitignored). **Tests:** `tests/query/test_engine.py`, `tests/api/test_endpoints.py` (new). Suite 516 → 549 green. **Docs:** `docs/REACT_REBUILD_PLAN.md` (plan + run-note), `README.md` (API launch section), this entry, `docs/TASKS.md` (React rebuild kickoff row).
+
 ---
 
 ## Session 53 — 2026-05-26 (Stage 10c — brainstorm locked + P1 friendly-label swap + P2 sidebar tree restructure; tests 525/525 green throughout)
