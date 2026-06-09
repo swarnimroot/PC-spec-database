@@ -313,6 +313,9 @@ export default function Compare() {
     <div className="compare-root">
       {/* control bar */}
       <div className="cmp-bar">
+        <button className="fieldsbtn" onClick={() => setPanelOpen(true)}>
+          ☰ Fields
+        </button>
         <span className="diffcount">
           <b>{diffCount}</b> of {totalFields} specs differ
         </span>
@@ -322,9 +325,6 @@ export default function Compare() {
         >
           <span className="switch" /> Differences only
         </div>
-        <button className="fieldsbtn" onClick={() => setPanelOpen(true)}>
-          ☰ Fields
-        </button>
       </div>
 
       {/* drag shelf */}
@@ -485,7 +485,7 @@ export default function Compare() {
                       return (
                         <tr
                           key={l.key}
-                          className={"frow drow" + (diff ? " diff" : "")}
+                          className={"frow detrow" + (diff ? " diff" : "")}
                         >
                           <td className="lab detlab">{l.label}</td>
                           {cols.map((c) => (

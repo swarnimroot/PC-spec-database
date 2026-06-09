@@ -511,13 +511,12 @@ table.mx col.label-col {
   font-size: 12px;
   color: var(--text-muted);
 }
-.drow .vcell {
+.detrow .vcell {
   font-size: 12.5px;
 }
 
 /* ---------- control-bar Fields button ---------- */
 .fieldsbtn {
-  margin-left: auto;
   border: 1px solid var(--border-default);
   background: #fff;
   border-radius: var(--radius-4);
