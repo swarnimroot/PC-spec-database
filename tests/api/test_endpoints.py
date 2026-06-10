@@ -255,6 +255,30 @@ def test_model_detail_graphics_has_gpu_row(client):
     assert gpu_rows[0]["value"]["v"], "GPU row should carry a real GPU name"
 
 
+def test_model_detail_canonicalizes_panel_type(client):
+    """T9.2: the Compare detail accordion must serve the canonical panel
+    form ('IPS'), never the raw stored 'IPS-level'. Symmetric with the
+    Find narrow-by collapse so both surfaces agree."""
+    models = client.get("/api/catalog").json()
+    saw_ips = False
+    for m in models:
+        for year in m["years"]:
+            body = client.get(
+                f"/api/model/{m['id']}/detail", params={"year": year}
+            ).json()
+            for row in body.get("sections", {}).get("display", []):
+                v = row["value"]["v"]
+                if isinstance(v, str):
+                    assert "IPS-level" not in v, (
+                        f"{m['id']}/{year} leaked raw 'IPS-level' in {row['key']}"
+                    )
+                    if v == "IPS":
+                        saw_ips = True
+    # At least one product stores 'IPS-level' raw, so the canonical 'IPS'
+    # must appear — otherwise the rule silently stopped firing.
+    assert saw_ips, "expected at least one canonicalized 'IPS' panel row"
+
+
 def test_model_detail_year_required(client):
     m = client.get("/api/catalog").json()[0]
     resp = client.get(f"/api/model/{m['id']}/detail")

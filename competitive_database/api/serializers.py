@@ -41,6 +41,7 @@ from ..query.engine import resolve_path
 from ..views.formatting import (
     MARKER_EMPTY,
     MARKER_MANUAL,
+    canonicalize_display,
     MARKER_NEEDS_REVIEW,
     MARKER_PARTIAL,
     MARKER_VENDOR_NO_PUB,
@@ -567,6 +568,12 @@ def _detail_rows(product: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
             vo = value_object(plain)
         else:
             vo = value_object(bundle)
+        # T9.2: collapse duplicate-meaning leaf values (e.g. panel_type
+        # "IPS-level" → "IPS") so the Compare detail accordion matches the
+        # Find narrow-by canonical form. Only scalar string leaves carry
+        # rules; lists / non-strings pass through untouched.
+        if isinstance(vo.get("v"), str):
+            vo["v"] = canonicalize_display(field_path, vo["v"])
         _add(section_key, leaf_id, vo)
 
     sections: dict[str, list[dict[str, Any]]] = {}
