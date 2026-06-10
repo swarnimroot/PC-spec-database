@@ -6,6 +6,56 @@ Newest sessions at the top.
 
 ---
 
+## Session 60 — 2026-06-10 (ASUS GPU-regex fix + T9.2 Compare-detail canonicalize + T9.4 Dell options bridge; tests 505 → 515)
+
+**Goal:** Resume from the deferred non-UI backlog. Cleared three items: the long-standing ASUS GPU-regex pollution bug, extending the T9.2 display canonicalizer to the Compare detail screen, and implementing T9.4 (Dell configurator-options consumption). No UI work this session.
+
+**Outcome:** All three done; suite **505 → 515** (+10). No commits during the work; everything committed at session wrap.
+
+### 1. ASUS GPU regex over-matching — FIXED (`bridge/asus.py`)
+
+Root cause was **not** the regex matching too much. Graphics values that ASUS splits onto separate lines (`"8GB GDDR6"`, `"1595MHz at 115W"`) fell through the GPU-match `else` branch and were recorded as **phantom GPU entries** on every refresh (the Session 44 cleanup re-polluted each refresh). Fix: added `_GPU_BRAND_RE` — a piece must carry a GPU brand token (NVIDIA/GeForce/RTX/GTX/Radeon/Quadro/Arc) to be recorded. Branded-but-unmapped models (e.g. `GTX 1650`) still surface as `needs-review` (preserves the existing unmapped-GPU behavior, e.g. RTX 6090); pure spec prose is now skipped. +2 regression tests.
+
+### 2. T9.2 display canonicalizer — extended to Compare detail (`api/serializers.py`)
+
+The canonicalizer mechanism + the `IPS-level → IPS` rule already existed and were **live on the Find narrow-by path** (`query/engine.py`) — that was T9.2's original purpose, so it was effectively done. The one gap: the **Compare detail accordion** (added S58) surfaced the raw stored value. Wired `_detail_rows` to pass `field_path` through `canonicalize_display` for scalar string leaves. Verified end-to-end on the real DB: `rog-flow-z13-2025` stores `panel_type = "IPS-level"`; the detail endpoint now serves `"IPS"` (20 IPS panel rows, zero raw `IPS-level` leaks). +1 test.
+
+### 3. T9.4 Dell `snapshot.options` consumption — IMPLEMENTED (`bridge/dell.py`)
+
+`include_options=True` was already fetching the Dell configurator menu onto every `snapshot.options` (`{module: [ComponentOption{label,status,option_id}]}`, status ∈ selected/available/unavailable, one `selected` per module), but the bridge ignored it. Now consumed for **Processor / Graphics / Memory / Storage / Display**:
+
+- **Approach (DRY):** each selectable option's label is appended to the matching tile spec text, then the **existing** per-field builders run unchanged. Offerings flow through the same extraction; the ingest merge (`runner._merge_offerings` / `_merge_boards`, which dedup by model/board) collapses the `selected` option against the tile default.
+- **CPU / GPU / Display** → extra offerings on `cpu_offerings` / `boards` / `display_offerings`.
+- **Memory / Storage** are scalar **max-ceiling** fields, not offering lists → the largest configurable RAM/storage raises `memory_max_gb` / `storage_max_gb` (storage already used the `max()` merge; memory now folds the configurator max in). `storage_slots` stays tile-only (option labels carry no PCIe-gen).
+- **`unavailable` (out-of-stock) options are skipped** — recording them as verified specs would imply an unorderable config.
+- **Correctness guards:** added GPU-name dedup inside `_build_boards` (so the `selected` GPU doesn't double the tile GPU at parse level, mirroring the cross-tile merge); guarded `_build_cpu_chip_specs` so the tile's core count attaches **only** to tile-named CPUs — configurator-added CPUs publish no core count and must not inherit it.
+- The no-options path is byte-identical to before (zero regression). +7 tests.
+
+**⚠️ Caveat (carried to next session):** T9.4 is verified against **synthetic** `options` data shaped exactly per scrapers-lib's own parser + tests — **no live Dell fetch with real `.options` was run** (no captured snapshot has the field yet). The first real refresh is the live check; expect label-format quirks to surface there.
+
+### Files touched
+
+**Code:** `bridge/asus.py` (GPU-brand guard), `api/serializers.py` (`_detail_rows` canonicalize), `bridge/dell.py` (options consumption + `_build_boards` dedup + chip-spec guard), `cli/refresh.py` (stale "not wired up yet" comment corrected).
+**Tests:** `tests/bridge/test_asus.py` (+2), `tests/api/test_endpoints.py` (+1), `tests/bridge/test_dell.py` (+7). Suite **505 → 515**.
+**Docs:** this entry, `TASKS.md` (3 rows → DONE S60), `ARCHITECTURE.md` (Dell parser + canonicalizer opt-in), `README.md` (test count + session range).
+
+### Pickup pointers
+
+- **Next session (user-directed):** review the Dell options change, then **scrape more products** (data expansion) — first live Dell refresh will exercise T9.4 against real `.options`.
+- Still open: triage/Review UX rethink (Stage 10c P3+P4 parked); small UI polish brainstorm; Stage 11 Phase 1.5 callsite rename; Stage 11 Phase 8 spot-checks; ASUS TUF URL template.
+
+---
+
+## Session 59 — 2026-06-10 (Deployment evaluation + private GitHub push; no code, tests 505) — *backfilled S60*
+
+*Entry reconstructed during the S60 wrap (this session was not logged at the time; corroborated by the `origin` remote + commit `7564bb8`).*
+
+**Outcome:** Evaluated public hosting and decided to **stay local-first** (local SQLite + local run) for this personal project. Pushed the repo to **private GitHub `swarnimroot/PC-spec-database`** (`origin`). Commit `7564bb8` added `.gitignore` rules for `.tmp_*` scratch directories ahead of the push. No application code changed; tests unchanged at **505**.
+
+**If revisited:** keep SQLite; **Render** for the full app, or **Vercel + Turso** if Refresh stays local. (Captured in auto-memory `deployment_decision`.)
+
+---
+
 ## Session 58 — 2026-06-09 (Compare accordion + new per-leaf detail endpoints; tests 499 → 505)
 
 **Goal:** Make the Compare grid drill from the rolled-up section summaries down to the real per-leaf spec values (actual CPU/GPU model names, display specs, raw ports) on demand, and give the user control over which fields show. This needed new read-only backend endpoints (the existing `/api/model` returns the canonical field walk, which deliberately omits raw per-leaf detail) plus a frontend accordion.
