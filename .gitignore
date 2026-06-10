@@ -12,3 +12,4 @@ competitive.db-wal
 .coverage
 .claude/
 .profiles/
+.tmp_*/
