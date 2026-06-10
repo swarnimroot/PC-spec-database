@@ -634,6 +634,20 @@ _GPU_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 
+# A piece only names a GPU if it carries a brand/family token. ASUS
+# publishes VRAM / clock / wattage as separate newline-split clauses
+# ("8GB GDDR6", "1595MHz at 115W"); without this guard those non-GPU
+# pieces fall through to the ``else`` branch and get recorded as phantom
+# GPU values, re-polluting the boards list on every refresh (Session 44
+# regression). The precise ``_GPU_NAME_RE`` above stays the primary
+# match; this broader token only decides "is this piece about a GPU at
+# all" so an unrecognized-but-real model (e.g. "GTX 1650") still surfaces
+# as needs-review while pure spec prose is skipped.
+_GPU_BRAND_RE = re.compile(
+    r"\b(?:NVIDIA|GeForce|RTX|GTX|Radeon|Quadro|Intel\s+Arc)\b",
+    re.IGNORECASE,
+)
+
 
 # ASUS publishes per-GPU TGP as marketing prose:
 #   "Manual mode: 1497MHz at 140W* (1447MHz Boost Clock+50MHz OC, 115W+25W…)"
@@ -686,12 +700,18 @@ def _build_boards(
                 status="verified" if label is not None else "needs-review",
             )
             name = canonical
-        else:
+        elif _GPU_BRAND_RE.search(piece):
+            # Brand token present but model not recognized → surface the
+            # raw piece for human review rather than dropping it.
             label = None
             name = _normalize_ws(piece.split(";", 1)[0])
             gpu_bundle = _scraped_bundle(
                 name, source_url, captured_at, status="needs-review"
             )
+        else:
+            # No GPU brand token → VRAM / clock / wattage prose. Skip so
+            # it doesn't become a phantom GPU (Session 44 regression).
+            continue
 
         # Per-GPU TGP: prefer Manual mode (unlocked ceiling). Fall back
         # to Turbo mode wattage if Manual isn't published. ASUS always

@@ -337,6 +337,38 @@ def test_parse_synthetic_unmapped_gpu_routes_to_needs_review_board():
     assert all(g["status"] == "needs-review" for g in nonebd["gpus"])
 
 
+def test_build_boards_skips_non_gpu_spec_prose_pieces():
+    """Session 44 regression: VRAM / clock / wattage clauses that ASUS
+    publishes as separate newline-split pieces ("8GB GDDR6",
+    "1595MHz at 115W") must NOT become phantom GPU entries. Only the
+    real GPU name is recorded; the spec prose is skipped."""
+    graphics = (
+        "NVIDIA GeForce RTX 5070 Laptop GPU\n"
+        "8GB GDDR6\n"
+        "ROG Boost: 1595MHz at 115W (1455MHz+140MHz OC)"
+    )
+    boards = asus_bridge._build_boards(
+        graphics, "https://example.test/spec", "2026-06-10T00:00:00Z"
+    )
+    assert boards is not None
+    gpu_values = [g["value"] for b in boards for g in b["gpus"]]
+    assert gpu_values == ["RTX 5070"]
+    # No phantom GPU carrying VRAM / clock text.
+    assert not any("GDDR" in v or "MHz" in v for v in gpu_values)
+
+
+def test_build_boards_surfaces_unrecognized_branded_gpu_as_needs_review():
+    """A branded but model-unrecognized piece ("GeForce GTX 1650") still
+    surfaces as a needs-review GPU rather than being dropped."""
+    boards = asus_bridge._build_boards(
+        "GeForce GTX 1650", "https://example.test/spec", "2026-06-10T00:00:00Z"
+    )
+    assert boards is not None
+    gpus = [g for b in boards for g in b["gpus"]]
+    assert any(g["value"] == "GeForce GTX 1650" for g in gpus)
+    assert all(g["status"] == "needs-review" for g in gpus)
+
+
 def test_parse_synthetic_per_gpu_tgp_max_collapse_for_mapped_board():
     """The mapped MB2 board has 5070 (115W Manual) and 5050 (95W Manual);
     tgp_max = 115."""
