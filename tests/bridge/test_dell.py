@@ -423,3 +423,106 @@ def test_no_options_path_is_unchanged():
     cand = dell_bridge.parse(snap)
     # Sanity: still produces the same shaped output (no crash, has CPU).
     assert cand.cpu_offerings is not None
+
+
+# ---------------------------------------------------------------------------
+# Configurator options (T9.4) — hardening against REAL Dell labels
+# ---------------------------------------------------------------------------
+#
+# The 7 tests above use clean synthetic labels ("NVIDIA GeForce RTX 5090").
+# Live Dell configurator labels carry trademark glyphs, trailing VRAM, and
+# mixed-unit capacity copy. These guard the dedup / parse paths against the
+# noisier real shapes and exercise the ComponentOption object branch.
+
+
+def test_options_gpu_real_label_dedups_against_canonical_tile():
+    """A real-shaped ``selected`` GPU label — ``"NVIDIA® GeForce RTX™ 5090
+    16 GB GDDR7"`` (trademark glyphs + trailing VRAM) — must collapse onto
+    the canonical tile GPU ``"RTX 5090"`` and NOT emit a duplicate board."""
+    opts = {
+        "Graphics": [
+            _opt("NVIDIA® GeForce RTX™ 5090 16 GB GDDR7", "selected", "gpu-5090"),
+            _opt("NVIDIA® GeForce RTX™ 5080 16 GB GDDR7", "available", "gpu-5080"),
+        ]
+    }
+    cand = dell_bridge.parse(_snapshot_with_options(opts))
+    gpu_names = [g["value"] for b in cand.boards for g in b["gpus"]]
+    # ™/® and trailing "16 GB GDDR7" must all canonicalize to "RTX 5090".
+    assert gpu_names.count("RTX 5090") == 1
+    # The available option still lands as a distinct board GPU.
+    assert "RTX 5080" in gpu_names
+    # No phantom raw-label GPU survived (would mean the regex/canonicalizer
+    # failed to strip the VRAM/trademark noise).
+    assert not any("GDDR7" in str(n) or "GB" in str(n) for n in gpu_names)
+    # Single power-tier (MB1) → exactly one board, both GPUs grouped.
+    assert len(cand.boards) == 1
+
+
+def test_options_memory_mixed_unit_label_parses_total_capacity():
+    """Dell publishes RAM configs as ``"32 GB, 2 x 16 GB"`` (total first,
+    then the DIMM breakdown). The configurator ceiling must read the TOTAL
+    (32), not the 16 GB per-DIMM token."""
+    opts = {
+        "Memory": [
+            _opt("32 GB, 2 x 16 GB", "selected", "mem-32"),
+        ]
+    }
+    cand = dell_bridge.parse(_snapshot_with_options(opts))
+    # CORRECT expected value is 32 (the published total). If the parser
+    # latched onto "16" from "2 x 16 GB", this assertion FAILS — a real bug.
+    assert cand.memory_max_gb["value"] == 32
+
+
+def test_options_component_option_object_path():
+    """All 7 existing tests pass option dicts; real snapshots carry
+    ``ComponentOption`` objects. Exercise the attribute branch of
+    ``_option_labels`` so the object path is covered too."""
+    from scrapers_lib import ComponentOption
+
+    opts = {
+        "Graphics": [
+            ComponentOption(
+                label="NVIDIA GeForce RTX 5080", status="available", option_id="gpu-5080"
+            ),
+            ComponentOption(
+                label="NVIDIA GeForce RTX 5070 Ti",
+                status="unavailable",
+                option_id="gpu-5070ti",
+            ),
+        ],
+        "Memory": [
+            ComponentOption(label="64 GB DDR5", status="available", option_id="mem-64"),
+        ],
+    }
+    cand = dell_bridge.parse(_snapshot_with_options(opts))
+    gpu_names = [g["value"] for b in cand.boards for g in b["gpus"]]
+    # ``available`` object option is surfaced...
+    assert "RTX 5080" in gpu_names
+    # ...``unavailable`` object option is skipped (same rule as dict path).
+    assert "RTX 5070 Ti" not in gpu_names
+    # Object-path Memory option raises the ceiling.
+    assert cand.memory_max_gb["value"] == 64
+
+
+def test_options_malformed_inputs_do_not_crash():
+    """Empty / None / None-valued-module options must parse without error
+    and preserve the tile base specs."""
+    # 1. Explicit empty dict.
+    cand = dell_bridge.parse(_snapshot_with_options({}))
+    assert cand.cpu_offerings is not None
+    assert cand.boards[0]["gpus"][0]["value"] == "RTX 5090"
+    assert cand.memory_max_gb["value"] == 32
+
+    # 2. options=None (snapshot.options absent).
+    cand = dell_bridge.parse(_snapshot_with_options(None))
+    assert cand.cpu_offerings is not None
+    assert cand.boards[0]["gpus"][0]["value"] == "RTX 5090"
+
+    # 3. A module key whose value is None (no option list). The
+    #    ProductSnapshot schema rejects None-valued option lists at
+    #    validation, so this shape can't reach ``parse`` via a snapshot —
+    #    exercise the defensive ``options.get(key) or []`` branch in
+    #    ``_option_labels`` directly instead.
+    assert dell_bridge._option_labels({"Graphics": None}, ("Graphics",)) == []
+    assert dell_bridge._option_labels(None, ("Graphics",)) == []
+    assert dell_bridge._option_labels({}, ("Graphics",)) == []

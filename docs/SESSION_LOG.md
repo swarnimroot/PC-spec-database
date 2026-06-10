@@ -6,6 +6,22 @@ Newest sessions at the top.
 
 ---
 
+## Session 61 — 2026-06-10 (T9.4 Dell options — review + real-label hardening tests; tests 515 → 519)
+
+**Goal:** De-risk the T9.4 "verified on synthetic options only" caveat before a live Dell refresh. Code review of the S60 options-consumption change, then add fixtures for realistic Dell configurator label shapes.
+
+**Outcome:** Review found **no production bugs** — precedence (memory ceiling only raises), GPU dedup, and no-options path all sound; no silent-failure violations. Added **4 hardening tests** to `tests/bridge/test_dell.py`, all green (suite **515 → 519**):
+- GPU real-label dedup — `NVIDIA® GeForce RTX™ 5090 16 GB GDDR7` collapses to canonical `RTX 5090` (no duplicate board, no phantom VRAM GPU).
+- RAM mixed-unit label — `32 GB, 2 x 16 GB` parses to 32 (leading total via `parse_gb` `.search()`), not the per-DIMM 16.
+- `ComponentOption` object path — existing 7 tests only exercised the dict branch of `_option_labels`.
+- Malformed options — `{}`, `None`, None-valued module key all no-crash, base specs preserved.
+
+**Note (not a bug):** None-valued module key can't reach `dell.parse()` via a snapshot — pydantic rejects it at `model_validate`. The `dell.py:304` `or []` guard is dead-but-harmless against snapshot input; tested by calling `_option_labels` directly. Test-only change.
+
+**Pickup:** Caveat substantially de-risked. The only thing a live Dell refresh now adds is confirming the actual `options` module key names Dell uses (`Graphics` vs `Graphics Card`, localized, etc.). Then: scrape more products.
+
+---
+
 ## Session 60 — 2026-06-10 (ASUS GPU-regex fix + T9.2 Compare-detail canonicalize + T9.4 Dell options bridge; tests 505 → 515)
 
 **Goal:** Resume from the deferred non-UI backlog. Cleared three items: the long-standing ASUS GPU-regex pollution bug, extending the T9.2 display canonicalizer to the Compare detail screen, and implementing T9.4 (Dell configurator-options consumption). No UI work this session.
