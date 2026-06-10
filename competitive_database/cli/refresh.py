@@ -659,8 +659,8 @@ def _fetch_snapshots(brand: str, url: str, slug: str, profiles_dir: str):
         # ``include_options=True`` (scrapers-lib v1.5.0+) pulls the
         # configurator option menu (CPU/GPU/RAM/etc.) on top of the 3 tile
         # snapshots. ~5–8s extra per fetch. The option dict lands on every
-        # snapshot's ``options`` field; bridge consumption is opt-in and
-        # not wired up yet — flag is enabled so the data is available.
+        # snapshot's ``options`` field; ``bridge/dell.py`` consumes it (T9.4)
+        # to surface every configurable CPU/GPU/RAM/storage/display variant.
         return fetch_dell_product(
             url,
             anchors=[anchor],

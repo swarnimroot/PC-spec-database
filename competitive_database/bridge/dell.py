@@ -48,6 +48,7 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
     identity fields and stamp every emitted bundle.
     """
     specs = dict(snapshot.specs or {})
+    options = snapshot.options or {}
     captured_at = snapshot.fetched_at.isoformat()
     source_url = snapshot.url
 
@@ -94,37 +95,67 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
 
     # --- CPU ------------------------------------------------------------
     cpu_text = specs.get("Processor")
-    cand.cpu_offerings = _build_cpu_offerings(cpu_text, source_url, captured_at)
+    cand.cpu_offerings = _build_cpu_offerings(
+        _augment_spec_text(cpu_text, _option_labels(options, ("Processor",))),
+        source_url,
+        captured_at,
+    )
 
     # --- CPU chip specs (catalog seeding) ------------------------------
     # Dell publishes core counts inline in the Processor prose
     # (``"... (24-Core, 36MB Cache, ...)"``). Other catalog fields are
     # not consistently published, so we only attempt cores. ``catalog_resolve``
-    # decides whether to seed or queue a conflict.
+    # decides whether to seed or queue a conflict. Pass the ORIGINAL tile
+    # text: configurator-added CPUs (T9.4) publish no core count, so chip
+    # seeding stays restricted to the tile-named CPUs.
     cand.cpu_chip_specs = _build_cpu_chip_specs(
         cand.cpu_offerings, cpu_text
     )
 
     # --- GPU + boards ---------------------------------------------------
     gpu_text = specs.get("Graphics Card")
-    cand.boards = _build_boards(gpu_text, source_url, captured_at)
+    cand.boards = _build_boards(
+        _augment_spec_text(gpu_text, _option_labels(options, ("Graphics",))),
+        source_url,
+        captured_at,
+    )
 
     # --- Memory ---------------------------------------------------------
     mem_text = specs.get("Memory")
     _populate_memory(cand, mem_text, source_url, captured_at)
+    # Configurator RAM options raise the platform memory ceiling beyond the
+    # tile's shipped capacity (memory_max_gb is a max, not a per-SKU value).
+    mem_opt_max = _max_option_gb(_option_labels(options, ("Memory",)))
+    if mem_opt_max is not None:
+        cur = (
+            cand.memory_max_gb.get("value")
+            if isinstance(cand.memory_max_gb, dict)
+            else None
+        )
+        if cur is None or mem_opt_max > cur:
+            cand.memory_max_gb = _scraped_bundle(
+                mem_opt_max, source_url, captured_at
+            )
 
     # --- Storage --------------------------------------------------------
+    # storage_slots stays tile-only (option labels carry no PCIe-gen info);
+    # storage_max_gb (a published-ceiling max) folds in configurator options.
     storage_text = specs.get("Storage")
     cand.storage_slots = _build_storage_slots(storage_text, source_url, captured_at)
-    if storage_text is not None:
+    storage_combined = _augment_spec_text(
+        storage_text, _option_labels(options, ("Storage",))
+    )
+    if storage_combined is not None:
         cand.storage_max_gb = _build_storage_max_gb(
-            storage_text, source_url, captured_at
+            storage_combined, source_url, captured_at
         )
 
     # --- Display --------------------------------------------------------
     display_text = specs.get("Display")
     cand.display_offerings = _build_display_offerings(
-        display_text, source_url, captured_at
+        _augment_spec_text(display_text, _option_labels(options, ("Display",))),
+        source_url,
+        captured_at,
     )
 
     # --- Battery --------------------------------------------------------
@@ -238,6 +269,75 @@ def _maybe_bundle(
 
 
 # ---------------------------------------------------------------------------
+# Configurator options (T9.4)
+# ---------------------------------------------------------------------------
+#
+# scrapers-lib (v1.5.0+) attaches the Dell configurator menu to every
+# snapshot as ``snapshot.options: {module_name: [ComponentOption]}`` where
+# each option carries ``label`` / ``status`` (``selected`` | ``available``
+# | ``unavailable``) / ``option_id``. The tile ``specs`` only describe the
+# 2-3 pre-built configurations Dell renders; the configurator lists every
+# CPU / GPU / RAM / storage / display a buyer can pick. We surface those
+# extra variants by APPENDING each selectable option's label to the tile
+# spec text and re-running the existing per-field builders, so the configs
+# flow through the same extraction and the ingest merge dedups the overlap
+# (the ``selected`` option always restates the tile default).
+#
+# ``unavailable`` (currently out-of-stock) options are skipped — recording
+# them as verified specs would imply a config you can't actually order.
+
+_SELECTABLE_OPTION_STATUSES = ("selected", "available")
+
+
+def _option_labels(
+    options: Optional[dict], module_keys: tuple[str, ...]
+) -> list[str]:
+    """Selectable option labels across ``module_keys``, first-seen order.
+
+    Tolerates both ``ComponentOption`` objects (real snapshots) and plain
+    dicts via attribute/key fallback. Empty when ``options`` is None/absent.
+    """
+    if not options:
+        return []
+    labels: list[str] = []
+    for key in module_keys:
+        for opt in options.get(key) or []:
+            label = getattr(opt, "label", None)
+            status = getattr(opt, "status", None)
+            if label is None and isinstance(opt, dict):
+                label = opt.get("label")
+                status = opt.get("status")
+            if label and status in _SELECTABLE_OPTION_STATUSES and label not in labels:
+                labels.append(label)
+    return labels
+
+
+def _augment_spec_text(
+    tile_text: Optional[str], labels: list[str]
+) -> Optional[str]:
+    """Append configurator option labels to the tile spec text.
+
+    Returns ``tile_text`` unchanged when there are no labels, so the
+    no-options path stays byte-identical to the pre-T9.4 behavior.
+    """
+    if not labels:
+        return tile_text
+    parts = [tile_text] if tile_text else []
+    parts.extend(labels)
+    return "\n".join(parts)
+
+
+def _max_option_gb(labels: list[str]) -> Optional[int]:
+    """Largest ``N GB`` capacity across option labels (None if none parse)."""
+    best: Optional[int] = None
+    for label in labels:
+        gb = h.parse_gb(label)
+        if gb is not None and (best is None or gb > best):
+            best = gb
+    return best
+
+
+# ---------------------------------------------------------------------------
 # CPU
 # ---------------------------------------------------------------------------
 
@@ -331,6 +431,14 @@ def _build_cpu_chip_specs(
     if cores_m is None:
         return {}
     cores_val = cores_m.group(1)
+    # Only the tile Processor prose carries a core count, so seed cores only
+    # for CPUs named there — configurator-added CPUs (T9.4) aren't in this
+    # text and must not inherit the tile CPU's count. Drop the "processor"
+    # noise word so infixed names ("Core Ultra 9 processor 290HX") still
+    # substring-match their normalized model ("Core Ultra 9 290HX").
+    haystack = _normalize_ws(
+        re.sub(r"\bprocessor\b", " ", _strip_tm(cpu_text), flags=re.IGNORECASE)
+    )
     out: dict[str, dict[str, Optional[str]]] = {}
     for offering in cpu_offerings:
         model_bundle = offering.get("model")
@@ -338,6 +446,8 @@ def _build_cpu_chip_specs(
             continue
         model = model_bundle.get("value")
         if not model:
+            continue
+        if str(model) not in haystack:
             continue
         out[str(model)] = {"cores": cores_val}
     return out
@@ -376,6 +486,10 @@ def _build_boards(
     # GPUs (rare on Dell, common on HP/Lenovo) folds into one entry.
     by_label: dict[Optional[str], list[Bundle]] = {}
     label_order: list[Optional[str]] = []
+    # Dedup GPUs by (board label, model name) within this call so a tile GPU
+    # and the configurator's ``selected`` restatement of it (T9.4) collapse
+    # to one bundle — mirrors the cross-tile dedup in ``runner._merge_boards``.
+    seen: set[tuple[Optional[str], Any]] = set()
     for piece in pieces:
         m = _GPU_NAME_RE.search(piece)
         if m is not None:
@@ -399,6 +513,10 @@ def _build_boards(
                 captured_at,
                 status="needs-review",
             )
+        dedup_key = (label, gpu_bundle["value"])
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
         if label not in by_label:
             by_label[label] = []
             label_order.append(label)

@@ -307,3 +307,119 @@ def test_parse_cpu_with_series_disambiguator_preserves_parenthetical():
     assert len(offerings) == 1
     assert offerings[0]["model"]["value"] == "Core 7 (Series 2) 240H"
     assert offerings[0]["model"]["status"] == "verified"
+
+
+# ---------------------------------------------------------------------------
+# Configurator options (T9.4) — snapshot.options consumption
+# ---------------------------------------------------------------------------
+
+
+def _opt(label: str, status: str, oid: str) -> dict:
+    return {"label": label, "status": status, "option_id": oid}
+
+
+def _snapshot_with_options(options: dict) -> "ProductSnapshot":
+    """Build a Dell snapshot off the synthetic fixture with ``options`` set.
+
+    The tile Processor string carries a ``(24-Core ...)`` parenthetical so
+    the chip-spec contamination guard can be exercised.
+    """
+    if not _HAS_SCRAPERS:
+        pytest.skip("scrapers-lib not installed")
+    raw = json.loads(
+        (FIXTURE_DIR / "snapshot_aa18250_synthetic.json").read_text(encoding="utf-8")
+    )
+    for k in list(raw.keys()):
+        if k.startswith("_"):
+            raw.pop(k)
+    raw["specs"]["Processor"] = "Intel Core Ultra 9 285HX (24-Core, 36MB Cache)"
+    raw["options"] = options
+    return ProductSnapshot.model_validate(raw)
+
+
+_FULL_OPTIONS = {
+    "Processor": [
+        _opt("Intel Core Ultra 9 285HX", "selected", "cpu-285hx"),
+        _opt("Intel Core Ultra 7 265HX", "available", "cpu-265hx"),
+        _opt("Intel Core Ultra 9 290HX", "available", "cpu-290hx"),
+        _opt("Intel Core Ultra 5 245HX", "unavailable", "cpu-245hx"),
+    ],
+    "Graphics": [
+        _opt("NVIDIA GeForce RTX 5090", "selected", "gpu-5090"),
+        _opt("NVIDIA GeForce RTX 5080", "available", "gpu-5080"),
+        _opt("NVIDIA GeForce RTX 5070 Ti", "available", "gpu-5070ti"),
+    ],
+    "Memory": [
+        _opt("32 GB DDR5", "selected", "mem-32"),
+        _opt("16 GB DDR5", "available", "mem-16"),
+        _opt("64 GB DDR5", "available", "mem-64"),
+    ],
+    "Storage": [
+        _opt("2 TB SSD", "selected", "ssd-2tb"),
+        _opt("4 TB SSD", "available", "ssd-4tb"),
+    ],
+    "Display": [
+        _opt('18" QHD+ (2560x1600) 300Hz IPS', "selected", "disp-qhd"),
+        _opt('18" FHD+ (1920x1200) 165Hz IPS', "available", "disp-fhd"),
+    ],
+}
+
+
+def test_options_cpu_adds_configurable_models_and_skips_unavailable():
+    cand = dell_bridge.parse(_snapshot_with_options(_FULL_OPTIONS))
+    models = {o["model"]["value"] for o in cand.cpu_offerings}
+    assert "Core Ultra 9 285HX" in models  # tile + selected (merge dedups dup)
+    assert "Core Ultra 7 265HX" in models
+    assert "Core Ultra 9 290HX" in models
+    # ``unavailable`` (out-of-stock) options must NOT be surfaced.
+    assert "Core Ultra 5 245HX" not in models
+
+
+def test_options_cpu_chip_specs_not_contaminated_across_configs():
+    """The tile's 24-Core count must attach ONLY to the tile-named CPU, not
+    to configurator-added CPUs that publish no core count."""
+    cand = dell_bridge.parse(_snapshot_with_options(_FULL_OPTIONS))
+    assert cand.cpu_chip_specs.get("Core Ultra 9 285HX") == {"cores": "24"}
+    assert "Core Ultra 7 265HX" not in cand.cpu_chip_specs
+    assert "Core Ultra 9 290HX" not in cand.cpu_chip_specs
+
+
+def test_options_gpu_adds_boards_and_dedups_selected_against_tile():
+    cand = dell_bridge.parse(_snapshot_with_options(_FULL_OPTIONS))
+    gpu_names = [g["value"] for b in cand.boards for g in b["gpus"]]
+    assert "RTX 5080" in gpu_names
+    assert "RTX 5070 Ti" in gpu_names
+    # tile GPU + ``selected`` restatement collapse to exactly one bundle.
+    assert gpu_names.count("RTX 5090") == 1
+
+
+def test_options_memory_raises_max_ceiling():
+    cand = dell_bridge.parse(_snapshot_with_options(_FULL_OPTIONS))
+    # Tile ships 32 GB; configurator offers 64 GB → ceiling is 64.
+    assert cand.memory_max_gb["value"] == 64
+    assert cand.memory_max_gb["status"] == "verified"
+
+
+def test_options_storage_raises_max_ceiling():
+    cand = dell_bridge.parse(_snapshot_with_options(_FULL_OPTIONS))
+    # Tile ships 2 TB; configurator offers 4 TB → 4000 GB ceiling.
+    assert cand.storage_max_gb["value"] == 4000
+
+
+def test_options_display_adds_configurable_panels():
+    cand = dell_bridge.parse(_snapshot_with_options(_FULL_OPTIONS))
+    refresh = {
+        o["refresh_rate_hz"]["value"]
+        for o in cand.display_offerings
+        if o.get("refresh_rate_hz")
+    }
+    assert {300, 165}.issubset(refresh)
+
+
+def test_no_options_path_is_unchanged():
+    """A snapshot without ``.options`` must parse exactly as before."""
+    snap = _load_snapshot("snapshot_useaa18250wmlkcto01.json")
+    assert (snap.options or {}) == {}
+    cand = dell_bridge.parse(snap)
+    # Sanity: still produces the same shaped output (no crash, has CPU).
+    assert cand.cpu_offerings is not None
