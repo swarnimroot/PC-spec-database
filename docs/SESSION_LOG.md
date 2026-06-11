@@ -6,19 +6,55 @@ Newest sessions at the top.
 
 ---
 
-## Session 61 — 2026-06-10 (T9.4 Dell options — review + real-label hardening tests; tests 515 → 519)
+## Session 61 — 2026-06-10 (T9.4 Dell options LIVE-verified; new Add-product workflow + name normalizer; Dell bridge + CPU-curation fixes; data reconciliation; tests 515 → 543)
 
-**Goal:** De-risk the T9.4 "verified on synthetic options only" caveat before a live Dell refresh. Code review of the S60 options-consumption change, then add fixtures for realistic Dell configurator label shapes.
+**Goal:** De-risk the T9.4 "verified on synthetic options only" caveat and run the first live Dell refresh to close it; build a UI flow to add brand-new products by scraping a pasted vendor URL; clean up the data quirks the live refresh surfaced.
 
-**Outcome:** Review found **no production bugs** — precedence (memory ceiling only raises), GPU dedup, and no-options path all sound; no silent-failure violations. Added **4 hardening tests** to `tests/bridge/test_dell.py`, all green (suite **515 → 519**):
+### 1. T9.4 Dell options — review + real-label hardening tests (515 → 519)
+
+Code review of the S60 options-consumption change found **no production bugs** — precedence (memory ceiling only raises), GPU dedup, and no-options path all sound; no silent-failure violations. Added **4 hardening tests** to `tests/bridge/test_dell.py`, all green:
 - GPU real-label dedup — `NVIDIA® GeForce RTX™ 5090 16 GB GDDR7` collapses to canonical `RTX 5090` (no duplicate board, no phantom VRAM GPU).
 - RAM mixed-unit label — `32 GB, 2 x 16 GB` parses to 32 (leading total via `parse_gb` `.search()`), not the per-DIMM 16.
 - `ComponentOption` object path — existing 7 tests only exercised the dict branch of `_option_labels`.
 - Malformed options — `{}`, `None`, None-valued module key all no-crash, base specs preserved.
 
-**Note (not a bug):** None-valued module key can't reach `dell.parse()` via a snapshot — pydantic rejects it at `model_validate`. The `dell.py:304` `or []` guard is dead-but-harmless against snapshot input; tested by calling `_option_labels` directly. Test-only change.
+**Note (not a bug):** None-valued module key can't reach `dell.parse()` via a snapshot — pydantic rejects it at `model_validate`. The `dell.py` `or []` guard is dead-but-harmless against snapshot input; tested by calling `_option_labels` directly. Test-only change.
 
-**Pickup:** Caveat substantially de-risked. The only thing a live Dell refresh now adds is confirming the actual `options` module key names Dell uses (`Graphics` vs `Graphics Card`, localized, etc.). Then: scrape more products.
+### 2. First LIVE Dell refresh — T9.4 caveat CLOSED
+
+Ran the first real Dell refresh with options against the live DB: `refresh --brand dell --from-db --model aa18250 --year 2026` (Alienware 18 Area-51). **Real module keys match exactly** — `Processor` / `Graphics` / `Memory` / `Storage` / `Display` (no `Graphics Card` / localization quirk); labels parse correctly. The configurator-expanded values landed as **3 `review_queue` conflicts** (the expected merge behavior — `_merge_offerings` flags rather than auto-overwriting), all **3 RESOLVED** via `accept_candidate` onto the live row: `memory_max` 32 → 64, `storage_max` 2000 → 12000, GPU boards gained **RTX 5080**. DB backed up to `competitive.db.pre-s61-dell-refresh-backup` first. T9.4 is now live-verified end-to-end; the synthetic-only caveat is cleared.
+
+### 3. Dell bridge fixes from the live refresh (`bridge/dell.py`)
+
+The live Alienware rows surfaced two real-label gaps the synthetic fixtures didn't have:
+- **Weight regexes** now also match `"Minimum weight"` / `"Maximum weight"` (alongside the existing `"Starting Weight"` / `"Weight (maximum)"`) — fixes null weight on rows that use the Min/Max phrasing.
+- **`_io_counts`** gained a bare-`"USB … port"` → USB Type-A fallback: a USB line with no Type-C / Thunderbolt qualifier is Dell's shorthand for Type-A (Dell omits the `"Type-A"` token), fixing `usba_count = 0`.
+
+Covered by new cases in `tests/bridge/test_dell.py`.
+
+### 4. NEW FEATURE — Add-product workflow (519 → 543)
+
+A UI flow to add a brand-new product by scraping a pasted vendor URL. **Entry point:** "+ Add new" button on the Add/Refresh screen → modal: pick vendor → modal shows the vendor landing links to navigate → paste the product URL → scrape (one live fetch) → preview-then-confirm with an **editable product-name field** → save.
+
+- **Backend:** new `scrape_only()` lib helper in `cli/refresh.py` — pure fetch + dispatch + group, **no DB write** (`refresh_product` refactored to share a `_fetch_and_group` helper, behavior-preserving). Three new endpoints in `api/app.py`:
+  - `GET /api/vendors` — one entry per brand `{brand, label, links:[{label, url}]}`; each `links` entry is a landing page on the same host the scraper reads. **ASUS carries two links** (ROG `rog.asus.com` + ASUS `www.asus.com`), both `brand="asus"` (the fetcher routes by hostname).
+  - `POST /api/products/scrape` — `{brand, url}` → `{token, products:[{model_code, year, name, brand, summary, already_exists}]}`. One live fetch, no DB write; flags PKs that already exist; the raw candidate groups are stashed under `token` for the follow-up add. Scrape/parse failures raise 422 (no silent swallow).
+  - `POST /api/products/add` — `{token, names?}` → ingests the stashed candidates by token. **Skips already-existing PKs so it never queues conflicts — strictly additive.** `names` is an optional dict keyed by `"<model_code>|<year>"` → the desired `products.product` name, applied only to newly-inserted rows.
+  - Preview serializer `serialize_scrape_preview` in `api/serializers.py`.
+- **Name normalizer:** new `clean_product_name()` in `bridge/helpers.py` strips trailing generic marketing suffixes (`Gaming Laptop` / `Gaming Notebook` / `Laptop` / `Notebook` / `Gaming`; trailing-only, case-insensitive, longest-match-first, idempotent, with an empty-result guard). Applied in `serialize_scrape_preview` to the **derived default name only** — the stored `vendor_full_name` bundle stays literal, and the editable Name field lets the user override anyway.
+- **Frontend:** `frontend/src/refresh/AddProduct.jsx` + `addProduct.css` (class prefix `ap-` per the global-bundle collision gotcha), `api.js` helpers, and the Finder Detail slide-over reused for "View product".
+- **UX polish:** the nav tab is renamed **"Refresh" → "Add/Refresh"** (`App.jsx`, route id unchanged), and the Run-refresh confirmation is now a **modal dialog** (`rf-modal-*`) replacing the inline confirm.
+- **Tests:** +7 backend (`tests/api/test_add_product.py`) for the add flow + the bridge/helpers and Dell fixes; suite **519 → 543**, all green. Frontend `vite build` passes.
+
+### 5. CPU curation fix (LOCAL DB — `cpu_catalog`, not git-tracked)
+
+Corrected the Ryzen 5 220 catalog row: `architecture_code` `HWK` → `HWK R` and `architecture_name` `Hawk Point` → `Hawk Point Refresh`, to match the Ryzen 200 Series convention already used for Ryzen 7 250 / 260 and Ryzen 9 270 (all `HWK R` / `Hawk Point Refresh`). It had been mistyped during Stage 10b curation.
+
+### 6. Data reconciliation (LOCAL DB)
+
+Added **"Alienware 15"** (`model_code da15265`, Dell, 2026) via the new Add flow, and deleted the empty `da15260` "Alienware 15" migration stub from S48. DB backed up to `competitive.db.pre-s61-alienware15-delete-backup` first. Net product count is unchanged at **56 products / 4 vendors** (one added, one removed).
+
+**Pickup:** T9.4 fully closed (live-verified). Add-product shipped end-to-end. Next: scrape more products (data expansion) now that both the refresh and add paths are proven on live Dell.
 
 ---
 

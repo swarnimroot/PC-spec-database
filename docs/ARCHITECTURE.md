@@ -120,7 +120,7 @@ One module per vendor — vendor structures are too divergent for a unified pars
 ```
 bridge/
 ├── dispatcher.py    # routes a ProductSnapshot to the right parser by snapshot.source
-├── helpers.py       # shared utilities: unit parsing, name decomposition, tier derivation
+├── helpers.py       # shared utilities: unit parsing, name decomposition, tier derivation, product-name cleanup
 ├── types.py         # CandidateProduct (in-memory shape, mirrors DATA_MODEL with bundles attached)
 ├── dell.py
 ├── hp.py
@@ -133,7 +133,7 @@ bridge/
 Each parser:
 1. Takes a `ProductSnapshot` from `scrapers-lib`.
 2. Reads `snapshot.specs: dict[str, str]` and decodes that vendor's idioms:
-   - **Dell** — flat regex extraction over the techspecs payload. Configurator options (`snapshot.options`, scrapers-lib v1.5.0+) are also consumed (T9.4, Session 60): each selectable CPU/GPU/RAM/storage/display option label is appended to the matching tile spec text and run through the same per-field builders, so every configurable variant surfaces as an extra offering (RAM/storage raise the `*_max_gb` ceiling instead). `unavailable` (out-of-stock) options are skipped; the ingest merge dedups the `selected` option against the tile default.
+   - **Dell** — flat regex extraction over the techspecs payload. Configurator options (`snapshot.options`, scrapers-lib v1.5.0+) are also consumed (T9.4, Session 60): each selectable CPU/GPU/RAM/storage/display option label is appended to the matching tile spec text and run through the same per-field builders, so every configurable variant surfaces as an extra offering (RAM/storage raise the `*_max_gb` ceiling instead). `unavailable` (out-of-stock) options are skipped; the ingest merge dedups the `selected` option against the tile default. Session 61 hardened the real-label parsing: the weight regexes also match `"Minimum weight"` / `"Maximum weight"` (in addition to `"Starting Weight"` / `"Weight (maximum)"`), and `_io_counts` treats a bare `"USB … port"` line with no Type-C / Thunderbolt qualifier as USB Type-A (Dell omits the `"Type-A"` token) — fixing null weight + `usba_count = 0` on the live Alienware rows.
    - **HP** — multi-line spec values; line 0 → `tier: base`, additional lines → `tier: optional`.
    - **Lenovo** — walks hierarchical `level1 > level2 > level3` path keys.
    - **ASUS** — section-grouped h2 titles; per-SKU variants newline-joined.
@@ -364,7 +364,7 @@ competitive-database/
 │   ├── cli/
 │   ├── query/                # S54 — query engine unit tests
 │   └── api/                  # S54 — FastAPI endpoint + curation tests
-├── frontend/                 # S54 — Vite + React app (Home | Spec Finder | Compare | Review | Refresh)
+├── frontend/                 # S54 — Vite + React app (Home | Spec Finder | Compare | Review | Add/Refresh)
 │   └── src/
 │       ├── api.js            # API client
 │       ├── shared/           # StateDot, ValueCell, data.js helpers
@@ -471,12 +471,17 @@ Endpoints:
 | POST | `/api/resolve` | triage resolution (`resolve_row`) |
 | GET | `/api/value/history` | provenance history for a cell |
 | POST | `/api/refresh` | real scrape/refresh (wraps `cli/refresh`) |
+| GET | `/api/vendors` | Add-product vendor picker: one entry per brand `{brand, label, links:[{label, url}]}`; the `links` are landing pages the UI links to (same host the scraper reads). ASUS carries **two** links (ROG `rog.asus.com` + ASUS `www.asus.com`), both `brand="asus"` (Session 61) |
+| POST | `/api/products/scrape` | `{brand, url}` → scrape a pasted product URL (one live fetch, no DB write via `scrape_only()`) → `{token, products:[{model_code, year, name, brand, summary, already_exists}]}`; the `name` is the cleaned default (`clean_product_name`), editable in the UI; flags PKs that already exist (Session 61) |
+| POST | `/api/products/add` | `{token, names?}` → ingest the stashed scrape candidates by token; skips already-existing PKs — strictly additive, never queues conflicts. `names` is keyed by `"<model_code>\|<year>"` → desired `products.product` name (applied only to newly-inserted rows) (Session 61) |
 
 **A "model"** = one Brand·Series·Product identity spanning its years (37 models in the live DB; `id` = the latest year's `model_code`; the serialized shape is a `base` object + per-year `byYear` overrides). **Value objects** serialize to `{v, s, src, ts, note}`. **Status mapping:** the 6 stored statuses collapse to 5 display states — `verified` + `vouched` → `confirmed`, `vendor-doesn't-publish` → `not_published`, `manual` → `Manual`, `needs-review` → `Unverified`, empty → `blank` (the per-cell state labels in `frontend/src/shared/data.js` use the Manual / Unverified wording).
 
 The **conflict-queue listing** is extracted from `ui/triage.py` into a streamlit-free `competitive_database/curation/queue.py` (`queue.py` + `__init__.py`); `ui/` itself was not edited.
 
 The **detail serializers** (`model_detail()` / `detail_schema()` in `serializers.py`, Session 58) group raw values by **leaf id** (the last path segment) into Compare sections and apply a `_FRIENDLY_LEAF` label map; a leaf's value is a **list** when `_merge_group` finds >1 distinct offering (e.g. multiple CPUs/GPUs), else a scalar — so the UI can stack offerings on separate lines. Graphics adds a synthetic **GPU** row because the canonical field walk omits GPU names. These back `/api/model/{id}/detail` and `/api/schema/detail`.
+
+The **scrape-preview serializer** (`serialize_scrape_preview()` in `serializers.py`, Session 61) flattens one freshly scraped `CandidateProduct` (no DB row yet) into `{model_code, year, name, brand, summary:{cpu, gpu, memory_max_gb, storage_max_gb, display}}` for the Add-product preview. The default `name` runs through `bridge/helpers.py::clean_product_name()` — a single central name normalizer that strips trailing generic marketing suffixes (`Gaming Laptop` / `Gaming Notebook` / `Laptop` / `Notebook` / `Gaming`, trailing-only, case-insensitive, longest-match-first, idempotent, with an empty-result guard). Cleaning is applied to the **derived default name only**; the stored `vendor_full_name` bundle is left literal, and the user can still override the name in the editable Add-product field (the override is written to `products.product` via `POST /api/products/add`).
 
 ### Frontend (`frontend/`)
 
@@ -488,9 +493,9 @@ Five screens shipped and verified on the real DB:
 - **Spec Finder** (`src/finder/`) — faceted filters with live counts + an **Advanced** field+operator query mode that preserves `is_empty` / `vendor_unavailable` / numeric `gte`/`lte` against the real granular field paths.
 - **Compare Matrix** (`src/compare/`) — rows = our spec sections, ≤4 columns added via drag-shelf + typeahead, per-column year scrubber, differences-only toggle. Only **Processor / Graphics / I/O** are **collapsible accordions** (Session 58): collapsed shows the rollup summary; expanding fetches `/api/model/{id}/detail` and shows the real per-leaf values (actual CPU/GPU model names, display specs, raw ports), cached per `(model, year)`. Multi-offering leaves are returned as lists and stacked on separate lines in one uniform font; the section's status dot shows on the rollup row, so Processor/Graphics detail rows drop the leading dot (I/O detail rows keep theirs). Every other section is a plain non-collapsing row. A **☰ Fields** left-drawer (button at the left of the control bar) toggles the expandable sections' detail fields and whole sections on/off. Row density is a consistent ~31px at every product count with left breathing room.
 - **Review** (`src/curation/` — route id / folder unchanged) — a unified queue with **Conflicts / Unverified / Missing / Manual** buckets (Conflicts = pick between two disagreeing values; Unverified = confirm one uncertain needs-review value; Missing = blank or not-published; Manual = human-entered), an adaptive center editor (resolve-conflict vs edit-value) with keyboard commit, and a responsive provenance slide-over. Replaces the old Streamlit Edit + Triage screens. The left queue **groups by spec category in importance order** (Graphics → Processor → Memory → … → Identity), top group expanded and the rest collapsed, with `j`/`k` traversing only visible items; the Conflicts tab has a **"Correct value"** edit box that routes resolution through `manual_override` (off catalog-vouch rows) (Session 57).
-- **Refresh** (`src/refresh/`) — "All eligible products" (`POST /api/refresh {all:true}`) or "One product" (catalog dropdown + year → `from_db` re-scrape) modes, a confirm step, a running spinner, and a results rollup (stat grid, errors/skipped lists, conflict callout to Review) (Session 55).
+- **Add/Refresh** (`src/refresh/`; nav tab renamed from "Refresh" to "Add/Refresh" in Session 61, route id `refresh` unchanged) — "All eligible products" (`POST /api/refresh {all:true}`) or "One product" (catalog dropdown + year → `from_db` re-scrape) modes, then a **Run-refresh confirmation dialog** (a modal `rf-modal-*` replacing the inline confirm — Session 61), a running spinner, and a results rollup (stat grid, errors/skipped lists, conflict callout to Review) (Session 55). A **"+ Add new"** button opens the **Add-product** flow (`AddProduct.jsx` + `addProduct.css`, `ap-` class prefix, Session 61): pick vendor → the modal shows the vendor landing links to navigate (`/api/vendors`; ASUS shows ROG + ASUS) → paste the product URL → one live scrape (`POST /api/products/scrape`, no DB write) → preview-then-confirm with an **editable product-name field** (seeded from the cleaned default) → save (`POST /api/products/add`). The add path is strictly additive — it skips PKs that already exist so it never queues conflicts; the Finder Detail slide-over is reused for "View product".
 
-Top nav (`App.jsx`): **Home | Spec Finder | Compare | Review | Refresh**.
+Top nav (`App.jsx`): **Home | Spec Finder | Compare | Review | Add/Refresh**.
 
 The browser calls the API **same-origin** under the base path (`/competitive-database/api/...`) — `src/api.js` defaults its base to `import.meta.env.BASE_URL` with `VITE_API_BASE` as an optional override — and the Vite dev server proxies `/competitive-database/api` → `http://localhost:8011` (overridable via `VITE_API_TARGET`). No host is hardcoded in the bundle, so the same build serves localhost and a reverse proxy / Tailscale Funnel (`vite.config.js` allows `.ts.net` hosts).
 
