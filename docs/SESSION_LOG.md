@@ -6,6 +6,64 @@ Newest sessions at the top.
 
 ---
 
+## Session 62 — 2026-06-11 (Deferred code backlog cleared: Review value type-fidelity fix, Stage 11 P1.5 shim removal, ASUS TUF/V16 URL dispatch, Dell Keyboard/Battery/Adapter option modules; obsolete-task housekeeping; tests 543 → 559)
+
+**Goal:** Work the deferred code backlog one item at a time, done properly (no workarounds), and close out the Streamlit-era ghost tasks that no longer apply after the React cutover.
+
+### 1. Housekeeping — obsolete tasks closed, stale gates corrected
+
+- **Stage 10c P3/P4 triage redesign, `ui/triage.py`/`ui/__init__.py` docstring cleanup, and T8.8(c) refresh-targets dedup all CLOSED AS OBSOLETE** — each targeted the Streamlit `ui/` layer deleted in the S55 React cutover; the React Review screen (`frontend/src/curation/Curation.jsx`) already received the S57 click-cost rework. Recorded in a new TASKS.md "Obsolete" section so they don't resurface.
+- The vague "minor Add-flow refinements" carry-over note was dropped — never enumerated anywhere.
+- **ASUS TUF gate was stale** — the task claimed "gated on first TUF product"; the user corrected this: 8 TUF products exist in the DB with 100%-consistent stored source URLs. Ungated and fixed this session (§4).
+
+### 2. Review value type-fidelity fix (543 → 547)
+
+The deferred S43 "Edit annotation-only boolean round-trip" bug **survived the React cutover in mutated form**: Review field-state commits (Unverified/Missing/Manual tabs) seeded the Value input with `String(sel.value)` and posted `draft.value.trim()` with no coercion — so ANY commit on a bool field (even annotation-only: add a note, flip state) silently rewrote stored `true` → string `"true"`; ints drifted too. Fixed at two layers:
+
+- **Frontend** (`Curation.jsx::commitField`): dirty-detection against the seeded original — Value box untouched → posts the original raw `sel.value` (exact type, no string round-trip); edited → the existing `coerceValue` helper (same as the Conflicts path). Missing-tab `value=None` behavior unchanged.
+- **Backend** (`api/app.py::_coerce_to_existing_type`, wired into `POST /api/value`): string input is type-guarded against the stored value — bool cells accept only `"true"`/`"false"` (ci) and coerce, anything else → 400; int/float cells coerce parseable strings; str/None/list pass through. Read failures skip coercion so `manual_edit_cell` still raises its canonical 422.
+- +4 tests (`tests/api/test_value_type_fidelity.py`): bool `"true"` → real `True`; bool garbage → 400 + bundle unchanged; int `"32"` → int 32; str `"true"` stays string.
+- Noted, not fixed: `POST /api/resolve` manual_override has no equivalent backend guard (frontend `coerceValue` is its only protection); 18 pre-existing eslint findings (zero new).
+
+### 3. Stage 11 Phase 1.5 — `_normalize_products_pk` shim removed (547 green)
+
+Strict `{"product": ..., "year": ...}` pk dicts everywhere; the compat shim (legacy `{"model_code": ...}` shape + implicit slug persistence) is gone. The resolution had to live somewhere — entry points only know the vendor slug — so two explicit helpers replace it in `db/helpers.py`:
+
+- `resolve_products_pk(conn, model_code, year)` — same resolution rules as the shim, called once at pk-construction time.
+- `write_model_code(conn, pk, model_code)` — the shim's slug-persistence side effect made explicit; called once per `ingest()` (the row-creating path) and by test fixtures. Single-write-gateway rule kept.
+
+Production callsites: `ingest/runner.py` (pk construction + 6 `_enqueue` threads now take explicit `(model_code, year)` — `review_queue` stays slug-keyed, schema unchanged), `cli/manual_edit.py`, `cli/resolve.py`, `cli/backfill_lenovo_families.py` (incl. removed `canonical_pk_final`), `cli/_paths.py` (`"product"` added to `_PRODUCT_PK_COLUMNS` guard). ~30 test pk dicts renamed across 11 files. **Micro-edge, flagged:** manual-edit/resolve writes to a nonexistent row no longer stamp `model_code` — only ingest does (phantom-row edge; never occurs in practice or tests). Final grep: zero legacy pk dicts remain.
+
+### 4. ASUS TUF + V16 URL templates — per-series dispatch (547 → 552)
+
+`cli/refresh.py` had one template per vendor; ASUS spans three URL families. New `ASUS_SERIES_TEMPLATES` prefix map + `_template_for_slug` helper in `_resolve_url` — first prefix match wins, fallback = existing ROG template:
+
+- `asus-tuf-gaming-*` → `https://www.asus.com/us/laptops/for-gaming/tuf-gaming/{slug}/techspec/` — verified against ALL 8 stored TUF source URLs (incl. the a14 `-fa401ea` suffix; slug = model_code verbatim).
+- `asus-v16-*` → all-series `www.asus.com` techspec template (n=1 product; prefix deliberately narrow, widen when more V-series land).
+- `VENDOR_TEMPLATES["asus"]` untouched — it doubles as the supported-brand registry.
+
+Templates only apply in `--model`-without-`--url` mode; `--from-db`/`--all` use stored URLs exclusively (stored URLs always win). +5 tests (TUF, TUF-with-suffix, ROG unchanged, V16, unknown-series fallback).
+
+### 5. T9.4 closure — Dell Keyboard / Battery / AC Adapter option modules (552 → 559)
+
+The remaining Dell configurator modules wired into `bridge/dell.py` via the established `_option_labels` + `_augment_spec_text` pattern. **Module key names verified against a real scrapers-lib Dell configurator fixture** (Aurora 16 capture lists exactly `Keyboard` / `Primary Battery` / `AC Adapter` / `Operating System` with real labels):
+
+- **Keyboard** → `keyboard_offerings`: options land as additional offerings through the existing newline-split builder (index 0 = base, rest = optional). No description sub-fielding — that stays T7.0d.
+- **Battery** (`Primary Battery`) → `battery_offerings`: labels like `"6-Cell Battery, 96 Whr (Integrated)"` parse via existing `parse_wh` (`Whr` matches) + `parse_cell_count`; `selected` restatement dedups at merge on `(wattage_wh, cell_count)`.
+- **AC Adapter** → `adapter_offerings`: `parse_watts`; merge dedups by `wattage_w`. New `psu_combined` (mirrors `storage_combined`) so options-only pages still produce offerings; `adapter_connector` vendor-doesn't-publish marker keys off the combined text.
+- **Operating System SKIPPED on purpose** — OS variants are explicitly out of scope in DATA_MODEL §Out of scope; a guard test asserts the OS module leaks into no field. **Open user decision recorded:** Dell does publish orderable OS options (Win 11 Home/Pro) — adding OS coverage would be a schema addition needing approval.
+- +7 tests in `tests/bridge/test_dell.py` (30 → 37), incl. Dell's first keyboard-offerings baseline coverage and a `drop_specs` fixture helper for configurator-only pages.
+
+### 6. T7.0d re-scoped — stays deferred
+
+Scoping confirmed T7.0d (keyboard description → typed sub-fields) is **not** a prerequisite for §5 — multi-offering support already exists. Its S19 deferral rationale is stronger today: Keyboard is hidden from the visual rollup (S46), absent from Compare/Finder, and no query needs the split. Restart sketch recorded in TASKS.md: 4 typed leaves (`backlight`, `copilot_key`, `layout`, `travel_mm`) Display-offerings-style, keeping `description`; trigger = first real filterable-keyboard need.
+
+### Wrap
+
+Tests 543 → **559** (full suite green; frontend `npm run build` passes). README / ARCHITECTURE / POPULATION_QUEUE aligned (test counts, Dell module list, ASUS URL conventions, `/api/value` contract, repo-layout tests tree). Still deferred: T8.8(d) (gate unfired), T7.0d (see §6), Acer/MSI parsers, catalog auto-fetch, History layer, Postgres, T6.1. **Pickup:** scrape more products via the Add flow (data expansion); optional user decision on OS-options coverage.
+
+---
+
 ## Session 61 — 2026-06-10 (T9.4 Dell options LIVE-verified; new Add-product workflow + name normalizer; Dell bridge + CPU-curation fixes; data reconciliation; tests 515 → 543)
 
 **Goal:** De-risk the T9.4 "verified on synthetic options only" caveat and run the first live Dell refresh to close it; build a UI flow to add brand-new products by scraping a pasted vendor URL; clean up the data quirks the live refresh surfaced.

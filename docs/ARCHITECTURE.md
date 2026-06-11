@@ -40,7 +40,7 @@ One row per GPU model. Primary key: `model` (string). Same provenance pattern.
 Stage 10b (Session 44) added three curated columns: `series`, `board`, and `gpu_class`. All three are JSON provenance bundles, populated by hand. The existing `architecture` column was kept as-is and is reserved for future curation (Blackwell / RDNA 4 / Battlemage / etc.).
 
 #### `products`
-One row per product. Composite primary key: `(product, year)` (Stage 11, Session 48 — swapped from the legacy `(model_code, year)` PK; `model_code` remains as a non-PK survivor slug, and `_normalize_products_pk` in `db/helpers.py` translates legacy callsite keys to the new PK so pre-Stage-11 helpers + CLIs continue to work unchanged).
+One row per product. Composite primary key: `(product, year)` (Stage 11, Session 48 — swapped from the legacy `(model_code, year)` PK; `model_code` remains as a non-PK survivor slug). Stage 11 Phase 1.5 (Session 62) removed the `_normalize_products_pk` compat shim: every `db/helpers.py` read/write now takes the strict `{"product": ..., "year": ...}` pk dict, and slug-keyed entry points (CLI `--model` flags, ingest candidates, `review_queue` rows) resolve once via `resolve_products_pk(conn, model_code, year)`; `write_model_code(conn, pk, model_code)` persists the slug into the non-PK `model_code` column on first insert.
 
 Each column corresponds to a DATA_MODEL field. Storage:
 
@@ -68,7 +68,7 @@ Operational table for unresolved items.
 | `resolution_value` | JSON | Used when resolution = `manual_override` |
 | `resolver_note` | TEXT | Free-form |
 
-Under the Stage 11 PK swap (Session 48), `review_queue` rows still address products via `(product_model_code, product_year)`; those legacy keys are translated through the `_normalize_products_pk` compat shim in `db/helpers.py` when resolving against the new `(product, year)` PK.
+Under the Stage 11 PK swap (Session 48), `review_queue` rows still address products via `(product_model_code, product_year)`; since Phase 1.5 (Session 62) the `resolve` CLI translates that slug identity to the `(product, year)` PK explicitly via `resolve_products_pk` in `db/helpers.py`.
 
 ---
 
@@ -133,7 +133,7 @@ bridge/
 Each parser:
 1. Takes a `ProductSnapshot` from `scrapers-lib`.
 2. Reads `snapshot.specs: dict[str, str]` and decodes that vendor's idioms:
-   - **Dell** — flat regex extraction over the techspecs payload. Configurator options (`snapshot.options`, scrapers-lib v1.5.0+) are also consumed (T9.4, Session 60): each selectable CPU/GPU/RAM/storage/display option label is appended to the matching tile spec text and run through the same per-field builders, so every configurable variant surfaces as an extra offering (RAM/storage raise the `*_max_gb` ceiling instead). `unavailable` (out-of-stock) options are skipped; the ingest merge dedups the `selected` option against the tile default. Session 61 hardened the real-label parsing: the weight regexes also match `"Minimum weight"` / `"Maximum weight"` (in addition to `"Starting Weight"` / `"Weight (maximum)"`), and `_io_counts` treats a bare `"USB … port"` line with no Type-C / Thunderbolt qualifier as USB Type-A (Dell omits the `"Type-A"` token) — fixing null weight + `usba_count = 0` on the live Alienware rows.
+   - **Dell** — flat regex extraction over the techspecs payload. Configurator options (`snapshot.options`, scrapers-lib v1.5.0+) are also consumed (T9.4, Session 60; widened Session 62) across **eight option modules** — Processor / Graphics / Memory / Storage / Display (S60) plus Keyboard / Primary Battery / AC Adapter (S62, where `psu_combined` mirrors the existing `storage_combined` pattern): each selectable option label is appended to the matching tile spec text and run through the same per-field builders, so every configurable variant surfaces as an extra offering (RAM/storage raise the `*_max_gb` ceiling instead; configurator keyboards land as additional `keyboard_offerings`). The `Operating System` / `Operating System Language Pack` modules are deliberately NOT consumed — OS variants are out of scope per `DATA_MODEL.md`. `unavailable` (out-of-stock) options are skipped; the ingest merge dedups the `selected` option against the tile default. Session 61 hardened the real-label parsing: the weight regexes also match `"Minimum weight"` / `"Maximum weight"` (in addition to `"Starting Weight"` / `"Weight (maximum)"`), and `_io_counts` treats a bare `"USB … port"` line with no Type-C / Thunderbolt qualifier as USB Type-A (Dell omits the `"Type-A"` token) — fixing null weight + `usba_count = 0` on the live Alienware rows.
    - **HP** — multi-line spec values; line 0 → `tier: base`, additional lines → `tier: optional`.
    - **Lenovo** — walks hierarchical `level1 > level2 > level3` path keys.
    - **ASUS** — section-grouped h2 titles; per-SKU variants newline-joined.
@@ -195,12 +195,12 @@ Each `(snapshot → diff → writes + queue inserts)` runs inside a single SQLit
 
 All helpers under `cli/`. Each is a thin wrapper over an underlying Python function — the future UI calls those same functions, not the CLI. Single source of truth.
 
-Under the Stage 11 PK swap (Session 48), every `--model` / `model_code` / `MODEL_CODE` callsite below still passes the legacy vendor slug; the `_normalize_products_pk` compat shim in `db/helpers.py` translates it to the new `(product, year)` PK so the CLI signatures continue to work unchanged.
+Under the Stage 11 PK swap (Session 48), every `--model` / `model_code` / `MODEL_CODE` callsite below still passes the vendor slug; each CLI resolves it to the `(product, year)` PK via `resolve_products_pk` in `db/helpers.py` (Stage 11 Phase 1.5, Session 62), so the CLI signatures continue to work unchanged.
 
 ### `refresh`
 Ingestion. See [Ingestion runner](#ingestion-runner).
 
-Three URL-resolution modes: per-vendor `DEFAULT_*_URL_TMPL` (first-time ingest, slug as `--model`); explicit `--url` (first-time ingest, exact URL); `--from-db` (returning refresh — reads each product's stored `source_url` from bundle provenance, bypassing templates, and loops fetch across every distinct URL on the row so Lenovo Intel+AMD merged products refresh both sides).
+Three URL-resolution modes: per-vendor `DEFAULT_*_URL_TMPL` (first-time ingest, slug as `--model`); explicit `--url` (first-time ingest, exact URL); `--from-db` (returning refresh — reads each product's stored `source_url` from bundle provenance, bypassing templates, and loops fetch across every distinct URL on the row so Lenovo Intel+AMD merged products refresh both sides). ASUS template mode dispatches per series on the slug prefix via `ASUS_SERIES_TEMPLATES` (Session 62): `rog-*` → the ROG `rog.asus.com … /spec/` template; `asus-tuf-gaming-*` → the `www.asus.com … for-gaming/tuf-gaming … /techspec/` template; `asus-v16-*` → the `www.asus.com … for-gaming/all-series … /techspec/` template; unmatched slugs fall back to the ROG template (the pre-dispatch behavior).
 
 ```
 python -m competitive_database refresh --brand dell --model alienware-m18
@@ -362,6 +362,8 @@ competitive-database/
 │   ├── bridge/
 │   ├── ingest/
 │   ├── cli/
+│   ├── db/
+│   ├── views/
 │   ├── query/                # S54 — query engine unit tests
 │   └── api/                  # S54 — FastAPI endpoint + curation tests
 ├── frontend/                 # S54 — Vite + React app (Home | Spec Finder | Compare | Review | Add/Refresh)
@@ -467,7 +469,7 @@ Endpoints:
 | POST | `/api/find` | `{field_path, operator, value, narrow_by}` → matches (query engine); powers facets + advanced query |
 | GET | `/api/queue` | review queue (Conflicts + Unverified + Missing + Manual buckets) |
 | GET | `/api/queue/counts` | queue tab counts |
-| POST | `/api/value` | write edited value + state + provenance (`manual_edit_cell`) |
+| POST | `/api/value` | write edited value + state + provenance (`manual_edit_cell`). String input is type-guarded against the stored cell's type via `_coerce_to_existing_type` (Session 62): bool cells accept only `"true"`/`"false"` (case-insensitive; anything else → 400), numeric cells coerce when the string parses as that number; non-string input and str/None/list cells pass through unchanged |
 | POST | `/api/resolve` | triage resolution (`resolve_row`) |
 | GET | `/api/value/history` | provenance history for a cell |
 | POST | `/api/refresh` | real scrape/refresh (wraps `cli/refresh`) |
