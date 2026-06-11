@@ -78,7 +78,7 @@ def _conn(tmp_path):
 
 
 def _pk():
-    return {"model_code": _FAMILY, "year": 2025}
+    return {"product": _FAMILY, "year": 2025}
 
 
 def test_asus_single_snapshot_writes_family_code_and_source_codes(tmp_path):

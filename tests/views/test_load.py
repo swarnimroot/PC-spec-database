@@ -13,7 +13,11 @@ from __future__ import annotations
 import json
 
 from competitive_database.db.connection import apply_schema, connect, transaction
-from competitive_database.db.helpers import make_scraped_bundle, write_scalar
+from competitive_database.db.helpers import (
+    make_scraped_bundle,
+    write_model_code,
+    write_scalar,
+)
 from competitive_database.views.load import load_product
 
 
@@ -39,9 +43,10 @@ def test_load_product_decodes_m1_columns(tmp_path):
     try:
         with transaction(conn):
             apply_schema(conn)
-            pk = {"model_code": "legion-pro-5-16-gen-10", "year": 2025}
+            pk = {"product": "legion-pro-5-16-gen-10", "year": 2025}
             # Need at least one scalar bundle so the row exists.
             write_scalar(conn, "products", pk, "brand", _scraped("Lenovo"))
+            write_model_code(conn, pk, "legion-pro-5-16-gen-10")
             conn.execute(
                 "UPDATE products SET family_code = ?, source_model_codes = ? "
                 "WHERE model_code = ? AND year = ?",

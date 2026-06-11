@@ -40,7 +40,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..db.connection import connect, transaction
-from ..db.helpers import make_manual_bundle, write_offerings
+from ..db.helpers import make_manual_bundle, resolve_products_pk, write_offerings
 from ..ingest.catalog_resolve import vouch_catalog_row
 from ._paths import (
     format_product_pk,
@@ -173,10 +173,9 @@ def resolve_row(
                 f"shape not supported ({exc})."
             ) from exc
 
-    pk = {
-        "model_code": row["product_model_code"],
-        "year": row["product_year"],
-    }
+    pk = resolve_products_pk(
+        conn, row["product_model_code"], row["product_year"]
+    )
 
     with transaction(conn):
         if is_new_chip:

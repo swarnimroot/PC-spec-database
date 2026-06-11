@@ -46,6 +46,8 @@ from ..db.connection import transaction
 from ..db.helpers import (
     read_offerings,
     read_scalar,
+    resolve_products_pk,
+    write_model_code,
     write_offerings,
     write_scalar,
 )
@@ -95,9 +97,13 @@ def ingest(
     rolled back and the exception re-raised.
     """
     report = IngestReport(notes=list(candidate.notes))
-    pk = {"model_code": candidate.model_code, "year": candidate.year}
+    model_code = candidate.model_code
 
     with transaction(conn):
+        # Strict (product, year) pk for every db.helpers call. The vendor
+        # slug stays around separately — review_queue rows key on it.
+        pk = resolve_products_pk(conn, model_code, candidate.year)
+
         # Catalog stubs first so the cpu_offerings reference is valid
         # immediately. (We don't enforce FKs on the JSON values, but
         # consistency is still preferable.) ``resolve_catalog`` also
@@ -129,6 +135,7 @@ def ingest(
             _diff_scalar(
                 conn,
                 pk,
+                model_code,
                 "vendor_full_name",
                 candidate.vendor_full_name,
                 report,
@@ -141,13 +148,19 @@ def ingest(
             cand_bundle: Optional[Bundle] = getattr(candidate, col)
             if cand_bundle is None:
                 continue
-            _diff_scalar(conn, pk, col, cand_bundle, report)
+            _diff_scalar(conn, pk, model_code, col, cand_bundle, report)
 
         for col in OFFERINGS_FIELDS:
             cand_offerings: Optional[OfferingsList] = getattr(candidate, col)
             if cand_offerings is None:
                 continue
-            _diff_offerings(conn, pk, col, cand_offerings, report)
+            _diff_offerings(conn, pk, model_code, col, cand_offerings, report)
+
+        # Persist the vendor slug into the (non-PK) model_code column so
+        # reads via ``WHERE model_code = ?`` find the row. No-op when the
+        # row was never created (all-conflict ingest) or already carries a
+        # different slug (e.g. a Lenovo family_code rename).
+        write_model_code(conn, pk, model_code)
 
         # Write the two plain-text Lenovo merge columns last, after the
         # row is guaranteed to exist. These are NOT provenance bundles;
@@ -561,11 +574,11 @@ def _premerge_lenovo_existing_row(
         # Wrap the existing row as a synthetic CandidateProduct so we
         # can reuse the cross-tile merge code path verbatim.
         existing_holder = CandidateProduct(
-            model_code=str(pk["model_code"]), year=int(pk["year"])
+            model_code=candidate.model_code, year=candidate.year
         )
         existing_holder.boards = existing_boards
         cand_holder = CandidateProduct(
-            model_code=str(pk["model_code"]), year=int(pk["year"])
+            model_code=candidate.model_code, year=candidate.year
         )
         cand_holder.boards = candidate.boards
         merged_boards = _merge_boards([existing_holder, cand_holder])
@@ -608,10 +621,10 @@ def _read_flat_column(
     ``source_model_codes``) which are NOT provenance bundles.
     """
     row = conn.execute(
-        "SELECT {col} FROM products WHERE model_code = ? AND year = ?".format(
+        "SELECT {col} FROM products WHERE product = ? AND year = ?".format(
             col=column
         ),
-        (pk["model_code"], pk["year"]),
+        (pk["product"], pk["year"]),
     ).fetchone()
     if row is None:
         return None
@@ -638,8 +651,8 @@ def _write_lenovo_merge_columns(
     )
     conn.execute(
         "UPDATE products SET family_code = ?, source_model_codes = ? "
-        "WHERE model_code = ? AND year = ?",
-        (family_code, codes_json, pk["model_code"], pk["year"]),
+        "WHERE product = ? AND year = ?",
+        (family_code, codes_json, pk["product"], pk["year"]),
     )
 
 
@@ -651,6 +664,7 @@ def _write_lenovo_merge_columns(
 def _diff_scalar(
     conn: sqlite3.Connection,
     pk: dict[str, Any],
+    model_code: str,
     field_path: str,
     candidate: Bundle,
     report: IngestReport,
@@ -669,7 +683,8 @@ def _diff_scalar(
             report.low_confidence += 1
         _enqueue(
             conn,
-            pk,
+            model_code,
+            pk["year"],
             field_path,
             conflict_type,
             existing_bundle=existing,
@@ -695,7 +710,8 @@ def _diff_scalar(
     # Genuine disagreement.
     _enqueue(
         conn,
-        pk,
+        model_code,
+        pk["year"],
         field_path,
         "value_disagreement",
         existing_bundle=existing,
@@ -712,6 +728,7 @@ def _diff_scalar(
 def _diff_offerings(
     conn: sqlite3.Connection,
     pk: dict[str, Any],
+    model_code: str,
     field_path: str,
     candidate: OfferingsList,
     report: IngestReport,
@@ -735,7 +752,8 @@ def _diff_offerings(
         existing = read_offerings(conn, "products", pk, field_path)
         _enqueue(
             conn,
-            pk,
+            model_code,
+            pk["year"],
             field_path,
             "low_confidence_extraction",
             existing_value_raw=existing,
@@ -758,7 +776,8 @@ def _diff_offerings(
 
     _enqueue(
         conn,
-        pk,
+        model_code,
+        pk["year"],
         field_path,
         "value_disagreement",
         existing_value_raw=existing,
@@ -852,7 +871,8 @@ def _values_equal(a: Any, b: Any) -> bool:
 
 def _enqueue(
     conn: sqlite3.Connection,
-    pk: dict[str, Any],
+    model_code: str,
+    year: int,
     field_path: str,
     conflict_type: str,
     *,
@@ -861,7 +881,12 @@ def _enqueue(
     existing_value_raw: Any = None,
     candidate_value_raw: Any = None,
 ) -> None:
-    """Insert one row into ``review_queue``."""
+    """Insert one row into ``review_queue``.
+
+    The queue addresses products via the vendor slug
+    ``(product_model_code, product_year)``, not the ``(product, year)`` PK —
+    hence explicit ``model_code`` / ``year`` args rather than a pk dict.
+    """
     detected_at = datetime.now(timezone.utc).isoformat()
 
     if existing_bundle is not None:
@@ -896,8 +921,8 @@ def _enqueue(
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            pk["model_code"],
-            pk["year"],
+            model_code,
+            year,
             field_path,
             conflict_type,
             existing_value,

@@ -83,7 +83,7 @@ def _conn(tmp_path):
 
 
 def _pk():
-    return {"model_code": _FAMILY, "year": 2025}
+    return {"product": _FAMILY, "year": 2025}
 
 
 # ---------------------------------------------------------------------------

@@ -29,7 +29,7 @@ import sys
 from typing import Any
 
 from ..db.connection import connect, transaction
-from ..db.helpers import make_manual_bundle
+from ..db.helpers import make_manual_bundle, resolve_products_pk
 from ..views import load
 from ._paths import (
     format_product_pk,
@@ -163,7 +163,7 @@ def manual_edit_cell(
         except LookupError as exc:
             raise ValueError(str(exc)) from exc
 
-    pk = {"model_code": model_code, "year": year}
+    pk = resolve_products_pk(conn, model_code, year)
 
     before = read_at_path(conn, pk, parsed)
     with transaction(conn):

@@ -18,7 +18,7 @@ from competitive_database.db.helpers import (
 )
 
 
-_PK = {"model_code": "alienware-m18", "year": 2026}
+_PK = {"product": "alienware-m18", "year": 2026}
 
 
 def _fresh_db(tmp_path):
@@ -52,7 +52,7 @@ def _seed_value_disagreement(conn, field_path: str, existing_val, candidate_val)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            _PK["model_code"],
+            "alienware-m18",
             _PK["year"],
             field_path,
             "value_disagreement",
@@ -298,7 +298,7 @@ def _seed_offering_list_disagreement(conn, column: str, existing_list, candidate
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            _PK["model_code"],
+            "alienware-m18",
             _PK["year"],
             column,
             "value_disagreement",
@@ -476,7 +476,7 @@ def _seed_new_chip(
         VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?)
         """,
         (
-            _PK["model_code"],
+            "alienware-m18",
             _PK["year"],
             field_path,
             "new_chip_unverified",
@@ -723,7 +723,7 @@ def _seed_catalog_text_disagreement(
         VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)
         """,
         (
-            _PK["model_code"],
+            "alienware-m18",
             _PK["year"],
             field_path,
             "value_disagreement",

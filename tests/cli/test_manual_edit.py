@@ -17,7 +17,7 @@ from competitive_database.db.helpers import (
 )
 
 
-_PK = {"model_code": "alienware-m18", "year": 2026}
+_PK = {"product": "alienware-m18", "year": 2026}
 
 
 def _fresh_db(tmp_path):
@@ -223,7 +223,7 @@ def test_manual_edit_cell_accepts_manual_status(tmp_path):
             write_scalar(conn, "products", _PK, "brand", _scraped("Alienware"))
         manual_edit.manual_edit_cell(
             conn,
-            model_code=_PK["model_code"],
+            model_code="alienware-m18",
             year=_PK["year"],
             field_path="audio_jack",
             value="yes",
@@ -247,7 +247,7 @@ def test_manual_edit_cell_persists_source_url(tmp_path):
             write_scalar(conn, "products", _PK, "brand", _scraped("Alienware"))
         manual_edit.manual_edit_cell(
             conn,
-            model_code=_PK["model_code"],
+            model_code="alienware-m18",
             year=_PK["year"],
             field_path="audio_jack",
             value="yes",

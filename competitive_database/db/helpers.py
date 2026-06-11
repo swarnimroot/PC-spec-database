@@ -113,35 +113,48 @@ def _format_pk_clause(pk: dict) -> tuple[str, str, str, list]:
     return pk_cols, pk_placeholders, pk_cols, pk_values
 
 
-def _normalize_products_pk(
-    conn: sqlite3.Connection, pk: dict
-) -> tuple[dict, str | None]:
-    """Translate a legacy ``{"model_code": ..., "year": ...}`` pk dict into the
-    post-Stage-11 ``{"product": ..., "year": ...}`` shape.
+# --- Products PK resolution (Stage 11) ------------------------------------
 
-    Returns ``(new_pk, model_code_to_persist)`` where ``model_code_to_persist``
-    is the model_code value the caller wanted to write — non-None whenever the
-    caller passed a legacy pk dict, so the helper can persist it into the
-    (non-PK) ``model_code`` column on first INSERT.
 
-    Resolution rules when only ``model_code`` is provided:
-      - If a row exists with that model_code + year, use its ``product`` value.
-      - Otherwise fall back to ``product = model_code`` (placeholder; works for
-        tests that construct fresh rows without a "real" product name).
+def resolve_products_pk(
+    conn: sqlite3.Connection, model_code: str, year: int
+) -> dict:
+    """Resolve a vendor ``(model_code, year)`` identity to the canonical
+    ``{"product": ..., "year": ...}`` pk dict (post-Stage-11 PK).
+
+    Callers that key on the vendor slug (CLI ``--model`` flags, ingest
+    candidates, ``review_queue`` rows) resolve once at pk-construction time;
+    every ``db.helpers`` read/write then takes the strict pk shape.
+
+    Resolution rules:
+      - If a row exists with that model_code + year, use its ``product`` value
+        (so refreshes target a user-renamed product, not the slug).
+      - Otherwise fall back to ``product = model_code`` (placeholder for
+        brand-new rows; matches what ``ingest`` writes on first insert).
     """
-    if "product" in pk:
-        return dict(pk), pk.get("model_code")
-    if "model_code" not in pk or "year" not in pk:
-        return dict(pk), None
-    mc = pk["model_code"]
-    year = pk["year"]
     row = conn.execute(
         "SELECT product FROM products WHERE model_code = ? AND year = ?",
-        (mc, year),
+        (model_code, year),
     ).fetchone()
-    product = row[0] if row and row[0] is not None else mc
-    new_pk = {"product": product, "year": year}
-    return new_pk, mc
+    product = row[0] if row and row[0] is not None else model_code
+    return {"product": product, "year": year}
+
+
+def write_model_code(
+    conn: sqlite3.Connection, pk: dict, model_code: str
+) -> None:
+    """Persist the vendor slug into the (non-PK) ``model_code`` column.
+
+    Guarded: a row whose model_code is already set to a *different* slug is
+    left alone (e.g. a Lenovo row renamed to its family_code). Keeps reads
+    via ``WHERE model_code = ?`` working for rows created through the strict
+    ``(product, year)`` pk.
+    """
+    conn.execute(
+        "UPDATE products SET model_code = ? "
+        "WHERE product = ? AND year = ? AND (model_code IS NULL OR model_code = ?)",
+        (model_code, pk["product"], pk["year"], model_code),
+    )
 
 
 def _upsert_one_field(
@@ -152,9 +165,6 @@ def _upsert_one_field(
     encoded_value: str,
 ) -> None:
     """INSERT-or-UPDATE one column on a row identified by ``pk``."""
-    model_code_to_persist: str | None = None
-    if table == "products":
-        pk, model_code_to_persist = _normalize_products_pk(conn, pk)
     pk_cols, pk_placeholders, conflict_cols, pk_values = _format_pk_clause(pk)
     sql = (
         f"INSERT INTO {table} ({pk_cols}, {field}) "
@@ -162,24 +172,6 @@ def _upsert_one_field(
         f"ON CONFLICT({conflict_cols}) DO UPDATE SET {field} = excluded.{field}"
     )
     conn.execute(sql, [*pk_values, encoded_value])
-    if (
-        table == "products"
-        and model_code_to_persist is not None
-        and field != "model_code"
-    ):
-        # Caller passed a legacy pk that included model_code as part of row
-        # identity. Persist it to the (non-PK) model_code column so reads via
-        # ``WHERE model_code = ?`` still find the row.
-        conn.execute(
-            "UPDATE products SET model_code = ? "
-            "WHERE product = ? AND year = ? AND (model_code IS NULL OR model_code = ?)",
-            (
-                model_code_to_persist,
-                pk["product"],
-                pk["year"],
-                model_code_to_persist,
-            ),
-        )
 
 
 def _read_one_field(
@@ -188,13 +180,7 @@ def _read_one_field(
     pk: dict,
     field: str,
 ) -> Optional[str]:
-    """Read the raw text stored in ``field``. Returns None if row missing or NULL.
-
-    Accepts both post-Stage-11 ``{"product": ..., "year": ...}`` and the
-    legacy ``{"model_code": ..., "year": ...}`` pk shapes — the latter falls
-    through as a WHERE-by-column lookup since ``model_code`` is still a row
-    column post-Stage-11 (it's just no longer part of the PK).
-    """
+    """Read the raw text stored in ``field``. Returns None if row missing or NULL."""
     cols = list(pk.keys())
     where = " AND ".join(f"{c} = ?" for c in cols)
     values = [pk[c] for c in cols]

@@ -8,9 +8,14 @@ from competitive_database.cli import audit_normalize
 from competitive_database.db.connection import apply_schema, connect, transaction
 from competitive_database.db.helpers import (
     make_scraped_bundle,
+    write_model_code,
     write_offerings,
     write_scalar,
 )
+
+
+_PK_ALPHA = {"product": "alpha", "year": 2026}
+_PK_BETA = {"product": "beta", "year": 2026}
 
 
 def _fresh_db(tmp_path):
@@ -37,14 +42,14 @@ def test_audit_surfaces_string_gap(tmp_path, capsys):
             write_scalar(
                 conn,
                 "products",
-                {"model_code": "alpha", "year": 2026},
+                _PK_ALPHA,
                 "wifi_standard",
                 _scraped("Wi-Fi 7"),
             )
             write_scalar(
                 conn,
                 "products",
-                {"model_code": "beta", "year": 2026},
+                _PK_BETA,
                 "wifi_standard",
                 _scraped("WiFi 7"),
             )
@@ -53,17 +58,19 @@ def test_audit_surfaces_string_gap(tmp_path, capsys):
             write_scalar(
                 conn,
                 "products",
-                {"model_code": "alpha", "year": 2026},
+                _PK_ALPHA,
                 "audio_jack",
                 _scraped("yes"),
             )
             write_scalar(
                 conn,
                 "products",
-                {"model_code": "beta", "year": 2026},
+                _PK_BETA,
                 "audio_jack",
                 _scraped("yes"),
             )
+            write_model_code(conn, _PK_ALPHA, "alpha")
+            write_model_code(conn, _PK_BETA, "beta")
     finally:
         conn.close()
 
@@ -86,17 +93,19 @@ def test_audit_no_gaps_when_uniform(tmp_path, capsys):
             write_scalar(
                 conn,
                 "products",
-                {"model_code": "alpha", "year": 2026},
+                _PK_ALPHA,
                 "wifi_standard",
                 _scraped("Wi-Fi 7"),
             )
             write_scalar(
                 conn,
                 "products",
-                {"model_code": "beta", "year": 2026},
+                _PK_BETA,
                 "wifi_standard",
                 _scraped("Wi-Fi 7"),
             )
+            write_model_code(conn, _PK_ALPHA, "alpha")
+            write_model_code(conn, _PK_BETA, "beta")
     finally:
         conn.close()
 
@@ -113,10 +122,11 @@ def test_audit_all_lists_every_path(tmp_path, capsys):
             write_scalar(
                 conn,
                 "products",
-                {"model_code": "alpha", "year": 2026},
+                _PK_ALPHA,
                 "wifi_standard",
                 _scraped("Wi-Fi 7"),
             )
+            write_model_code(conn, _PK_ALPHA, "alpha")
     finally:
         conn.close()
 
@@ -135,17 +145,19 @@ def test_audit_offering_leaves_aggregate_across_products(tmp_path, capsys):
             write_offerings(
                 conn,
                 "products",
-                {"model_code": "alpha", "year": 2026},
+                _PK_ALPHA,
                 "display_offerings",
                 [{"panel_type": _scraped("OLED")}],
             )
             write_offerings(
                 conn,
                 "products",
-                {"model_code": "beta", "year": 2026},
+                _PK_BETA,
                 "display_offerings",
                 [{"panel_type": _scraped("oled")}],
             )
+            write_model_code(conn, _PK_ALPHA, "alpha")
+            write_model_code(conn, _PK_BETA, "beta")
     finally:
         conn.close()
 
@@ -167,14 +179,14 @@ def test_audit_skips_vendor_doesnt_publish(tmp_path, capsys):
             write_scalar(
                 conn,
                 "products",
-                {"model_code": "alpha", "year": 2026},
+                _PK_ALPHA,
                 "wifi_standard",
                 _scraped("Wi-Fi 7"),
             )
             write_scalar(
                 conn,
                 "products",
-                {"model_code": "beta", "year": 2026},
+                _PK_BETA,
                 "wifi_standard",
                 make_vendor_doesnt_publish_bundle(
                     source_url="https://example.com",
@@ -182,6 +194,8 @@ def test_audit_skips_vendor_doesnt_publish(tmp_path, capsys):
                     scraper_id="test",
                 ),
             )
+            write_model_code(conn, _PK_ALPHA, "alpha")
+            write_model_code(conn, _PK_BETA, "beta")
     finally:
         conn.close()
 

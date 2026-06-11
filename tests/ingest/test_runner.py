@@ -31,7 +31,7 @@ def _conn(tmp_path):
     return c
 
 
-PK = {"model_code": "aa18250", "year": 2026}
+PK = {"product": "aa18250", "year": 2026}
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ def test_ingest_value_disagreement_enqueues(tmp_path):
         rows = conn.execute(
             "SELECT conflict_type, field_path, candidate_value "
             "FROM review_queue WHERE product_model_code = ?",
-            (PK["model_code"],),
+            ("aa18250",),
         ).fetchall()
         types = [r["conflict_type"] for r in rows]
         assert "value_disagreement" in types

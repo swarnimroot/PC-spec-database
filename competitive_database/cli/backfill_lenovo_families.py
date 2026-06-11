@@ -33,7 +33,13 @@ from typing import Any, Optional
 from ..bridge.lenovo import _derive_lenovo_family_and_arch
 from ..bridge.types import CandidateProduct, OFFERINGS_FIELDS, SCALAR_FIELDS
 from ..db.connection import connect, transaction
-from ..db.helpers import read_offerings, read_scalar, write_offerings, write_scalar
+from ..db.helpers import (
+    read_offerings,
+    read_scalar,
+    resolve_products_pk,
+    write_offerings,
+    write_scalar,
+)
 # Cross-module access to runner internals: the M4 merge path already
 # implements board union and the review-queue insert, and we want
 # identical semantics here. Importing the underscored helpers keeps
@@ -193,7 +199,7 @@ def _read_lenovo_title_and_url(
     pre-M2 ingest path didn't populate the title cell; the slug still
     lives on ``brand.source_url`` and the other identity bundles.
     """
-    pk = {"model_code": model_code, "year": year}
+    pk = resolve_products_pk(conn, model_code, year)
 
     primary = read_scalar(conn, "products", pk, "vendor_full_name")
     title: Optional[str] = None
@@ -246,21 +252,13 @@ def _apply_single(
     + source_model_codes, and tag the row's boards with arch_marker."""
     # Stamp arch_marker on each board entry (if we derived one).
     if arch_marker is not None:
-        boards = read_offerings(
-            conn, "products", {"model_code": model_code, "year": year}, "boards"
-        )
+        pk = resolve_products_pk(conn, model_code, year)
+        boards = read_offerings(conn, "products", pk, "boards")
         if boards:
             stamped = [_stamp_arch(b, arch_marker) for b in boards]
-            write_offerings(
-                conn,
-                "products",
-                {"model_code": model_code, "year": year},
-                "boards",
-                stamped,
-            )
+            write_offerings(conn, "products", pk, "boards", stamped)
 
-    # Rename PK (model_code) + set the two flat columns. SQLite supports
-    # updating PK columns directly as long as no FK references collide.
+    # Rename the (non-PK) model_code slug + set the two flat columns.
     codes_json = json.dumps([model_code])
     conn.execute(
         "UPDATE products SET model_code = ?, family_code = ?, "
@@ -301,8 +299,7 @@ def _apply_merge(
     canonical_code, _, canonical_arch = canonical
     other_codes = [o[0] for o in others]
     all_codes = sorted([canonical_code] + other_codes)
-    canonical_pk = {"model_code": canonical_code, "year": year}
-    canonical_pk_final = {"model_code": family_code, "year": year}
+    canonical_pk = resolve_products_pk(conn, canonical_code, year)
 
     # Build CandidateProduct holders so we can reuse _merge_boards /
     # _merge_offerings, which both read offerings off CandidateProduct
@@ -311,7 +308,7 @@ def _apply_merge(
     for code, arch in [(canonical_code, canonical_arch)] + [
         (o[0], o[2]) for o in others
     ]:
-        pk = {"model_code": code, "year": year}
+        pk = resolve_products_pk(conn, code, year)
         holder = CandidateProduct(model_code=family_code, year=year)
         # Stamp arch_marker on this row's boards before union.
         boards = read_offerings(conn, "products", pk, "boards")
@@ -339,14 +336,13 @@ def _apply_merge(
             write_offerings(conn, "products", canonical_pk, col, merged)
 
     # Scalars: canonical wins; any other-row disagreement enqueues a
-    # value_disagreement against the (canonical, year) PK. We need to
-    # enqueue against the FINAL PK (family_code, year) so the queue rows
-    # match the post-rename product identity — but the row hasn't been
-    # renamed yet, so build the PK explicitly.
+    # value_disagreement. We enqueue against the FINAL slug identity
+    # (family_code, year) so the queue rows match the post-rename
+    # product identity — the row itself hasn't been renamed yet.
     for col in SCALAR_FIELDS:
         canonical_bundle = read_scalar(conn, "products", canonical_pk, col)
         for o in others:
-            other_pk = {"model_code": o[0], "year": year}
+            other_pk = resolve_products_pk(conn, o[0], year)
             other_bundle = read_scalar(conn, "products", other_pk, col)
             if other_bundle is None:
                 continue
@@ -362,7 +358,8 @@ def _apply_merge(
             # the final PK shape (family_code, year).
             _enqueue(
                 conn,
-                canonical_pk_final,
+                family_code,
+                year,
                 col,
                 "value_disagreement",
                 existing_bundle=canonical_bundle,

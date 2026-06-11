@@ -23,6 +23,7 @@ from competitive_database.db.connection import apply_schema, connect, transactio
 from competitive_database.db.helpers import (
     make_scraped_bundle,
     read_offerings,
+    write_model_code,
     write_offerings,
     write_scalar,
 )
@@ -31,7 +32,8 @@ from competitive_database.views.boards import render
 from competitive_database.views.load import load_product
 
 
-_PK = {"model_code": "legion-pro-5-16-gen-10", "year": 2025}
+_MODEL_CODE = "legion-pro-5-16-gen-10"
+_PK = {"product": _MODEL_CODE, "year": 2025}
 _DB_NAME = "me_arch.db"
 _SOURCE_URL = "https://psref.lenovo.com/example"
 _CAPTURED_AT = "2026-05-08T00:00:00+00:00"
@@ -72,13 +74,14 @@ def _seed_product(tmp_path, *, arch_marker="intel-rtx"):
                 conn, "products", _PK, "brand", _scraped("Lenovo")
             )
             write_offerings(conn, "products", _PK, "boards", [board])
+            write_model_code(conn, _PK, _MODEL_CODE)
     finally:
         conn.close()
 
 
 def _manual_edit_args(tmp_path, *, field, value, value_json=None):
     return argparse.Namespace(
-        product=_PK["model_code"],
+        product=_MODEL_CODE,
         year=_PK["year"],
         field=field,
         value=value,
@@ -153,12 +156,12 @@ def test_merge_boards_after_arch_marker_hand_edit_keys_correctly(tmp_path):
         edited_boards = read_offerings(conn, "products", _PK, "boards")
     finally:
         conn.close()
-    edited_holder = CandidateProduct(model_code=_PK["model_code"], year=2025)
+    edited_holder = CandidateProduct(model_code=_MODEL_CODE, year=2025)
     edited_holder.boards = edited_boards
 
     # Build a fresh bridge-shape candidate with a *different* arch_marker
     # value, same label → should stay distinct after merge.
-    intel_holder = CandidateProduct(model_code=_PK["model_code"], year=2025)
+    intel_holder = CandidateProduct(model_code=_MODEL_CODE, year=2025)
     intel_holder.boards = [
         {
             "label": _scraped("MB1"),
@@ -177,7 +180,7 @@ def test_merge_boards_after_arch_marker_hand_edit_keys_correctly(tmp_path):
     assert arches == {"amd-radeon", "intel-rtx"}
 
     # And a same-arch candidate merges into the edited entry.
-    amd_holder = CandidateProduct(model_code=_PK["model_code"], year=2025)
+    amd_holder = CandidateProduct(model_code=_MODEL_CODE, year=2025)
     amd_holder.boards = [
         {
             "label": _scraped("MB1"),
@@ -221,7 +224,7 @@ def test_render_after_arch_marker_hand_edit_has_no_dict_leak(tmp_path):
 
     conn = connect(tmp_path / _DB_NAME)
     try:
-        product = load_product(conn, _PK["model_code"], _PK["year"])
+        product = load_product(conn, _MODEL_CODE, _PK["year"])
     finally:
         conn.close()
 
@@ -249,7 +252,7 @@ def test_load_product_decodes_plain_arch_marker_after_hand_edit(tmp_path):
 
     conn = connect(tmp_path / _DB_NAME)
     try:
-        product = load_product(conn, _PK["model_code"], _PK["year"])
+        product = load_product(conn, _MODEL_CODE, _PK["year"])
     finally:
         conn.close()
     boards = product["boards"]

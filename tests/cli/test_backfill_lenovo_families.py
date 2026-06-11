@@ -16,6 +16,7 @@ from competitive_database.cli import backfill_lenovo_families
 from competitive_database.db.connection import apply_schema, connect, transaction
 from competitive_database.db.helpers import (
     make_scraped_bundle,
+    write_model_code,
     write_offerings,
     write_scalar,
 )
@@ -61,7 +62,7 @@ def _seed_legacy_lenovo_row(
 ):
     """Write a Lenovo row in pre-backfill shape: family_code NULL,
     source_model_codes NULL, boards without arch_marker."""
-    pk = {"model_code": model_code, "year": year}
+    pk = {"product": model_code, "year": year}
     with transaction(conn):
         write_scalar(
             conn, "products", pk, "vendor_full_name",
@@ -71,6 +72,7 @@ def _seed_legacy_lenovo_row(
             conn, "products", pk, "brand",
             _scraped("Lenovo", source_url=source_url),
         )
+        write_model_code(conn, pk, model_code)
         if boards is not None:
             write_offerings(conn, "products", pk, "boards", boards)
         if extra_scalars:
@@ -111,9 +113,14 @@ def test_no_lenovo_rows_runs_clean(tmp_path, capsys):
         with transaction(conn):
             write_scalar(
                 conn, "products",
-                {"model_code": "rog-zephyrus-g16-2026", "year": 2026},
+                {"product": "rog-zephyrus-g16-2026", "year": 2026},
                 "brand",
                 _scraped("ASUS", source_url="https://rog.asus.com/"),
+            )
+            write_model_code(
+                conn,
+                {"product": "rog-zephyrus-g16-2026", "year": 2026},
+                "rog-zephyrus-g16-2026",
             )
     finally:
         conn.close()
@@ -134,7 +141,7 @@ def test_already_backfilled_rows_are_skipped(tmp_path, capsys):
     conn = _fresh_db(tmp_path)
     try:
         with transaction(conn):
-            pk = {"model_code": "legion-pro-5-16-gen-10", "year": 2025}
+            pk = {"product": "legion-pro-5-16-gen-10", "year": 2025}
             write_scalar(
                 conn, "products", pk, "vendor_full_name",
                 _scraped("Lenovo Legion Pro 5 16IRX10", source_url=_URL_INTEL),
@@ -143,6 +150,7 @@ def test_already_backfilled_rows_are_skipped(tmp_path, capsys):
                 conn, "products", pk, "brand",
                 _scraped("Lenovo", source_url=_URL_INTEL),
             )
+            write_model_code(conn, pk, "legion-pro-5-16-gen-10")
             conn.execute(
                 "UPDATE products SET family_code = ?, source_model_codes = ? "
                 "WHERE model_code = ? AND year = ?",
@@ -321,7 +329,7 @@ def test_non_lenovo_rows_not_touched(tmp_path, capsys):
     Lenovo via the brand bundle."""
     conn = _fresh_db(tmp_path)
     try:
-        asus_pk = {"model_code": "rog-zephyrus-g16-2026", "year": 2026}
+        asus_pk = {"product": "rog-zephyrus-g16-2026", "year": 2026}
         with transaction(conn):
             write_scalar(
                 conn, "products", asus_pk, "vendor_full_name",
@@ -335,6 +343,7 @@ def test_non_lenovo_rows_not_touched(tmp_path, capsys):
                          source_url="https://rog.asus.com/.../spec/",
                          scraper_id="asus.fetch_asus_product"),
             )
+            write_model_code(conn, asus_pk, "rog-zephyrus-g16-2026")
         # And one parseable Lenovo row to verify the filter is by brand,
         # not "do nothing".
         _seed_legacy_lenovo_row(
@@ -443,7 +452,7 @@ def test_backfill_falls_back_to_brand_source_url_when_vendor_full_name_missing(
     parser can still derive family_code + arch_marker."""
     conn = _fresh_db(tmp_path)
     try:
-        pk = {"model_code": "16AFR10H", "year": 2026}
+        pk = {"product": "16AFR10H", "year": 2026}
         url_pro7_amd = (
             "https://psref.lenovo.com/l/Product/Legion/Legion_Pro_7_16AFR10H"
         )
@@ -458,6 +467,7 @@ def test_backfill_falls_back_to_brand_source_url_when_vendor_full_name_missing(
                 conn, "products", pk, "boards",
                 [_board("MB1", ["Radeon RX 8060S"], source_url=url_pro7_amd)],
             )
+            write_model_code(conn, pk, "16AFR10H")
     finally:
         conn.close()
 

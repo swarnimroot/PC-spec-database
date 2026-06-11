@@ -12,8 +12,9 @@ four forms:
   - Catalog scalar (text):     ``cpu_catalog.<model>.architecture_code``
                                ``gpu_catalog.<model>.architecture``
 
-PK columns (``model_code``, ``year`` on products; ``model`` on catalogs)
-cannot be edited via this path syntax.
+Identity columns (``product``, ``year`` — the Stage 11 PK — plus the
+``model_code`` survivor slug on products; ``model`` on catalogs) cannot be
+edited via this path syntax.
 """
 
 from __future__ import annotations
@@ -47,7 +48,7 @@ _OFFERINGS_COLUMNS = frozenset(
     }
 )
 
-_PRODUCT_PK_COLUMNS = frozenset({"model_code", "year"})
+_PRODUCT_PK_COLUMNS = frozenset({"product", "model_code", "year"})
 
 _CATALOG_TABLES = ("cpu_catalog", "gpu_catalog")
 

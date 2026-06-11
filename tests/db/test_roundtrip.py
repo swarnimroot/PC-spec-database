@@ -21,7 +21,7 @@ from competitive_database.db.helpers import (
 )
 
 
-SAMPLE_PK = {"model_code": "alienware-m18", "year": 2026}
+SAMPLE_PK = {"product": "alienware-m18", "year": 2026}
 
 
 def _fresh_db(tmp_path):

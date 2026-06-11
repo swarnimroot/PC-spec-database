@@ -9,12 +9,13 @@ from competitive_database.db.connection import apply_schema, connect, transactio
 from competitive_database.db.helpers import (
     make_scraped_bundle,
     make_vendor_doesnt_publish_bundle,
+    write_model_code,
     write_offerings,
     write_scalar,
 )
 
 
-_PK = {"model_code": "alienware-m18", "year": 2026}
+_PK = {"product": "alienware-m18", "year": 2026}
 
 
 def _fresh_db(tmp_path):
@@ -58,6 +59,7 @@ def test_find_empty_groups_by_section(tmp_path, capsys):
                 }
             ]
             write_offerings(conn, "products", _PK, "display_offerings", offerings)
+            write_model_code(conn, _PK, "alienware-m18")
     finally:
         conn.close()
 
@@ -146,6 +148,7 @@ def test_find_empty_clean_product(tmp_path, capsys):
                 "adapter_connector",
             ):
                 write_scalar(conn, "products", _PK, col, _scraped("x"))
+            write_model_code(conn, _PK, "alienware-m18")
     finally:
         conn.close()
 
