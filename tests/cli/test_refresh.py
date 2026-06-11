@@ -20,6 +20,7 @@ from competitive_database.db.connection import apply_schema, connect, transactio
 from competitive_database.db.helpers import (
     make_manual_bundle,
     make_scraped_bundle,
+    write_model_code,
     write_offerings,
     write_scalar,
 )
@@ -103,6 +104,52 @@ def test_resolve_dell_template_used_when_only_slug_given():
     assert slug == "ac16251"
 
 
+# --- ASUS per-series template dispatch ------------------------------------
+
+
+def test_resolve_asus_tuf_slug_uses_www_techspec_template():
+    url, slug = _resolve_url("asus", None, "asus-tuf-gaming-f16-2025")
+    assert url == (
+        "https://www.asus.com/us/laptops/for-gaming/tuf-gaming/"
+        "asus-tuf-gaming-f16-2025/techspec/"
+    )
+    assert slug == "asus-tuf-gaming-f16-2025"
+
+
+def test_resolve_asus_tuf_slug_keeps_disambiguator_suffix():
+    url, _slug = _resolve_url("asus", None, "asus-tuf-gaming-a14-2026-fa401ea")
+    assert url == (
+        "https://www.asus.com/us/laptops/for-gaming/tuf-gaming/"
+        "asus-tuf-gaming-a14-2026-fa401ea/techspec/"
+    )
+
+
+def test_resolve_asus_rog_slug_keeps_rog_template():
+    url, slug = _resolve_url("asus", None, "rog-zephyrus-g16-2026")
+    assert url == (
+        "https://rog.asus.com/us/laptops/rog-zephyrus/"
+        "rog-zephyrus-g16-2026/spec/"
+    )
+    assert slug == "rog-zephyrus-g16-2026"
+
+
+def test_resolve_asus_v16_slug_uses_all_series_template():
+    url, _slug = _resolve_url("asus", None, "asus-v16-v3607")
+    assert url == (
+        "https://www.asus.com/us/laptops/for-gaming/all-series/"
+        "asus-v16-v3607/techspec/"
+    )
+
+
+def test_resolve_asus_unknown_series_falls_back_to_vendor_default():
+    """Slugs matching no series prefix keep the pre-dispatch behavior:
+    the per-vendor default (ROG) template."""
+    url, _slug = _resolve_url("asus", None, "proart-p16-2026")
+    assert url == (
+        "https://rog.asus.com/us/laptops/rog-zephyrus/proart-p16-2026/spec/"
+    )
+
+
 # --- T7.4 --from-db: source_url walker (pure) ----------------------------
 
 
@@ -165,7 +212,8 @@ def test_walk_source_urls_ignores_empty_string_source_url():
 # --- T7.4 --from-db: DB collector ----------------------------------------
 
 
-_PK = {"model_code": "alienware-area-51", "year": 2026}
+_MODEL_CODE = "alienware-area-51"
+_PK = {"product": _MODEL_CODE, "year": 2026}
 
 
 def _fresh_db(tmp_path):
@@ -200,6 +248,7 @@ def test_collect_source_urls_single_scraped_scalar(tmp_path):
                 conn, "products", _PK, "brand",
                 _scraped("Alienware", "https://dell/spd/aa18250"),
             )
+            write_model_code(conn, _PK, _MODEL_CODE)
         urls = _collect_source_urls_from_product(
             conn, "alienware-area-51", 2026
         )
@@ -219,6 +268,7 @@ def test_collect_source_urls_dedups_across_scalars_and_offerings(tmp_path):
                 [{"nits_peak": _scraped(500, url),
                   "refresh_rate_hz": _scraped(240, url)}],
             )
+            write_model_code(conn, _PK, _MODEL_CODE)
         urls = _collect_source_urls_from_product(
             conn, "alienware-area-51", 2026
         )
@@ -242,6 +292,7 @@ def test_collect_source_urls_multi_url_lenovo_pattern(tmp_path):
                     {"chip": _scraped("R9", amd_url)},
                 ],
             )
+            write_model_code(conn, _PK, _MODEL_CODE)
         urls = _collect_source_urls_from_product(
             conn, "alienware-area-51", 2026
         )
@@ -255,6 +306,7 @@ def test_collect_source_urls_manual_only_returns_empty(tmp_path):
     try:
         with transaction(conn):
             write_scalar(conn, "products", _PK, "audio_jack", _manual("yes"))
+            write_model_code(conn, _PK, _MODEL_CODE)
         urls = _collect_source_urls_from_product(
             conn, "alienware-area-51", 2026
         )
@@ -277,13 +329,15 @@ def test_collect_source_urls_year_disambiguator_required(tmp_path):
     try:
         with transaction(conn):
             write_scalar(
-                conn, "products", {"model_code": "shared", "year": 2025},
+                conn, "products", {"product": "shared", "year": 2025},
                 "brand", _scraped("X", "https://a/"),
             )
+            write_model_code(conn, {"product": "shared", "year": 2025}, "shared")
             write_scalar(
-                conn, "products", {"model_code": "shared", "year": 2026},
+                conn, "products", {"product": "shared", "year": 2026},
                 "brand", _scraped("X", "https://b/"),
             )
+            write_model_code(conn, {"product": "shared", "year": 2026}, "shared")
         with pytest.raises(ValueError, match="multiple yearly variants"):
             _collect_source_urls_from_product(conn, "shared", None)
         # Disambiguating with --year picks the right row.
@@ -320,13 +374,9 @@ def _seed_brand(conn, model_code, year, brand_name, url):
     """Write a scraped ``brand`` bundle on a product so
     ``refresh_all_products`` sees it as eligible."""
     with transaction(conn):
-        write_scalar(
-            conn,
-            "products",
-            {"model_code": model_code, "year": year},
-            "brand",
-            _scraped(brand_name, url),
-        )
+        pk = {"product": model_code, "year": year}
+        write_scalar(conn, "products", pk, "brand", _scraped(brand_name, url))
+        write_model_code(conn, pk, model_code)
 
 
 def _stub_fetch_dispatch_ingest(monkeypatch, *, fetcher, dispatcher, ingester):
@@ -404,6 +454,7 @@ def test_refresh_product_from_db_walks_stored_urls(monkeypatch, tmp_path):
                     {"chip": _scraped("R9", amd_url)},
                 ],
             )
+            write_model_code(conn, _PK, _MODEL_CODE)
 
         urls_fetched: list[str] = []
         _stub_fetch_dispatch_ingest(
@@ -473,6 +524,7 @@ def test_refresh_product_from_db_no_urls_raises_value_error(tmp_path):
     try:
         with transaction(conn):
             write_scalar(conn, "products", _PK, "audio_jack", _manual("yes"))
+            write_model_code(conn, _PK, _MODEL_CODE)
         with pytest.raises(ValueError, match="no scraped source_urls"):
             refresh_product(
                 conn, brand="dell", model="alienware-area-51",
@@ -592,9 +644,12 @@ def test_refresh_all_skips_product_without_source_url(monkeypatch, tmp_path):
         with transaction(conn):
             write_scalar(
                 conn, "products",
-                {"model_code": "manual-only", "year": 2026},
+                {"product": "manual-only", "year": 2026},
                 "brand",
                 _manual("Dell"),
+            )
+            write_model_code(
+                conn, {"product": "manual-only", "year": 2026}, "manual-only"
             )
         _stub_fetch_dispatch_ingest(
             monkeypatch,

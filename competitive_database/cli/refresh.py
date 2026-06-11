@@ -70,6 +70,23 @@ DEFAULT_ASUS_URL_TMPL = (
     "https://rog.asus.com/us/laptops/rog-zephyrus/{slug}/spec/"
 )
 
+# ASUS TUF spec pages live on ``www.asus.com`` (not ``rog.asus.com``)
+# under ``for-gaming/tuf-gaming`` with a trailing ``/techspec/``. Slugs
+# are the full model_code verbatim — including disambiguator suffixes
+# (e.g. ``asus-tuf-gaming-a14-2026-fa401ea``) — verified against every
+# stored TUF source_url in the DB.
+DEFAULT_ASUS_TUF_URL_TMPL = (
+    "https://www.asus.com/us/laptops/for-gaming/tuf-gaming/{slug}/techspec/"
+)
+
+# ASUS V16 spec pages also live on ``www.asus.com`` but under the
+# ``for-gaming/all-series`` segment. Pattern observed on the single
+# stored V16 source_url (``asus-v16-v3607``); widen the prefix below if
+# future V-series products confirm the same shape.
+DEFAULT_ASUS_V16_URL_TMPL = (
+    "https://www.asus.com/us/laptops/for-gaming/all-series/{slug}/techspec/"
+)
+
 
 def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser(
@@ -89,7 +106,8 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
         help=(
             "URL slug (Dell: after /spd/; HP: after /pdp/; "
             "Lenovo: PSREF ProductKey, e.g. Legion_Pro_7_16AFR10H; "
-            "ASUS: ROG slug, e.g. rog-zephyrus-g16-2026)."
+            "ASUS: full model_code, e.g. rog-zephyrus-g16-2026 or "
+            "asus-tuf-gaming-f16-2025 — series picks the template)."
         ),
     )
     p.add_argument(
@@ -150,6 +168,19 @@ VENDOR_TEMPLATES: dict[str, str] = {
     "hp": DEFAULT_HP_URL_TMPL,
     "lenovo": DEFAULT_LENOVO_URL_TMPL,
     "asus": DEFAULT_ASUS_URL_TMPL,
+}
+
+
+# ASUS spans two hosts with per-series path shapes, so a single
+# ``VENDOR_TEMPLATES["asus"]`` entry can't cover every line. Template-mode
+# URL resolution dispatches on the model_code (slug) prefix — first match
+# wins; slugs matching no prefix fall back to ``VENDOR_TEMPLATES["asus"]``
+# (the ROG template), which preserves the pre-dispatch behavior. Add new
+# series here as their stored source_url pattern is confirmed in the DB.
+ASUS_SERIES_TEMPLATES: dict[str, str] = {
+    "rog-": DEFAULT_ASUS_URL_TMPL,
+    "asus-tuf-gaming-": DEFAULT_ASUS_TUF_URL_TMPL,
+    "asus-v16-": DEFAULT_ASUS_V16_URL_TMPL,
 }
 
 
@@ -659,8 +690,23 @@ def _resolve_url(
         slug = url.rstrip("/").rsplit("/", 1)[-1]
         return url, slug
     assert slug_arg is not None
-    template = VENDOR_TEMPLATES[brand]
+    template = _template_for_slug(brand, slug_arg)
     return template.format(slug=slug_arg), slug_arg
+
+
+def _template_for_slug(brand: str, slug: str) -> str:
+    """Pick the URL template for ``brand`` + ``slug``.
+
+    ASUS dispatches per series via ``ASUS_SERIES_TEMPLATES`` (model_code
+    prefix match, first hit wins); unmatched slugs fall back to the
+    per-vendor default. Every other vendor uses its single
+    ``VENDOR_TEMPLATES`` entry directly.
+    """
+    if brand == "asus":
+        for prefix, template in ASUS_SERIES_TEMPLATES.items():
+            if slug.startswith(prefix):
+                return template
+    return VENDOR_TEMPLATES[brand]
 
 
 def _is_hp_product_not_found(exc: BaseException) -> bool:
