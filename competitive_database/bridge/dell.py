@@ -159,9 +159,17 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
     )
 
     # --- Battery --------------------------------------------------------
+    # Configurator module key is "Primary Battery" (real captured Aurora 16
+    # configurator); labels like "6-Cell Battery, 96 Whr (Integrated)" parse
+    # through the existing Wh/cell extractors. The selected option restates
+    # the tile battery and dedups at merge (identity = (wh, cell_count)).
     battery_text = specs.get("Battery") or specs.get("Primary Battery")
     cand.battery_offerings = _build_battery_offerings(
-        battery_text, source_url, captured_at
+        _augment_spec_text(
+            battery_text, _option_labels(options, ("Primary Battery",))
+        ),
+        source_url,
+        captured_at,
     )
 
     # --- Network --------------------------------------------------------
@@ -186,12 +194,19 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
         m = re.search(r"(\d+\s*W\s*power adapter)", dim, re.IGNORECASE)
         if m is not None:
             psu_text = m.group(1)
-    cand.adapter_offerings = _build_adapter_offerings(
-        psu_text, source_url, captured_at
+    # Configurator module key is "AC Adapter" (real captured Aurora 16
+    # configurator); labels like "180W Adapter" parse through the existing
+    # wattage extractor and dedup at merge (identity = wattage_w).
+    psu_combined = _augment_spec_text(
+        psu_text, _option_labels(options, ("AC Adapter",))
     )
-    if psu_text:
-        # Dell's psu strings don't reliably indicate the connector type;
-        # mark as vendor-doesn't-publish so we record we checked.
+    cand.adapter_offerings = _build_adapter_offerings(
+        psu_combined, source_url, captured_at
+    )
+    if psu_combined:
+        # Dell's psu strings (tile and configurator alike) don't reliably
+        # indicate the connector type; mark as vendor-doesn't-publish so we
+        # record we checked.
         cand.adapter_connector = _vdp_bundle(source_url, captured_at)
 
     # --- Camera ---------------------------------------------------------
@@ -205,9 +220,16 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
     _populate_audio(cand, audio_text, source_url, captured_at)
 
     # --- Keyboard -------------------------------------------------------
+    # Configurator keyboards are free-text descriptions; each selectable
+    # option becomes its own offering (merge identity = description, so a
+    # selected option that rephrases the tile keyboard stays as a distinct
+    # entry — descriptions resist canonicalization; T7.0d sub-fielding is
+    # deferred).
     kb_text = specs.get("Keyboard")
     cand.keyboard_offerings = _build_keyboard_offerings(
-        kb_text, source_url, captured_at
+        _augment_spec_text(kb_text, _option_labels(options, ("Keyboard",))),
+        source_url,
+        captured_at,
     )
 
     # --- Dimensions / Weight -------------------------------------------
@@ -277,14 +299,19 @@ def _maybe_bundle(
 # each option carries ``label`` / ``status`` (``selected`` | ``available``
 # | ``unavailable``) / ``option_id``. The tile ``specs`` only describe the
 # 2-3 pre-built configurations Dell renders; the configurator lists every
-# CPU / GPU / RAM / storage / display a buyer can pick. We surface those
-# extra variants by APPENDING each selectable option's label to the tile
-# spec text and re-running the existing per-field builders, so the configs
-# flow through the same extraction and the ingest merge dedups the overlap
-# (the ``selected`` option always restates the tile default).
+# CPU / GPU / RAM / storage / display / keyboard / battery / adapter a
+# buyer can pick. We surface those extra variants by APPENDING each
+# selectable option's label to the tile spec text and re-running the
+# existing per-field builders, so the configs flow through the same
+# extraction and the ingest merge dedups the overlap (the ``selected``
+# option always restates the tile default).
 #
 # ``unavailable`` (currently out-of-stock) options are skipped — recording
 # them as verified specs would imply a config you can't actually order.
+#
+# The ``Operating System`` and ``Operating System Language Pack`` modules
+# are deliberately NOT consumed: OS variants are explicitly out of scope
+# in DATA_MODEL.md (no landing field exists).
 
 _SELECTABLE_OPTION_STATUSES = ("selected", "available")
 

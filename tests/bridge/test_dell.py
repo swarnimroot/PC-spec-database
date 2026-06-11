@@ -370,6 +370,48 @@ def test_parse_cpu_with_series_disambiguator_preserves_parenthetical():
 
 
 # ---------------------------------------------------------------------------
+# Keyboard offerings — multi-option tiering (baseline, no configurator)
+# ---------------------------------------------------------------------------
+
+
+def test_build_keyboard_offerings_tiering_and_numpad():
+    offerings = dell_bridge._build_keyboard_offerings(
+        "Alienware backlit keyboard with numeric keypad\n"
+        "Alienware per-key RGB keyboard, no numpad",
+        source_url="https://www.dell.com/example",
+        captured_at="2026-06-11T00:00:00",
+    )
+    assert offerings is not None
+    assert len(offerings) == 2
+    # Index 0 = base, every later entry = optional.
+    assert offerings[0]["tier"]["value"] == "base"
+    assert offerings[1]["tier"]["value"] == "optional"
+    # Descriptions preserved verbatim; numpad detected per piece.
+    assert offerings[0]["description"]["value"].startswith("Alienware backlit")
+    assert offerings[0]["has_numpad"]["value"] is True
+    assert offerings[1]["has_numpad"]["value"] is False
+
+
+def test_build_keyboard_offerings_none_text_and_unknown_numpad():
+    assert (
+        dell_bridge._build_keyboard_offerings(
+            None,
+            source_url="https://www.dell.com/example",
+            captured_at="2026-06-11T00:00:00",
+        )
+        is None
+    )
+    offerings = dell_bridge._build_keyboard_offerings(
+        "Alienware mechanical keyboard",
+        source_url="https://www.dell.com/example",
+        captured_at="2026-06-11T00:00:00",
+    )
+    assert len(offerings) == 1
+    # No numpad mention at all → vendor-doesn't-publish, not False.
+    assert offerings[0]["has_numpad"]["status"] == "vendor-doesn't-publish"
+
+
+# ---------------------------------------------------------------------------
 # Configurator options (T9.4) — snapshot.options consumption
 # ---------------------------------------------------------------------------
 
@@ -378,11 +420,14 @@ def _opt(label: str, status: str, oid: str) -> dict:
     return {"label": label, "status": status, "option_id": oid}
 
 
-def _snapshot_with_options(options: dict) -> "ProductSnapshot":
+def _snapshot_with_options(
+    options: dict, drop_specs: tuple[str, ...] = ()
+) -> "ProductSnapshot":
     """Build a Dell snapshot off the synthetic fixture with ``options`` set.
 
     The tile Processor string carries a ``(24-Core ...)`` parenthetical so
-    the chip-spec contamination guard can be exercised.
+    the chip-spec contamination guard can be exercised. ``drop_specs``
+    removes tile spec keys, for options-only paths.
     """
     if not _HAS_SCRAPERS:
         pytest.skip("scrapers-lib not installed")
@@ -393,6 +438,8 @@ def _snapshot_with_options(options: dict) -> "ProductSnapshot":
         if k.startswith("_"):
             raw.pop(k)
     raw["specs"]["Processor"] = "Intel Core Ultra 9 285HX (24-Core, 36MB Cache)"
+    for k in drop_specs:
+        raw["specs"].pop(k, None)
     raw["options"] = options
     return ProductSnapshot.model_validate(raw)
 
@@ -421,6 +468,31 @@ _FULL_OPTIONS = {
     "Display": [
         _opt('18" QHD+ (2560x1600) 300Hz IPS', "selected", "disp-qhd"),
         _opt('18" FHD+ (1920x1200) 165Hz IPS', "available", "disp-fhd"),
+    ],
+    # Module keys + label shapes below mirror the REAL captured Aurora 16
+    # configurator (scrapers-lib fixture): "Keyboard" / "Primary Battery" /
+    # "AC Adapter" / "Operating System", labels like
+    # "6-Cell Battery, 96 Whr (Integrated)" and "180W Adapter".
+    "Keyboard": [
+        _opt("English US backlit Alienware keyboard", "selected", "kb-us"),
+        _opt("English US per-key AlienFX RGB keyboard", "available", "kb-rgb"),
+        _opt("English UK backlit Alienware keyboard", "unavailable", "kb-uk"),
+    ],
+    "Primary Battery": [
+        _opt("6-Cell Battery, 96 Whr (Integrated)", "selected", "bat-96"),
+        _opt("9-Cell Battery, 97 Whr (Integrated)", "available", "bat-97"),
+        _opt("3-Cell Battery, 60 Whr (Integrated)", "unavailable", "bat-60"),
+    ],
+    "AC Adapter": [
+        _opt("330W Adapter", "selected", "psu-330"),
+        _opt("360W Adapter", "available", "psu-360"),
+        _opt("240W Adapter", "unavailable", "psu-240"),
+    ],
+    # OS variants are explicitly out of scope (DATA_MODEL.md) — the bridge
+    # must IGNORE this module entirely.
+    "Operating System": [
+        _opt("Windows 11 Home", "selected", "os-home"),
+        _opt("Windows 11 Pro", "available", "os-pro"),
     ],
 }
 
@@ -474,6 +546,93 @@ def test_options_display_adds_configurable_panels():
         if o.get("refresh_rate_hz")
     }
     assert {300, 165}.issubset(refresh)
+
+
+def test_options_keyboard_adds_offerings_and_skips_unavailable():
+    cand = dell_bridge.parse(_snapshot_with_options(_FULL_OPTIONS))
+    descs = [o["description"]["value"] for o in cand.keyboard_offerings]
+    # Tile keyboard stays the base offering.
+    assert descs[0].startswith("Alienware mSeries CherryMX")
+    assert cand.keyboard_offerings[0]["tier"]["value"] == "base"
+    # Selectable configurator keyboards land as optional offerings.
+    assert "English US backlit Alienware keyboard" in descs
+    assert "English US per-key AlienFX RGB keyboard" in descs
+    for off in cand.keyboard_offerings[1:]:
+        assert off["tier"]["value"] == "optional"
+    # ``unavailable`` keyboard must NOT be surfaced.
+    assert "English UK backlit Alienware keyboard" not in descs
+
+
+def test_options_battery_adds_configurable_cells_and_dedups_at_merge():
+    cand = dell_bridge.parse(_snapshot_with_options(_FULL_OPTIONS))
+    pairs = [
+        (o["wattage_wh"]["value"], o["cell_count"]["value"])
+        for o in cand.battery_offerings
+    ]
+    # Tile battery stays the base offering; the real-label "Whr" available
+    # option ("9-Cell Battery, 97 Whr (Integrated)") parses and lands.
+    assert pairs[0] == (96, 6)
+    assert cand.battery_offerings[0]["tier"]["value"] == "base"
+    assert (97, 9) in pairs
+    # ``unavailable`` battery must NOT be surfaced.
+    assert (60, 3) not in pairs
+    # The ``selected`` option restates the tile battery (96 Wh / 6-cell);
+    # the ingest merge collapses the two by identity (wattage_wh, cell_count).
+    from competitive_database.ingest.runner import _merge_offerings
+
+    merged = _merge_offerings("battery_offerings", [cand])
+    merged_pairs = [
+        (o["wattage_wh"]["value"], o["cell_count"]["value"]) for o in merged
+    ]
+    assert merged_pairs.count((96, 6)) == 1
+
+
+def test_options_adapter_adds_wattages_and_dedups_at_merge():
+    cand = dell_bridge.parse(_snapshot_with_options(_FULL_OPTIONS))
+    watts = [o["wattage_w"]["value"] for o in cand.adapter_offerings]
+    # Tile psu stays the base offering; the available 360W option lands.
+    assert watts[0] == 330
+    assert cand.adapter_offerings[0]["tier"]["value"] == "base"
+    assert 360 in watts
+    # ``unavailable`` adapter must NOT be surfaced.
+    assert 240 not in watts
+    # Configurator adapter labels carry no connector info either — the
+    # vendor-doesn't-publish marker still applies.
+    assert cand.adapter_connector["status"] == "vendor-doesn't-publish"
+    # The ``selected`` 330W option restates the tile psu; the ingest merge
+    # collapses the two by identity (wattage_w).
+    from competitive_database.ingest.runner import _merge_offerings
+
+    merged = _merge_offerings("adapter_offerings", [cand])
+    assert [o["wattage_w"]["value"] for o in merged].count(330) == 1
+
+
+def test_options_adapter_from_configurator_only():
+    """No tile psu key at all → the configurator alone still yields adapter
+    offerings, and the connector vdp marker is set."""
+    opts = {
+        "AC Adapter": [
+            _opt("180W Adapter", "selected", "psu-180"),
+            _opt("240W Adapter", "available", "psu-240"),
+        ]
+    }
+    cand = dell_bridge.parse(
+        _snapshot_with_options(opts, drop_specs=("Power Supply",))
+    )
+    watts = [o["wattage_w"]["value"] for o in cand.adapter_offerings]
+    assert watts == [180, 240]
+    assert cand.adapter_offerings[0]["tier"]["value"] == "base"
+    assert cand.adapter_connector["status"] == "vendor-doesn't-publish"
+
+
+def test_options_operating_system_module_is_ignored():
+    """OS variants are explicitly out of scope (DATA_MODEL.md §Out of scope);
+    the "Operating System" module must not leak into any candidate field.
+    The tile's own "Operating System" spec key was already unconsumed."""
+    cand = dell_bridge.parse(_snapshot_with_options(_FULL_OPTIONS))
+    # "Windows 11 Pro" exists ONLY in the OS options module — it must not
+    # appear anywhere in the parsed candidate.
+    assert "Windows 11 Pro" not in repr(vars(cand))
 
 
 def test_no_options_path_is_unchanged():
@@ -553,6 +712,25 @@ def test_options_component_option_object_path():
         "Memory": [
             ComponentOption(label="64 GB DDR5", status="available", option_id="mem-64"),
         ],
+        "Primary Battery": [
+            ComponentOption(
+                label="9-Cell Battery, 97 Whr (Integrated)",
+                status="available",
+                option_id="bat-97",
+            ),
+        ],
+        "AC Adapter": [
+            ComponentOption(
+                label="360W Adapter", status="available", option_id="psu-360"
+            ),
+        ],
+        "Keyboard": [
+            ComponentOption(
+                label="English US per-key AlienFX RGB keyboard",
+                status="available",
+                option_id="kb-rgb",
+            ),
+        ],
     }
     cand = dell_bridge.parse(_snapshot_with_options(opts))
     gpu_names = [g["value"] for b in cand.boards for g in b["gpus"]]
@@ -562,6 +740,15 @@ def test_options_component_option_object_path():
     assert "RTX 5070 Ti" not in gpu_names
     # Object-path Memory option raises the ceiling.
     assert cand.memory_max_gb["value"] == 64
+    # Object-path battery / adapter / keyboard options land as offerings.
+    assert (97, 9) in [
+        (o["wattage_wh"]["value"], o["cell_count"]["value"])
+        for o in cand.battery_offerings
+    ]
+    assert 360 in [o["wattage_w"]["value"] for o in cand.adapter_offerings]
+    assert "English US per-key AlienFX RGB keyboard" in [
+        o["description"]["value"] for o in cand.keyboard_offerings
+    ]
 
 
 def test_options_malformed_inputs_do_not_crash():
@@ -572,6 +759,10 @@ def test_options_malformed_inputs_do_not_crash():
     assert cand.cpu_offerings is not None
     assert cand.boards[0]["gpus"][0]["value"] == "RTX 5090"
     assert cand.memory_max_gb["value"] == 32
+    # Battery / adapter / keyboard tile specs stay byte-identical too.
+    assert cand.battery_offerings[0]["wattage_wh"]["value"] == 96
+    assert cand.adapter_offerings[0]["wattage_w"]["value"] == 330
+    assert len(cand.keyboard_offerings) == 1
 
     # 2. options=None (snapshot.options absent).
     cand = dell_bridge.parse(_snapshot_with_options(None))
