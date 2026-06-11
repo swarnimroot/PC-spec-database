@@ -49,8 +49,8 @@ function editableOf(v) {
   return String(v);
 }
 
-// Coerce an edit-box string to a typed value for manual_override (the backend
-// resolve_row writes it as-is, no coercion — mirror cli/resolve coerce_value).
+// Coerce an edit-box string to a typed value for manual_override and edited
+// field commits (the backend writes it as-is — mirror cli/resolve coerce_value).
 function coerceValue(raw) {
   const s = String(raw ?? "").trim();
   if (s === "") return null;
@@ -257,7 +257,9 @@ export default function Curation() {
     } else {
       setDraft({
         kind: "field",
-        value: sel.value == null ? "" : Array.isArray(sel.value) ? sel.value.join(", ") : String(sel.value),
+        // Seeded via editableOf so commitField can change-detect against the
+        // same string form (untouched box → keep the stored value's type).
+        value: editableOf(sel.value),
         state: sel.state,
         source: "",
         note: "",
@@ -318,7 +320,11 @@ export default function Curation() {
       const state = forceState || draft.state;
       const status = STATE_TO_STATUS[state];
       const clearsValue = state === "not_published" || state === "blank";
-      const value = clearsValue ? null : draft.value.trim() || null;
+      // Untouched value box → post the stored value as-is (exact type — a
+      // String() round-trip would rewrite bool true as "true"); edited →
+      // coerce the text the same way the conflict path does.
+      const edited = (draft.value ?? "").trim() !== editableOf(sel.value);
+      const value = clearsValue ? null : edited ? coerceValue(draft.value) : sel.value;
       setBusy(true);
       postValue({
         model_code: sel.model_code,

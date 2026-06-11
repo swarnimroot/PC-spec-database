@@ -330,12 +330,19 @@ def post_value(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     year = payload.get("year")
     conn = _open_conn()
     try:
-        summary = manual_edit_cell(
+        value = _coerce_to_existing_type(
             conn,
             model_code=model_code,
             year=int(year) if year is not None else None,
             field_path=field_path,
             value=payload.get("value"),
+        )
+        summary = manual_edit_cell(
+            conn,
+            model_code=model_code,
+            year=int(year) if year is not None else None,
+            field_path=field_path,
+            value=value,
             status=payload.get("status") or "vouched",
             note=payload.get("note"),
             entered_by=payload.get("entered_by"),
@@ -521,8 +528,8 @@ def post_products_add(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     Body: ``{token, names?}`` from a prior POST /api/products/scrape (404 if
     unknown / expired). ``names`` is an OPTIONAL dict keyed by the string
     ``"<model_code>|<year>"`` -> the desired ``products.product`` name; when
-    absent / empty, behavior is unchanged (new rows keep ``product =
-    model_code`` from ``_normalize_products_pk``). For each grouped candidate:
+    absent / empty, behavior is unchanged (new rows keep the ``product =
+    model_code`` default that ``ingest`` writes). For each grouped candidate:
     if its ``(model_code, year)`` PK already exists it is SKIPPED (ingesting an
     existing PK would queue ``value_disagreement`` conflicts — the Add flow
     must not); otherwise it is a clean insert via :func:`ingest_product`, and a
@@ -564,8 +571,9 @@ def post_products_add(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
                 )
                 continue
             report = ingest_product(conn, group)
-            # Default name is the model_code (what _normalize_products_pk
-            # writes); override with the user-supplied name if non-empty.
+            # Default name is the model_code (what ingest writes for a
+            # brand-new row); override with the user-supplied name if
+            # non-empty.
             product_name = model_code
             override = names.get(f"{model_code}|{year}")
             if isinstance(override, str) and override.strip():
@@ -591,6 +599,64 @@ def post_products_add(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     finally:
         conn.close()
     return {"items": items}
+
+
+def _coerce_to_existing_type(
+    conn: sqlite3.Connection,
+    *,
+    model_code: str,
+    year: Optional[int],
+    field_path: str,
+    value: Any,
+) -> Any:
+    """Coerce a string ``value`` to the stored cell's scalar type.
+
+    Type-fidelity guard for POST /api/value: UI clients edit values in a text
+    box, so a bool/int/float cell would otherwise be silently rewritten as its
+    string form ("true", "32"). Only string inputs are touched; the stored
+    value (read via :func:`curation_queue.value_history`) decides the
+    coercion. A bool cell accepts only "true"/"false" (case-insensitive) —
+    anything else is a 400. Numeric cells coerce when the string parses as
+    that number; str/None/list cells pass through unchanged.
+    """
+    if not isinstance(value, str):
+        return value
+    try:
+        resolved_year = year if year is not None else _resolve_year(conn, model_code)
+        existing = curation_queue.value_history(
+            conn,
+            model_code=model_code,
+            year=resolved_year,
+            field_path=field_path,
+        )["value"]
+    except (LookupError, ValueError):
+        # Unknown product / ambiguous year — skip coercion and let
+        # manual_edit_cell raise the canonical 422 for it.
+        return value
+    if isinstance(existing, bool):
+        s = value.strip().lower()
+        if s == "true":
+            return True
+        if s == "false":
+            return False
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"field {field_path!r} currently holds a boolean; "
+                f"got {value!r} (expected 'true' or 'false')"
+            ),
+        )
+    if isinstance(existing, int):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return value
+    if isinstance(existing, float):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return value
+    return value
 
 
 def _parse_row_id(raw: Any) -> int:
