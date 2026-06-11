@@ -11,11 +11,21 @@ const SCREENS = [
   { id: "finder", label: "Spec Finder" },
   { id: "compare", label: "Compare" },
   { id: "curation", label: "Review" },
-  { id: "refresh", label: "Refresh" },
+  { id: "refresh", label: "Add/Refresh" },
 ];
 
 export default function App() {
   const [screen, setScreen] = useState("home");
+  // When navigating to the Finder to open a specific product (e.g. after
+  // adding one), stash the catalog id here; Finder consumes it then clears it.
+  const [finderDetailId, setFinderDetailId] = useState(null);
+
+  // Navigate by screen id, optionally opening a product detail on arrival.
+  const navigate = (id, productId = null) => {
+    if (productId != null) setFinderDetailId(productId);
+    setScreen(id);
+  };
+
   return (
     <>
       <div className="appnav">
@@ -36,15 +46,18 @@ export default function App() {
         </nav>
       </div>
       {screen === "home" ? (
-        <Home onNavigate={setScreen} />
+        <Home onNavigate={navigate} />
       ) : screen === "finder" ? (
-        <Finder />
+        <Finder
+          initialDetailId={finderDetailId}
+          onConsumeInitialDetail={() => setFinderDetailId(null)}
+        />
       ) : screen === "compare" ? (
         <Compare />
       ) : screen === "curation" ? (
         <Curation />
       ) : (
-        <Refresh />
+        <Refresh onNavigate={navigate} />
       )}
     </>
   );

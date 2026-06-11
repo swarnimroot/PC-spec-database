@@ -156,6 +156,92 @@ VENDOR_TEMPLATES: dict[str, str] = {
 # --- Library entry points ------------------------------------------------
 
 
+def _fetch_and_group(
+    brand: str,
+    urls: list[str],
+    profiles_dir: str,
+    emit: Callable[[dict[str, Any]], None],
+) -> tuple[list[Any], dict[tuple[str, int], list], dict[tuple[str, int], list[str]]]:
+    """Fetch + dispatch + group — the PURE (no-DB) core shared by
+    :func:`refresh_product` and :func:`scrape_only`.
+
+    Walks every URL, fetches its snapshots, dispatches each snapshot to the
+    bridge, and groups the resulting candidates by ``(model_code, year)`` PK
+    so cross-tile offerings union per Decision 3. Lenovo Intel/AMD merge
+    (Stage 7 T7.0a M4): when a candidate carries ``family_code`` the merged
+    row uses ``family_code`` as canonical ``model_code``; the original Lenovo
+    machine code is preserved in ``source_model_codes`` by the bridge.
+
+    ``emit`` fires the fetch/dispatch phase events; pass a no-op for callers
+    that don't stream progress. No SQLite is touched.
+
+    Returns ``(snapshots, candidates_by_pk, per_tile_ids)``.
+    """
+    snapshots: list[Any] = []
+    for u in urls:
+        coerced = _coerce_vendor_url(brand, u)
+        slug = coerced.rstrip("/").rsplit("/", 1)[-1]
+        emit({"phase": "fetch", "status": "start", "url": coerced})
+        fetched = list(_fetch_snapshots(brand, coerced, slug, profiles_dir))
+        snapshots.extend(fetched)
+        emit({
+            "phase": "fetch",
+            "status": "done",
+            "url": coerced,
+            "snapshot_count": len(fetched),
+        })
+
+    emit({"phase": "dispatch", "status": "start"})
+    candidates_by_pk: dict[tuple[str, int], list] = {}
+    per_tile_ids: dict[tuple[str, int], list[str]] = {}
+    for snapshot in snapshots:
+        candidate = dispatch(snapshot)
+        if candidate.family_code is not None:
+            candidate.model_code = candidate.family_code
+        pk = (candidate.model_code, candidate.year)
+        candidates_by_pk.setdefault(pk, []).append(candidate)
+        per_tile_ids.setdefault(pk, []).append(snapshot.source_id)
+    emit({
+        "phase": "dispatch",
+        "status": "done",
+        "pks": [list(pk) for pk in candidates_by_pk.keys()],
+    })
+    return snapshots, candidates_by_pk, per_tile_ids
+
+
+def scrape_only(
+    *,
+    brand: str,
+    url: str,
+    profiles_dir: str = ".profiles",
+) -> list[list[Any]]:
+    """Fetch + parse one vendor URL WITHOUT touching the DB.
+
+    Pure phase-1 of :func:`refresh_product`: resolves/coerces the URL,
+    fetches snapshots, dispatches them through the bridge, and groups the
+    resulting :class:`~competitive_database.bridge.types.CandidateProduct`
+    objects by ``(model_code, year)`` PK (same grouping ``refresh_product``
+    uses). Returns one candidate group (list) per PK — exactly the
+    ``group`` value the runner's :func:`ingest_product` consumes — so an
+    "Add product" flow can preview before writing.
+
+    No connection, no writes, no ``review_queue`` side effects. Raises
+    ``ValueError`` on an unsupported brand; vendor-side failures (network,
+    parser) bubble up unchanged.
+    """
+    brand_l = (brand or "").lower()
+    if brand_l not in VENDOR_TEMPLATES:
+        raise ValueError(
+            f"brand {brand!r} is not supported; "
+            f"known: {sorted(VENDOR_TEMPLATES)}"
+        )
+    single_url, _slug = _resolve_url(brand_l, url, None)
+    _snaps, candidates_by_pk, _tiles = _fetch_and_group(
+        brand_l, [single_url], profiles_dir, lambda _event: None
+    )
+    return list(candidates_by_pk.values())
+
+
 def refresh_product(
     conn: sqlite3.Connection,
     *,
@@ -226,40 +312,9 @@ def refresh_product(
 
     emit({"phase": "resolve_url", "mode": mode, "urls": list(urls)})
 
-    snapshots: list[Any] = []
-    for u in urls:
-        coerced = _coerce_vendor_url(brand_l, u)
-        slug = coerced.rstrip("/").rsplit("/", 1)[-1]
-        emit({"phase": "fetch", "status": "start", "url": coerced})
-        fetched = list(_fetch_snapshots(brand_l, coerced, slug, profiles_dir))
-        snapshots.extend(fetched)
-        emit({
-            "phase": "fetch",
-            "status": "done",
-            "url": coerced,
-            "snapshot_count": len(fetched),
-        })
-
-    # Group all candidates by product PK so cross-tile offerings union
-    # per Decision 3. Lenovo Intel/AMD merge (Stage 7 T7.0a M4): when a
-    # candidate carries ``family_code`` the merged row uses
-    # ``family_code`` as canonical ``model_code``; the original Lenovo
-    # machine code is preserved in ``source_model_codes`` by the bridge.
-    emit({"phase": "dispatch", "status": "start"})
-    candidates_by_pk: dict[tuple[str, int], list] = {}
-    per_tile_ids: dict[tuple[str, int], list[str]] = {}
-    for snapshot in snapshots:
-        candidate = dispatch(snapshot)
-        if candidate.family_code is not None:
-            candidate.model_code = candidate.family_code
-        pk = (candidate.model_code, candidate.year)
-        candidates_by_pk.setdefault(pk, []).append(candidate)
-        per_tile_ids.setdefault(pk, []).append(snapshot.source_id)
-    emit({
-        "phase": "dispatch",
-        "status": "done",
-        "pks": [list(pk) for pk in candidates_by_pk.keys()],
-    })
+    snapshots, candidates_by_pk, per_tile_ids = _fetch_and_group(
+        brand_l, urls, profiles_dir, emit
+    )
 
     total = IngestReport()
     per_pk_reports: list[dict[str, Any]] = []

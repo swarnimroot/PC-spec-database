@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { getCatalog, postRefresh } from "../api.js";
+import AddProduct from "./AddProduct.jsx";
 import "./refresh.css";
 
 const SUPPORTED = ["dell", "hp", "lenovo", "asus"];
@@ -14,7 +15,7 @@ const TOTAL_LABELS = [
   ["new_gpus", "New GPUs"],
 ];
 
-export default function Refresh() {
+export default function Refresh({ onNavigate } = {}) {
   const [catalog, setCatalog] = useState([]);
   const [catalogErr, setCatalogErr] = useState("");
   const [mode, setMode] = useState("all"); // "all" | "one"
@@ -24,6 +25,7 @@ export default function Refresh() {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
 
   useEffect(() => {
     getCatalog()
@@ -87,7 +89,12 @@ export default function Refresh() {
   return (
     <div className="refresh">
       <div className="rf-head">
-        <h1>Refresh</h1>
+        <div className="rf-head-top">
+          <h1>Refresh</h1>
+          <button className="ap-primary" onClick={() => setShowAdd(true)}>
+            + Add new
+          </button>
+        </div>
         <p>
           Re-fetch the latest specs from vendor sites (Dell, HP, Lenovo, ASUS)
           and update the database. Changed values are not overwritten — they go
@@ -165,28 +172,10 @@ export default function Refresh() {
 
         {catalogErr && <div className="rf-err">Couldn’t load catalog: {catalogErr}</div>}
 
-        {!confirming && !running && (
+        {!running && (
           <button className="rf-run" onClick={ask} disabled={!canRun}>
             Run refresh
           </button>
-        )}
-
-        {confirming && (
-          <div className="rf-confirm">
-            <span>
-              {mode === "all"
-                ? `Fetch fresh specs for all ${eligible.length} eligible products now?`
-                : `Fetch fresh specs for ${selected?.brand} — ${selected?.model} (${selectedYear})?`}
-            </span>
-            <div className="rf-confirm-btns">
-              <button className="rf-run" onClick={run}>
-                Yes, fetch now
-              </button>
-              <button className="rf-cancel" onClick={() => setConfirming(false)}>
-                Cancel
-              </button>
-            </div>
-          </div>
         )}
 
         {running && (
@@ -197,9 +186,42 @@ export default function Refresh() {
         )}
       </div>
 
+      {confirming && (
+        <div className="rf-modal-backdrop" onClick={() => setConfirming(false)}>
+          <div className="rf-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="rf-modal-title">Run refresh?</h2>
+            <p className="rf-modal-msg">
+              {mode === "all"
+                ? `This reaches out to live vendor websites and re-fetches specs for all ${eligible.length} eligible products. It can take several minutes.`
+                : `This reaches out to the live vendor website and re-fetches specs for ${selected?.brand} — ${selected?.model} (${selectedYear}).`}
+            </p>
+            <div className="rf-modal-btns">
+              <button className="rf-cancel" onClick={() => setConfirming(false)}>
+                Cancel
+              </button>
+              <button className="rf-run" onClick={run}>
+                Yes, fetch now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {error && <div className="rf-err rf-err-block">Refresh failed: {error}</div>}
 
       {result && <Results result={result} />}
+
+      {showAdd && (
+        <AddProduct
+          onClose={() => setShowAdd(false)}
+          onViewProduct={(modelCode) => {
+            setShowAdd(false);
+            // Reuse the Finder's product Detail slide-over: navigate to the
+            // Finder and ask it to open this product (catalog id = model_code).
+            onNavigate?.("finder", modelCode);
+          }}
+        />
+      )}
     </div>
   );
 }

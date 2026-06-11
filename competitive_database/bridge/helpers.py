@@ -169,6 +169,63 @@ _YEAR_BARE_RE = re.compile(r"\b(20\d{2})\b")
 _DELL_MODEL_CODE_RE = re.compile(r"(?<![\w])([a-z]{1,3}\d{2,5}[a-z\d]*)(?![\w])")
 
 
+# Generic marketing suffixes to strip from a DERIVED friendly product name.
+# Ordered LONGEST-first so multi-word phrases match before their single-word
+# tails (otherwise "Gaming Laptop" would only lose "Laptop" then stop). The
+# cleaner iterates, so "… Gaming Laptop" fully strips across passes too.
+_MARKETING_SUFFIXES = (
+    "Gaming Laptop",
+    "Gaming Notebook",
+    "Laptop",
+    "Notebook",
+    "Gaming",
+)
+
+
+def clean_product_name(name: str) -> str:
+    """Strip trailing generic marketing suffixes from a derived product name.
+
+    Removes case-insensitive TRAILING marketing tokens/phrases — "Gaming
+    Laptop", "Gaming Notebook", "Laptop", "Notebook", "Gaming" — longest match
+    first, iterating so a tail like "… Gaming Laptop" strips fully. Only
+    TRAILING tokens are removed: an internal "Gaming"/"Laptop" is preserved,
+    as is the original casing of whatever remains. Trailing whitespace, commas,
+    and hyphens left behind are trimmed.
+
+    Idempotent: ``clean_product_name(clean_product_name(x)) == x``. GUARD: if
+    cleaning would yield an empty string, the original ``name`` is returned
+    unchanged (so a bare "Gaming Laptop" stays as-is rather than vanishing).
+    """
+    if not name:
+        return name
+    result = name
+    changed = True
+    while changed:
+        changed = False
+        stripped = result.rstrip().rstrip(",-").rstrip()
+        for suffix in _MARKETING_SUFFIXES:
+            # Case-insensitive match on the trailing suffix as a whole word:
+            # the char before the suffix (if any) must be whitespace.
+            if len(stripped) < len(suffix):
+                continue
+            tail = stripped[-len(suffix):]
+            if tail.lower() != suffix.lower():
+                continue
+            before = stripped[: -len(suffix)]
+            if before and not before[-1].isspace():
+                continue
+            candidate = before.rstrip().rstrip(",-").rstrip()
+            if not candidate:
+                # Stripping this suffix empties the name — bail out and keep
+                # what we had (empty-result guard).
+                return result.strip() or name
+            result = candidate
+            changed = True
+            break
+    cleaned = result.strip()
+    return cleaned or name
+
+
 def derive_year(title: str, url: str, fallback: datetime) -> tuple[int, bool]:
     """Best-effort year extraction.
 

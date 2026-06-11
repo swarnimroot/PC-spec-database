@@ -107,3 +107,34 @@ export function postRefresh(payload) {
     body: JSON.stringify(payload),
   });
 }
+
+// ---- Add product (scrape preview + commit) ----
+
+// GET /api/vendors -> [{brand, label, links: [{label, url}, ...]}, ...] —
+// supported vendors and the landing pages the Add-product UI links to.
+export function getVendors() {
+  return getJSON("/api/vendors");
+}
+
+// POST /api/products/scrape — HEAVY / EXTERNAL (~1 min, like postRefresh).
+// Body: {brand, url} -> {token, products:[{...preview, already_exists}, ...]}.
+export function postProductScrape({ brand, url }) {
+  return getJSON("/api/products/scrape", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ brand, url }),
+  });
+}
+
+// POST /api/products/add — commit a scraped preview by its token.
+// Body: {token, names?} where names is an optional dict keyed by
+// "<model_code>|<year>" -> desired products.product name.
+// -> {items:[{model_code, year, already_existed, inserted, product,
+// inserted_fields?}, ...]}.
+export function postProductAdd({ token, names }) {
+  return getJSON("/api/products/add", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, names }),
+  });
+}

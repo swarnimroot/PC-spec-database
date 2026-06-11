@@ -19,6 +19,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any, Callable, Optional
 
+from ..bridge.helpers import clean_product_name
 from ..db.helpers import list_all_product_identities
 from ..views import (
     adapter,
@@ -650,6 +651,128 @@ def detail_schema(conn: sqlite3.Connection) -> dict[str, Any]:
         section_key: seen.get(section_key, []) for section_key in _DETAIL_SECTION_ORDER
     }
     return {"sections": sections}
+
+
+# ---------------------------------------------------------------------------
+# Scrape preview (Add-product flow) — flat human summary of a freshly scraped
+# ``CandidateProduct`` (no DB row yet). Reads the in-memory candidate shape
+# (see ``bridge/types.py``): scalar bundles ``{value, ...}`` and offering
+# lists like ``cpu_offerings=[{model: bundle}]`` / ``boards=[{gpus: [bundle]}]``
+# / ``display_offerings=[{size_inches, refresh_rate_hz, ...}]``. Tolerant of
+# missing fields and of plain (un-bundled) leaves; everything is None-safe.
+# ---------------------------------------------------------------------------
+
+#: Brand value -> display label for the synthesized fallback name.
+_BRAND_LABELS: dict[str, str] = {
+    "dell": "Dell",
+    "hp": "HP",
+    "lenovo": "Lenovo",
+    "asus": "ASUS",
+}
+
+
+def _leaf_value(bundle_or_plain: Any) -> Any:
+    """Unwrap a provenance bundle to its ``value``; pass plain leaves through."""
+    if isinstance(bundle_or_plain, dict):
+        return bundle_or_plain.get("value")
+    return bundle_or_plain
+
+
+def _candidate_field(candidate: Any, name: str) -> Any:
+    """Read an attribute off a CandidateProduct (or a dict / SimpleNamespace)."""
+    if isinstance(candidate, dict):
+        return candidate.get(name)
+    return getattr(candidate, name, None)
+
+
+def _join_distinct(values: list[Any]) -> Optional[str]:
+    """Join distinct non-empty string values with ' / ' (None if empty)."""
+    parts: list[str] = []
+    for v in values:
+        if v is None:
+            continue
+        s = str(v).strip()
+        if s and s not in parts:
+            parts.append(s)
+    return " / ".join(parts) if parts else None
+
+
+def _candidate_name(candidate: Any, brand: Optional[str], model_code: str, year: Any) -> str:
+    """Vendor full name if present, else ``<Brand> <model_code> (<year>)``."""
+    vfn = _leaf_value(_candidate_field(candidate, "vendor_full_name"))
+    if isinstance(vfn, str) and vfn.strip():
+        return vfn.strip()
+    brand_l = (brand or "").lower()
+    label = _BRAND_LABELS.get(brand_l, (brand or "").strip() or "?")
+    return f"{label} {model_code} ({year})"
+
+
+def serialize_scrape_preview(candidate: Any) -> dict[str, Any]:
+    """Flat, human-readable preview of one scraped ``CandidateProduct``.
+
+    Returns ``{model_code, year, name, brand, summary: {cpu, gpu,
+    memory_max_gb, storage_max_gb, display}}``. Every spec is best-effort:
+    missing offerings / fields collapse to None. ``cpu`` / ``gpu`` / ``display``
+    join the distinct offering values; ``memory_max_gb`` / ``storage_max_gb``
+    are the scalar bundle leaves.
+    """
+    model_code = _candidate_field(candidate, "model_code")
+    year = _candidate_field(candidate, "year")
+    brand = _leaf_value(_candidate_field(candidate, "brand"))
+
+    # CPU: cpu_offerings = [{"model": bundle}, ...]
+    cpu_models = [
+        _leaf_value(off.get("model"))
+        for off in (_candidate_field(candidate, "cpu_offerings") or [])
+        if isinstance(off, dict)
+    ]
+    # GPU: boards = [{"gpus": [bundle, ...]}, ...]
+    gpu_models: list[Any] = []
+    for board in (_candidate_field(candidate, "boards") or []):
+        if not isinstance(board, dict):
+            continue
+        for gpu in (board.get("gpus") or []):
+            gpu_models.append(_leaf_value(gpu))
+    # Display: display_offerings = [{"size_inches", "resolution_label",
+    # "refresh_rate_hz", ...}, ...] — build a short "<size>" / "<res> <hz>Hz" tag.
+    display_tags: list[Any] = []
+    for off in (_candidate_field(candidate, "display_offerings") or []):
+        if not isinstance(off, dict):
+            continue
+        size = _leaf_value(off.get("size_inches"))
+        res = _leaf_value(off.get("resolution_label"))
+        hz = _leaf_value(off.get("refresh_rate_hz"))
+        bits = []
+        if size is not None:
+            bits.append(f'{size}"')
+        if res is not None:
+            bits.append(str(res))
+        if hz is not None:
+            bits.append(f"{hz}Hz")
+        if bits:
+            display_tags.append(" ".join(bits))
+
+    return {
+        "model_code": model_code,
+        "year": year,
+        # Clean generic marketing suffixes off the DERIVED default only. This
+        # is the single central derivation point for every vendor; the
+        # frontend seeds its editable Name field from this value, and the user
+        # can still override. The stored vendor_full_name bundle is untouched.
+        "name": clean_product_name(_candidate_name(candidate, brand, model_code, year)),
+        "brand": brand,
+        "summary": {
+            "cpu": _join_distinct(cpu_models),
+            "gpu": _join_distinct(gpu_models),
+            "memory_max_gb": _leaf_value(
+                _candidate_field(candidate, "memory_max_gb")
+            ),
+            "storage_max_gb": _leaf_value(
+                _candidate_field(candidate, "storage_max_gb")
+            ),
+            "display": _join_distinct(display_tags),
+        },
+    }
 
 
 def catalog(conn: sqlite3.Connection) -> list[dict[str, Any]]:

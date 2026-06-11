@@ -18,7 +18,7 @@ import "./finder.css";
 
 const WEIGHT_MAX = 4.4; // live max ≈ 4.34 kg
 
-export default function Finder() {
+export default function Finder({ initialDetailId, onConsumeInitialDetail } = {}) {
   const [models, setModels] = useState(null);
   const [loadErr, setLoadErr] = useState(null);
 
@@ -42,6 +42,15 @@ export default function Finder() {
       .then(setModels)
       .catch((e) => setLoadErr(String(e)));
   }, []);
+
+  // Open a product detail requested by another screen (e.g. Add product →
+  // "View product"), then clear it so it fires once.
+  useEffect(() => {
+    if (initialDetailId != null) {
+      setDetailId(initialDetailId);
+      onConsumeInitialDetail?.();
+    }
+  }, [initialDetailId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const h = (e) => {

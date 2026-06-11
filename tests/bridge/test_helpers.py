@@ -190,3 +190,63 @@ def test_lookup_board_returns_none_for_unmapped():
     assert h.lookup_board("Radeon RX 9070M") is None
     assert h.lookup_board("") is None
     assert h.lookup_board("garbage chip") is None
+
+
+# ---------------------------------------------------------------------------
+# clean_product_name (strip trailing generic marketing suffixes)
+# ---------------------------------------------------------------------------
+
+
+def test_clean_product_name_strips_gaming_laptop():
+    assert h.clean_product_name("Alienware 15 Gaming Laptop") == "Alienware 15"
+
+
+def test_clean_product_name_preserves_internal_tokens():
+    # Area-51 has an internal hyphen; only the trailing suffix is stripped.
+    assert (
+        h.clean_product_name("Alienware 18 Area-51 Gaming Laptop")
+        == "Alienware 18 Area-51"
+    )
+
+
+def test_clean_product_name_strips_bare_laptop():
+    assert h.clean_product_name("OMEN 16 Laptop") == "OMEN 16"
+
+
+def test_clean_product_name_strips_gaming_laptop_rog():
+    assert h.clean_product_name("ROG Strix G16 Gaming Laptop") == "ROG Strix G16"
+
+
+def test_clean_product_name_leaves_clean_name_unchanged():
+    assert h.clean_product_name("Legion Pro 7") == "Legion Pro 7"
+
+
+def test_clean_product_name_preserves_remaining_casing():
+    # Trailing "gaming laptop" strips; the rest keeps its original lower case.
+    assert h.clean_product_name("aurora 16 gaming laptop") == "aurora 16"
+
+
+def test_clean_product_name_empty_guard():
+    # Stripping everything would empty the name -> return original unchanged.
+    assert h.clean_product_name("Gaming Laptop") == "Gaming Laptop"
+    assert h.clean_product_name("Gaming") == "Gaming"
+
+
+def test_clean_product_name_idempotent():
+    once = h.clean_product_name("ROG Strix G16 Gaming Laptop")
+    assert h.clean_product_name(once) == once
+    assert h.clean_product_name("Alienware 15") == "Alienware 15"
+
+
+def test_clean_product_name_midname_token_preserved():
+    # "Gaming" is not trailing here -> must stay intact.
+    assert h.clean_product_name("Gaming Beast 17") == "Gaming Beast 17"
+    assert h.clean_product_name("Laptop Pro Edition") == "Laptop Pro Edition"
+
+
+def test_clean_product_name_trims_trailing_punctuation():
+    assert h.clean_product_name("Nitro 5, Gaming Laptop") == "Nitro 5"
+
+
+def test_clean_product_name_empty_input():
+    assert h.clean_product_name("") == ""

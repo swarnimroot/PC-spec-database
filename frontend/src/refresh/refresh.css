@@ -8,6 +8,15 @@
   color: var(--text-primary);
 }
 
+.rf-head-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rf-head-top h1 {
+  margin: 0;
+}
 .rf-head h1 {
   font-size: 22px;
   font-weight: 600;
@@ -127,20 +136,42 @@
   cursor: pointer;
 }
 
-.rf-confirm {
-  margin-top: 20px;
-  padding: 14px 16px;
-  border: 1px solid var(--accent);
-  background: var(--accent-soft);
-  border-radius: var(--radius-4);
-  font-size: 14px;
+.rf-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 100;
 }
-.rf-confirm-btns {
+.rf-modal {
+  background: var(--surface-default);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-8);
+  box-shadow: var(--shadow-card);
+  padding: 22px 24px;
+  max-width: 440px;
+  width: 100%;
+}
+.rf-modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+.rf-modal-msg {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0 0 18px;
+}
+.rf-modal-btns {
   display: flex;
   gap: 10px;
-  margin-top: 12px;
+  justify-content: flex-end;
 }
-.rf-confirm-btns .rf-run {
+.rf-modal-btns .rf-run {
   margin-top: 0;
 }
 

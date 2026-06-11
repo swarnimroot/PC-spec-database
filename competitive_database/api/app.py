@@ -12,6 +12,7 @@ request because sqlite3 connections are not safe to share across threads.
 from __future__ import annotations
 
 import os
+import secrets
 import sqlite3
 from pathlib import Path
 from typing import Any, Optional
@@ -20,8 +21,14 @@ from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..cli.manual_edit import manual_edit_cell
-from ..cli.refresh import refresh_all_products, refresh_product
+from ..cli.refresh import (
+    VENDOR_TEMPLATES,
+    refresh_all_products,
+    refresh_product,
+    scrape_only,
+)
 from ..cli.resolve import resolve_row
+from ..ingest.runner import ingest_product
 from ..curation import queue as curation_queue
 from ..db.connection import connect
 from ..db.helpers import list_all_product_identities
@@ -44,6 +51,77 @@ def _db_path() -> str:
 def _open_conn() -> sqlite3.Connection:
     """Open a fresh per-request connection (sqlite is per-thread)."""
     return connect(_db_path())
+
+
+# --- Add-product flow ----------------------------------------------------
+
+#: Vendor navigation options for the Add-product UI. One entry per scrape
+#: ``brand``; each carries one or more ``links`` (label + landing URL) the
+#: user opens to find a product URL to paste. Links target the SAME host the
+#: scraper reads — Dell ``/spd``, HP ``/pdp``, Lenovo PSREF (not the store),
+#: ASUS ROG (rog.asus.com) and ASUS TUF/Vivobook (www.asus.com) — so the
+#: pasted product URL is one the fetcher can handle. ASUS carries two links
+#: (ROG and ASUS) because they live on different hosts; both scrape under
+#: ``brand="asus"`` (the fetcher routes by hostname).
+VENDOR_OPTIONS: list[dict[str, Any]] = [
+    {
+        "brand": "dell",
+        "label": "Dell",
+        "links": [
+            {
+                "label": "Dell",
+                "url": "https://www.dell.com/en-us/shop/gaming-laptops/sf/alienware-laptops",
+            }
+        ],
+    },
+    {
+        "brand": "hp",
+        "label": "HP",
+        "links": [
+            {"label": "HP", "url": "https://www.hp.com/us-en/shop/slp/hp-gaming/laptops"}
+        ],
+    },
+    {
+        "brand": "lenovo",
+        "label": "Lenovo",
+        "links": [{"label": "Lenovo PSREF", "url": "https://psref.lenovo.com/"}],
+    },
+    {
+        "brand": "asus",
+        "label": "ASUS",
+        "links": [
+            {"label": "ROG", "url": "https://rog.asus.com/us/laptops-group/allmodels/"},
+            {"label": "ASUS", "url": "https://www.asus.com/us/laptops/for-gaming/tuf-gaming/"},
+        ],
+    },
+]
+
+#: Token -> freshly scraped candidate groups (list[list[CandidateProduct]]),
+#: stashed between POST /api/products/scrape (preview) and POST
+#: /api/products/add (commit). Capped to the most recent entries so a long-
+#: lived process doesn't accumulate stale scrapes unboundedly.
+_PENDING_SCRAPES: "dict[str, list[list[Any]]]" = {}
+_PENDING_SCRAPES_MAX = 10
+
+
+def _stash_scrape(candidates: list[list[Any]]) -> str:
+    """Stash candidate groups under a fresh token, evicting oldest over cap."""
+    token = secrets.token_urlsafe(8)
+    _PENDING_SCRAPES[token] = candidates
+    while len(_PENDING_SCRAPES) > _PENDING_SCRAPES_MAX:
+        # dicts preserve insertion order — drop the oldest entry.
+        oldest = next(iter(_PENDING_SCRAPES))
+        del _PENDING_SCRAPES[oldest]
+    return token
+
+
+def _pk_exists(conn: sqlite3.Connection, model_code: str, year: int) -> bool:
+    """True if a ``products`` row already exists for this ``(model_code, year)``."""
+    row = conn.execute(
+        "SELECT 1 FROM products WHERE model_code = ? AND year = ? LIMIT 1",
+        (model_code, year),
+    ).fetchone()
+    return row is not None
 
 
 app = FastAPI(title="Competitive Spec DB API", version="0.1.0")
@@ -366,6 +444,153 @@ def post_refresh(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     finally:
         conn.close()
+
+
+@app.get("/api/vendors")
+def get_vendors() -> list[dict[str, Any]]:
+    """List the Add-product vendor options, each with one or more landing links.
+
+    Each entry is ``{brand, label, links}`` where ``links`` is a list of
+    ``{label, url}`` navigation hints the Add-product UI links to so the user
+    can find a product page to paste into the scrape form; the URLs point at
+    the same host the scraper reads. ASUS carries two links (ROG vs
+    TUF/Vivobook, different hosts) but both submit ``brand="asus"``.
+    """
+    return list(VENDOR_OPTIONS)
+
+
+@app.post("/api/products/scrape")
+def post_products_scrape(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Scrape a vendor product URL and return a PREVIEW (no DB writes).
+
+    WARNING: heavy / external — hits the vendor site over the network
+    (Playwright / httpx), ~1 min, same as ``/api/refresh``. NOT safe to run
+    in unit tests against the live stack.
+
+    Body: ``{brand, url}``. Validates ``brand`` against the supported set
+    (422). Scrapes via :func:`scrape_only` (pure, no writes), groups by PK,
+    and flags each group whose ``(model_code, year)`` already exists in
+    ``products``. The raw candidate groups are stashed under ``token`` for a
+    follow-up POST /api/products/add. Scrape / parse failures raise 422 with
+    the real error message (no silent swallow).
+
+    Returns ``{token, products: [{...preview, already_exists}, ...]}``.
+    """
+    brand = payload.get("brand")
+    brand_l = (brand or "").lower()
+    if brand_l not in VENDOR_TEMPLATES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"brand {brand!r} is not supported; "
+                f"known: {sorted(VENDOR_TEMPLATES)}"
+            ),
+        )
+    url = payload.get("url")
+    if not url:
+        raise HTTPException(status_code=422, detail="url is required")
+
+    try:
+        candidates = scrape_only(brand=brand_l, url=url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:  # vendor / parser failure — surface, don't swallow
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    conn = _open_conn()
+    try:
+        products = []
+        for group in candidates:
+            head = group[0]
+            preview = serializers.serialize_scrape_preview(head)
+            preview["already_exists"] = _pk_exists(
+                conn, head.model_code, head.year
+            )
+            products.append(preview)
+    finally:
+        conn.close()
+
+    token = _stash_scrape(candidates)
+    return {"token": token, "products": products}
+
+
+@app.post("/api/products/add")
+def post_products_add(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Commit a previously scraped product preview into the DB.
+
+    Body: ``{token, names?}`` from a prior POST /api/products/scrape (404 if
+    unknown / expired). ``names`` is an OPTIONAL dict keyed by the string
+    ``"<model_code>|<year>"`` -> the desired ``products.product`` name; when
+    absent / empty, behavior is unchanged (new rows keep ``product =
+    model_code`` from ``_normalize_products_pk``). For each grouped candidate:
+    if its ``(model_code, year)`` PK already exists it is SKIPPED (ingesting an
+    existing PK would queue ``value_disagreement`` conflicts — the Add flow
+    must not); otherwise it is a clean insert via :func:`ingest_product`, and a
+    non-empty ``names`` entry for that PK is written to ``products.product``.
+    Names are NOT applied to skipped (already-existing) PKs. The token is
+    consumed (popped) after use.
+
+    Returns ``{items: [{model_code, year, already_existed, inserted, product,
+    inserted_fields?}, ...]}`` where ``product`` is the applied name (or the
+    model_code when none was given).
+    """
+    token = payload.get("token")
+    if not token or token not in _PENDING_SCRAPES:
+        raise HTTPException(
+            status_code=404, detail=f"unknown or expired token {token!r}"
+        )
+    names = payload.get("names") or {}
+    if not isinstance(names, dict):
+        raise HTTPException(
+            status_code=422, detail="names must be an object keyed by '<mc>|<year>'"
+        )
+    candidates = _PENDING_SCRAPES.pop(token)
+
+    conn = _open_conn()
+    try:
+        items = []
+        for group in candidates:
+            head = group[0]
+            model_code = head.model_code
+            year = head.year
+            if _pk_exists(conn, model_code, year):
+                items.append(
+                    {
+                        "model_code": model_code,
+                        "year": year,
+                        "already_existed": True,
+                        "inserted": False,
+                    }
+                )
+                continue
+            report = ingest_product(conn, group)
+            # Default name is the model_code (what _normalize_products_pk
+            # writes); override with the user-supplied name if non-empty.
+            product_name = model_code
+            override = names.get(f"{model_code}|{year}")
+            if isinstance(override, str) and override.strip():
+                product_name = override.strip()
+                conn.execute(
+                    "UPDATE products SET product = ? "
+                    "WHERE model_code = ? AND year = ?",
+                    (product_name, model_code, year),
+                )
+                conn.commit()
+            items.append(
+                {
+                    "model_code": model_code,
+                    "year": year,
+                    "already_existed": False,
+                    "inserted": True,
+                    "product": product_name,
+                    "inserted_fields": report.inserted_fields,
+                }
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        conn.close()
+    return {"items": items}
 
 
 def _parse_row_id(raw: Any) -> int:

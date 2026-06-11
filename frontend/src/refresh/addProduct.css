@@ -1,0 +1,378 @@
+/* Add-product modal — multi-step. Reuses the app's shared tokens.
+   All classes are prefixed `ap-`: component CSS is bundled into one global
+   sheet, so unprefixed names would collide with hm-/rf-/etc. */
+
+.ap-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(23, 23, 28, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 24px;
+}
+.ap-modal {
+  width: 540px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 24px 28px 28px;
+  background: var(--surface-default);
+  border-radius: var(--radius-8);
+  box-shadow: 0 10px 40px rgba(23, 23, 28, 0.25);
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+}
+
+.ap-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ap-head h2 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+.ap-x {
+  font: inherit;
+  font-size: 22px;
+  line-height: 1;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 4px;
+}
+.ap-x:hover {
+  color: var(--text-primary);
+}
+
+/* step indicator */
+.ap-steps {
+  display: flex;
+  gap: 14px;
+  margin: 16px 0 4px;
+  flex-wrap: wrap;
+}
+.ap-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.ap-step.on {
+  color: var(--accent);
+  font-weight: 600;
+}
+.ap-step.done {
+  color: var(--text-secondary);
+}
+.ap-step-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border-default);
+  font-size: 11px;
+  font-weight: 600;
+}
+.ap-step.on .ap-step-n {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.ap-step.done .ap-step-n {
+  border-color: var(--text-secondary);
+}
+
+.ap-body {
+  margin-top: 16px;
+}
+.ap-lead {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0 0 14px;
+}
+.ap-muted {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+/* step 1 — vendors */
+.ap-vendors {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.ap-vendor {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 18px 16px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-8);
+  background: var(--surface-alt);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color var(--duration-fast), transform var(--duration-fast);
+}
+.ap-vendor:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+/* step 2 — paste */
+.ap-sitelinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+.ap-sitelink {
+  display: inline-block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+}
+.ap-sitelink:hover {
+  text-decoration: underline;
+}
+.ap-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-4);
+  background: var(--surface-default);
+  color: var(--text-primary);
+}
+.ap-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* actions row */
+.ap-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+.ap-primary {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 9px 18px;
+  border: 0;
+  border-radius: var(--radius-4);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.ap-primary:hover {
+  background: var(--accent-hover);
+}
+.ap-primary:disabled {
+  background: var(--st-np);
+  cursor: not-allowed;
+}
+.ap-secondary {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 9px 18px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-4);
+  background: var(--surface-default);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.ap-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* spinner */
+.ap-running {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.ap-spinner {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ap-spin 0.7s linear infinite;
+}
+@keyframes ap-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* step 3 — preview cards */
+.ap-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ap-card {
+  padding: 14px 16px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-8);
+  background: var(--surface-alt);
+}
+.ap-card.exists {
+  opacity: 0.7;
+}
+.ap-card-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ap-card-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+.ap-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-4);
+  background: var(--st-review-soft);
+  color: var(--st-review);
+  white-space: nowrap;
+}
+.ap-card-meta {
+  display: flex;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 4px 0 10px;
+}
+.ap-code {
+  font-family: var(--font-mono);
+}
+/* step 3 — editable product name */
+.ap-namefield {
+  display: block;
+  margin: 0 0 10px;
+}
+.ap-namefield-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.ap-name-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 7px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-4);
+  background: var(--surface-default);
+  color: var(--text-primary);
+}
+.ap-name-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.ap-specs {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  row-gap: 5px;
+  column-gap: 10px;
+  margin: 0;
+  font-size: 13px;
+}
+.ap-specs dt {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.ap-specs dd {
+  margin: 0;
+  color: var(--text-primary);
+}
+.ap-specs dd.ap-blank {
+  color: var(--text-muted);
+}
+
+.ap-note {
+  margin-top: 14px;
+  padding: 12px 16px;
+  border-left: 3px solid var(--st-review);
+  background: var(--st-review-soft);
+  border-radius: var(--radius-4);
+  font-size: 14px;
+}
+
+/* errors */
+.ap-err {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--status-danger);
+  border-radius: var(--radius-4);
+  background: #fbeaea;
+  font-size: 13px;
+  color: var(--status-danger);
+}
+
+/* step 4 — success */
+.ap-added {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+}
+.ap-added li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-default);
+  font-size: 14px;
+}
+.ap-check {
+  color: var(--st-confirmed);
+  font-weight: 700;
+}
+.ap-skip {
+  color: var(--text-muted);
+}
+.ap-added-name {
+  flex: 1;
+}
+.ap-link {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+}
+.ap-link:hover {
+  text-decoration: underline;
+}
