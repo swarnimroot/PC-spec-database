@@ -175,6 +175,66 @@ def test_parse_live_thermals_marked_vendor_doesnt_publish():
 
 
 # ---------------------------------------------------------------------------
+# I/O counts — bare-USB Type-A fallback + weight regex (S60 Dell fixes)
+# ---------------------------------------------------------------------------
+
+
+def test_io_counts_bare_usb_lines_count_as_type_a():
+    """Dell writes USB-A ports with no "Type-A" token (e.g.
+    "2 USB 3.2 Gen 1 (5 Gbps) ports"). The bare-USB fallback must bucket
+    those as Type-A while leaving Type-C lines as usbc, not folding them in."""
+    text = (
+        "2 USB 3.2 Gen 1 (5 Gbps) ports\n"
+        "1 USB 3.2 Gen 2 (10 Gbps) Type-C port with Power Delivery and DisplayPort 1.4a\n"
+        "1 USB 3.2 Gen 1 Type-C port\n"
+        "1 HDMI 2.1 port\n"
+        "1 Universal audio port\n"
+        "1 RJ45 Ethernet port, 1GbE\n"
+        "1 power-adapter port"
+    )
+    counts = dell_bridge._io_counts(text)
+    # Bare "2 USB ... ports" → Type-A; the two Type-C lines stay usbc.
+    assert counts["usba_count"] == 2
+    assert counts["usbc_count"] == 2
+    assert counts["tb_count"] == 0
+    assert counts["hdmi_count"] == 1
+
+
+def test_io_counts_explicit_type_a_not_double_counted_by_fallback():
+    """A line that already carries "Type-A" must hit the Type-A branch and
+    continue — the bare-USB fallback must NOT also count it (no double-count)."""
+    text = (
+        "2 USB Type-A 3.2 Gen 1 (5 Gbps)\n"
+        "1 USB Type-A 3.2 Gen 1 (5 Gbps) with PowerShare\n"
+        "1 USB Type-C port"
+    )
+    counts = dell_bridge._io_counts(text)
+    assert counts["usba_count"] == 3  # 2 + 1, counted exactly once
+    assert counts["usbc_count"] == 1
+
+
+def test_weight_min_max_labels_parse_via_populate_dimensions():
+    """Dell publishes "Minimum weight: 4.85 lb (2.20 kg)" /
+    "Maximum weight: 4.96 lb (2.25 kg)". Both must flow through
+    ``_populate_dimensions`` into the weight_kg_min/max bundles."""
+    from competitive_database.bridge.types import CandidateProduct
+
+    cand = CandidateProduct(model_code="test", year=2026)
+    text = (
+        "Minimum weight: 4.85 lb (2.20 kg)\n"
+        "Maximum weight: 4.96 lb (2.25 kg)"
+    )
+    dell_bridge._populate_dimensions(
+        cand,
+        text,
+        source_url="https://www.dell.com/example",
+        captured_at="2026-06-10T00:00:00",
+    )
+    assert cand.weight_kg_min["value"] == 2.20
+    assert cand.weight_kg_max["value"] == 2.25
+
+
+# ---------------------------------------------------------------------------
 # Synthetic
 # ---------------------------------------------------------------------------
 

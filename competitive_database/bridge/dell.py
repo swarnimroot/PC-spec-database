@@ -999,6 +999,17 @@ def _io_counts(text: str) -> dict[str, Any]:
                 out["usba_version"] = ver
             continue
 
+        # A bare "USB ... port(s)" line with no Type-C / Thunderbolt qualifier
+        # is Dell's shorthand for standard USB Type-A (e.g. "2 USB 3.2 Gen 1
+        # (5 Gbps) ports"). Thunderbolt and Type-C lines already continue'd
+        # above, so any USB line reaching here is Type-A.
+        if "usb" in low:
+            out["usba_count"] += count
+            ver = _extract_usba_version(low)
+            if ver:
+                out["usba_version"] = ver
+            continue
+
         if "hdmi" in low:
             out["hdmi_count"] += count
             hv = _extract_hdmi_version(low)
@@ -1264,12 +1275,12 @@ _WEIGHT_LB_THEN_KG_RE = re.compile(
     r"(\d+(?:\.\d+)?)\s*lb\s*\((\d+(?:\.\d+)?)\s*kg\)", re.IGNORECASE
 )
 _WEIGHT_START_RE = re.compile(
-    r"(?:Starting\s+Weight|Weight\s+\(starting\))\s*[:\-]?\s*"
+    r"(?:Starting\s+Weight|Weight\s+\(starting\)|Minimum\s+Weight)\s*[:\-]?\s*"
     r"(?:\d+(?:\.\d+)?\s*lb\s*\()?(\d+(?:\.\d+)?)\s*kg",
     re.IGNORECASE,
 )
 _WEIGHT_MAX_RE = re.compile(
-    r"Weight\s*\(maximum\)[:\s\n]*"
+    r"(?:Weight\s*\(maximum\)|Maximum\s+Weight)[:\s\n]*"
     r"(?:\d+(?:\.\d+)?\s*lb\s*\()?(\d+(?:\.\d+)?)\s*kg",
     re.IGNORECASE,
 )
