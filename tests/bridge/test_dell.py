@@ -354,10 +354,11 @@ def test_parse_synthetic_design_fields_vdp_when_no_chassis_section():
         )
 
 
-def test_parse_cpu_with_series_disambiguator_preserves_parenthetical():
-    # Intel's "Core N (Series M)" naming must not truncate at '(' — the
-    # parenthetical disambiguates generation and must survive into the
-    # canonical model name.
+def test_parse_cpu_with_series_disambiguator_canonicalizes():
+    # Intel's "Core N (Series M)" naming must not truncate at '(' — and the
+    # parenthetical is DROPPED from the canonical model name: the model
+    # number already encodes the series, and the catalog canonical form is
+    # the bare "Core 7 240H" (matches the vouched Aurora 16 entries).
     offerings = dell_bridge._build_cpu_offerings(
         "Intel® Core™ 7 (Series 2) 240H",
         source_url="https://www.dell.com/example",
@@ -365,7 +366,24 @@ def test_parse_cpu_with_series_disambiguator_preserves_parenthetical():
     )
     assert offerings is not None
     assert len(offerings) == 1
-    assert offerings[0]["model"]["value"] == "Core 7 (Series 2) 240H"
+    assert offerings[0]["model"]["value"] == "Core 7 240H"
+    assert offerings[0]["model"]["status"] == "verified"
+
+
+def test_parse_cpu_prose_form_with_processor_before_series():
+    # Dell's live Alienware 15 page publishes the prose order
+    # "Core 7 processor (Series 2) 240H" — this used to truncate to the
+    # garbage "Core 7 (Series" (the regex only allowed (Series N) BEFORE
+    # "processor"). Both noise tokens must now be consumed in either order.
+    offerings = dell_bridge._build_cpu_offerings(
+        "Intel® Core 7 processor (Series 2) 240H "
+        "(24MB cache, 10 cores, up to 5.20 GHz P-Core)",
+        source_url="https://www.dell.com/example",
+        captured_at="2026-07-13T00:00:00",
+    )
+    assert offerings is not None
+    assert len(offerings) == 1
+    assert offerings[0]["model"]["value"] == "Core 7 240H"
     assert offerings[0]["model"]["status"] == "verified"
 
 
@@ -777,3 +795,45 @@ def test_options_malformed_inputs_do_not_crash():
     assert dell_bridge._option_labels({"Graphics": None}, ("Graphics",)) == []
     assert dell_bridge._option_labels(None, ("Graphics",)) == []
     assert dell_bridge._option_labels({}, ("Graphics",)) == []
+
+
+# ---------------------------------------------------------------------------
+# Multi-SKU merge: Dell Intel/AMD family_code + arch_marker derivation
+# ---------------------------------------------------------------------------
+
+
+def test_derive_family_and_arch_intel_digit_zero():
+    family, arch = dell_bridge._derive_dell_family_and_arch("da15260")
+    assert family == "da15260x"
+    assert arch == "intel"
+
+
+def test_derive_family_and_arch_amd_digit_five_same_family():
+    family, arch = dell_bridge._derive_dell_family_and_arch("da15265")
+    assert family == "da15260x"
+    assert arch == "amd"
+
+
+def test_derive_family_and_arch_non_pair_digit_returns_none():
+    # ac16251 (Aurora 16X) is a distinct chassis, NOT the AMD twin of
+    # ac16250 (Aurora 16) — only the verified 0/5 pair participates.
+    assert dell_bridge._derive_dell_family_and_arch("ac16251") == (None, None)
+
+
+def test_derive_family_and_arch_nonstandard_code_returns_none():
+    assert dell_bridge._derive_dell_family_and_arch("m18r2") == (None, None)
+    assert dell_bridge._derive_dell_family_and_arch("") == (None, None)
+
+
+def test_parse_stamps_family_code_and_arch_marker():
+    """The live aa18250 fixture ends in 0 → intel; parse must stamp
+    family_code, single-element source_model_codes, and arch_marker on
+    every board entry (mirrors the ASUS TUF and Lenovo behaviour)."""
+    snap = _load_snapshot("snapshot_useaa18250wmlkcto01.json")
+    cand = dell_bridge.parse(snap)
+
+    assert cand.family_code == "aa18250x"
+    assert cand.source_model_codes == ["aa18250"]
+    assert cand.boards is not None
+    for board in cand.boards:
+        assert board["arch_marker"] == "intel"

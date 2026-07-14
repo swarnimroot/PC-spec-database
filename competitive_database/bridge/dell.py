@@ -67,8 +67,19 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
         else None
     )
 
+    # Dell Intel/AMD merge: family_code groups sibling SKU codes of the
+    # same laptop; arch_marker attributes each board to its CPU vendor.
+    # Unrecognized code shapes leave both ``None`` and the runner skips
+    # the merge dispatch for this product.
+    family_code, arch_marker = _derive_dell_family_and_arch(model_code)
+
     cand = CandidateProduct(model_code=model_code, year=year)
     cand.year_was_inferred = year_inferred
+    cand.family_code = family_code
+    if family_code is not None:
+        # Single-element list — merge ingest (M4) extends it across
+        # snapshots that share the same family_code.
+        cand.source_model_codes = [model_code]
 
     # vendor_full_name carries the meaningful identity provenance. If the
     # year was inferred from fetched_at (not the title/URL), flag the
@@ -119,6 +130,13 @@ def parse(snapshot: ProductSnapshot) -> CandidateProduct:
         source_url,
         captured_at,
     )
+
+    # Stamp arch_marker on every board in this snapshot — all boards in
+    # one Dell snapshot share one arch (CPU vendor is a property of the
+    # SKU code, not per-board). Absent when arch_marker is None.
+    if arch_marker is not None and cand.boards:
+        for board in cand.boards:
+            board["arch_marker"] = arch_marker
 
     # --- Memory ---------------------------------------------------------
     mem_text = specs.get("Memory")
@@ -384,9 +402,48 @@ def _strip_tm(text: str) -> str:
 #   "Intel Core i9-14900HX"
 #   "AMD Ryzen 9 9955HX3D"
 #   "AMD Ryzen AI 9 HX 370"
+# Dell multi-SKU Intel/AMD merge: Dell encodes the CPU vendor in the final
+# digit of the SKU code — sibling codes differing only in that digit are the
+# same laptop (``da15260`` Intel / ``da15265`` AMD; same convention as
+# G-series ``7630``/``7635``). Only the verified 0↔5 pair participates:
+# other final digits are distinct chassis, NOT arch twins (``ac16250``
+# Aurora 16 vs ``ac16251`` Aurora 16X), so they stay unmerged until Dell
+# demonstrably ships another pairing. The family code is the shared prefix
+# + pair digit with an ``x`` marking the arch position
+# (``da15260``/``da15265`` → ``da15260x``). Codes that don't match the
+# plain two-letter/five-digit shape (e.g. ``m18r2``) return ``(None, None)``.
+_DELL_VARIANT_CODE_RE = re.compile(r"^(?P<prefix>[a-z]{2}\d{4})(?P<variant>[05])$")
+_DELL_VARIANT_TO_ARCH = {"0": "intel", "5": "amd"}
+
+
+def _derive_dell_family_and_arch(
+    model_code: str,
+) -> tuple[Optional[str], Optional[str]]:
+    """Derive ``(family_code, arch_marker)`` from a Dell SKU model_code.
+
+    Matches Intel/AMD sibling pairs (``da15260`` / ``da15265``) and returns
+    the arch-agnostic family_code plus ``intel``/``amd`` marker. Returns
+    ``(None, None)`` for codes that don't match the recognized variant
+    shape. Caller leaves both fields ``None`` on the candidate; ingest
+    runner skips merge dispatch then.
+    """
+    if not model_code:
+        return None, None
+    m = _DELL_VARIANT_CODE_RE.match(model_code)
+    if m is None:
+        return None, None
+    family = f"{m.group('prefix')}0x"
+    arch_marker = _DELL_VARIANT_TO_ARCH[m.group("variant")]
+    return family, arch_marker
+
+
 _CPU_NAME_RE = re.compile(
     r"(?:Intel\s+)?"
-    r"(?:Core\s+(?:Ultra\s+)?(?:[i]?\d{1,2})(?:\s+\(Series\s+\d+\))?(?:\s+processor)?\s+\S+(?:\s+Plus)?"
+    # ``processor`` and ``(Series N)`` appear in either order on Dell pages
+    # ("Core 7 (Series 2) 240H" tile form vs "Core 7 processor (Series 2)
+    # 240H" prose form), so both are consumed as repeatable noise tokens
+    # before the model-number word.
+    r"(?:Core\s+(?:Ultra\s+)?(?:[i]?\d{1,2})(?:\s+(?:\(Series\s+\d+\)|processor))*\s+\S+(?:\s+Plus)?"
     r"|Core\s+[i]\d-\d{4,5}\w*"
     r"|AMD\s+Ryzen\s+(?:AI\s+)?\d+\s+\S+(?:\s+\d+)?"
     r"|Ryzen\s+(?:AI\s+)?\d+\s+\S+(?:\s+\d+)?)",
@@ -421,17 +478,22 @@ def _build_cpu_offerings(
 
 
 def _normalize_cpu_model(raw: str) -> str:
-    """Drop the noise-word "processor" and intel prefix so catalog keys agree.
+    """Drop noise tokens and the vendor prefix so catalog keys agree.
 
     ``"Intel Core Ultra 9 processor 290HX Plus"`` → ``"Core Ultra 9 290HX Plus"``.
-    ``"Intel Core Ultra 9 285HX"`` → ``"Core Ultra 9 285HX"``.
+    ``"Intel Core 7 processor (Series 2) 240H"`` → ``"Core 7 240H"``.
     ``"AMD Ryzen 9 9955HX3D"`` → ``"Ryzen 9 9955HX3D"``.
+
+    The ``(Series N)`` marketing disambiguator is dropped: the model
+    number already encodes the series, and the catalog canonical form is
+    the bare ``"Core 7 240H"`` (matches the vouched Aurora 16 entries).
     """
     s = _normalize_ws(raw)
     s = re.sub(r"^Intel\s+", "", s, flags=re.IGNORECASE)
     s = re.sub(r"^AMD\s+", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s*\(Series\s+\d+\)\s*", " ", s, flags=re.IGNORECASE)
     s = re.sub(r"\s+processor\s+", " ", s, flags=re.IGNORECASE)
-    return s.strip()
+    return _normalize_ws(s).strip()
 
 
 # Dell publishes the core count as ``"24-Core"`` (hyphenated) inside

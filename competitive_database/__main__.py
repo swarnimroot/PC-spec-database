@@ -6,6 +6,7 @@ import argparse
 
 from .cli import (
     audit_normalize,
+    backfill_dell_families,
     backfill_lenovo_families,
     db_init,
     find_conflicts,
@@ -33,6 +34,7 @@ def _build_parser() -> argparse.ArgumentParser:
     resolve.add_subparser(sub)
     audit_normalize.add_subparser(sub)
     backfill_lenovo_families.add_subparser(sub)
+    backfill_dell_families.add_subparser(sub)
 
     return parser
 
