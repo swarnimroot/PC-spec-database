@@ -6,6 +6,46 @@ Newest sessions at the top.
 
 ---
 
+## Session 63 — 2026-07-13 (Dell Intel/AMD family merge + `(Series 2)` CPU-regex fix + `backfill-dell-families` + `backfill-asus-families`; da15260+da15265 → one "Alienware 15"; 7 TUF rows migrated; OS-options decided SKIP; tests 559 → 579)
+
+**Goal:** Pre-sweep check surfaced that da15260 (product name = raw code) is NOT a stale duplicate — a live scrape of its Dell page showed it is the **Intel variant** of Alienware 15 (Core 7 240H, RTX 5050/5060), sold alongside the AMD da15265 added in S61. Renaming it "Alienware 15" hit the `UNIQUE(product, year)` constraint: Dell was the only bridge without the multi-SKU family merge (Lenovo `family_code` mechanism, ASUS TUF F/A collapse, HP SKU-code union). Decision: extend the family merge to Dell before the manual review sweep.
+
+### 1. Dell bridge — `_derive_dell_family_and_arch` (`bridge/dell.py`)
+
+- Dell encodes CPU vendor in the SKU code's final digit: `da15260` Intel / `da15265` AMD (same convention as G-series 7630/7635). Only the **verified 0↔5 pair** participates — other final digits are distinct chassis, not arch twins (`ac16250` Aurora 16 vs `ac16251` Aurora 16X), so they stay unmerged until Dell demonstrably ships another pairing. Rule validated against every Dell row's stored CPUs (all 0-codes Intel, the 5-code AMD).
+- Family code = shared prefix + pair digit + `x` (`da15260`/`da15265` → `da15260x`). `parse()` now sets `family_code` + single-element `source_model_codes` and stamps `arch_marker` (`intel`/`amd`, ASUS-style markers) on every board — everything downstream (`_fetch_and_group` model_code rewrite, `ingest` premerge union, `_merge_boards` `(label, arch)` keying) was already vendor-agnostic and needed zero changes.
+
+### 2. CPU regex fix — `(Series 2)` truncation (same bug the user hand-fixed on Aurora 16 in May)
+
+- Dell's live prose order "Core 7 **processor (Series 2)** 240H" defeated `_CPU_NAME_RE` (which only allowed `(Series N)` BEFORE `processor`) → garbage `"Core 7 (Series"` in cpu_offerings + a garbage `cpu_catalog` stub. Both noise tokens are now consumed in either order.
+- **Canonical-name policy reversed:** `_normalize_cpu_model` now DROPS the `(Series N)` parenthetical (an old test pinned preserving it, but that path never actually ran — the regex truncated first). The model number already encodes the series, and the bare form matches the catalog reality (`Core 7 240H`, the user's vouched Aurora 16 entries). Test renamed to `test_parse_cpu_with_series_disambiguator_canonicalizes` + new prose-form test.
+
+### 3. `backfill-dell-families` CLI (+ registration in `__main__.py`)
+
+- Mirrors `backfill-lenovo-families` (reuses its vendor-agnostic `_apply_single`/`_apply_merge`); derives from `model_code` alone (no title/URL needed). **Improvement over the Lenovo backfill:** unresolved `review_queue` rows keyed on a renamed/merged SKU code are re-pointed at the new family_code (Review UI + resolve CLI join on `products.model_code`, so they'd orphan otherwise); resolved rows keep their original code as history.
+- +13 tests (`tests/cli/test_backfill_dell_families.py` + bridge derivation/stamping tests), 559 → 572 green.
+
+### 4. Live migration (backup `competitive.db.pre-s63-dell-families-backup`)
+
+- Backfill: 5 parseable Dell rows → 4 updated (aa16250x/aa18250x/ac16250x singles), **da15260+da15265 merged → `da15260x`**, ac16251 left alone; 4 unresolved queue rows re-pointed. Product renamed to **"Alienware 15"** (freed by the merge). 57 → 56 products.
+- Data repair on the merged row: `cpu_offerings.0.model` `"Core 7 (Series"` → `"Core 7 240H"` via manual-edit (vouched, mirrors the Aurora 16 note); garbage `cpu_catalog` stub deleted (canonical `Core 7 240H` already present); obsolete `new_chip_unverified` queue row dropped via resolve CLI.
+- **Live verify:** `refresh --from-db --model da15260x` collected BOTH stored URLs, fetched 6 tiles, grouped all into ONE PK, `new_cpus=0` (fixed regex matched the vouched chip — no new garbage). Final row: 3 CPUs (Core 7 240H vouched + Ryzen 5 220/7 260), boards MB2-intel[5050,5060] / MB3-amd[4050] / MB2-amd[5060,5050], `source_model_codes=["da15260","da15265"]`. 2 legit new conflicts queued for the sweep (adapter 130→180 configurator max; cpu_offerings list diff) — the known T9.4 pattern.
+
+### 5. `backfill-asus-families` (same session, after user sign-off)
+
+- **The same orphan risk existed for ASUS** — TUF rows predated the T9.3 (S42) family derivation: `family_code` NULL, `model_code` still the arch-specific slug (`asus-tuf-gaming-f16-2024`), so the first TUF refresh (possible since the S62 URL template) would re-derive `asus-tuf-gaming-16-2024`, miss the row, and orphan into a NEW duplicate. Never bit because no TUF refresh had run since S42; the Stage 11 audit (S48) hand-merged the visible duplicates but couldn't fill the flat merge columns.
+- New `cli/backfill_asus_families.py` (registered in `__main__.py`): same shape as the Dell twin, one ASUS-specific addition — the shared apply helpers OVERWRITE `source_model_codes`, but ASUS rows carry Stage-11-audited sibling codes (e.g. F16 row lists its A16 SKUs); the backfill snapshots them first and restores the union after the rename. +7 tests (`tests/cli/test_backfill_asus_families.py`), 572 → **579** green.
+- **Live run** (backup `competitive.db.pre-s63-asus-families-backup`): 7 TUF rows renamed to family form (all single-row — the audit had already collapsed duplicates), audited codes preserved verbatim, ROG + suffixed slugs (`a14-2026-fa401ea`, `asus-v16-v3607`) untouched, 0 queue rows needed re-pointing. **Live-verified** with a real `refresh --from-db --model asus-tuf-gaming-16-2025`: landed on the ONE existing row (56 products before and after, no duplicate), 48 fields refreshed, conflicts queued normally.
+- Known lossy-hand-merge residue (pre-existing, NOT a regression): TUF rows mostly hold F-page (Intel) data only — the A-variant URLs never entered their provenance, so `--from-db` won't fetch them. To pull an AMD sibling page in, refresh with the explicit A-variant `--url` once — family grouping now merges it correctly into the same row.
+
+### 6. Surfaced, not fixed (pre-existing)
+- **Add flow no-ops on sibling SKUs of an existing family** — `_pk_exists` short-circuits to "already existed", so adding a NEW arch twin (any vendor) must go through Refresh with an explicit `--url`, not the Add modal. Affects the "scrape more products via Add flow" plan.
+- The merged row carries 3 duplicate `vendor_full_name` `year_inferred` queue rows (one per original SKU + one from the verify refresh) — resolve once, drop the others during the sweep.
+
+**Pickup:** OS-options question DECIDED this session — **skip** (stays out of scope; near-uniform Win 11 Home/Pro adds review burden for little comparison value; revisiting later only costs one 'missing OS' item per product, not a sweep redo — consistent with the existing DATA_MODEL guard). Next: the large manual review sweep (~235 unresolved queue items).
+
+---
+
 ## Session 62 — 2026-06-11 (Deferred code backlog cleared: Review value type-fidelity fix, Stage 11 P1.5 shim removal, ASUS TUF/V16 URL dispatch, Dell Keyboard/Battery/Adapter option modules; obsolete-task housekeeping; tests 543 → 559)
 
 **Goal:** Work the deferred code backlog one item at a time, done properly (no workarounds), and close out the Streamlit-era ghost tasks that no longer apply after the React cutover.

@@ -46,7 +46,7 @@ Each column corresponds to a DATA_MODEL field. Storage:
 
 - **Scalar fields** (`memory_max_gb`, `wifi_standard`, `width_mm`, etc.) — stored as a JSON object: `{value, ...provenance}`.
 - **List-of-offerings fields** (`cpu_offerings`, `boards`, `display_offerings`, etc.) — stored as a JSON array. Each element is itself a structured object whose leaf-cells each carry their own provenance bundle.
-- **Plain-scalar identity columns** (`product`, `model_code`, `year`, plus `family_code` and `source_model_codes`) — stored as plain TEXT/INTEGER, no provenance bundle. `product` is the Stage 11 curated identity column (Session 48 — now part of the PK alongside `year`). `family_code` is the Lenovo-only canonical family identifier (e.g. `legion-pro-5-16-gen-10`), kept as a legacy column from Stage 7 T7.0a. `source_model_codes` was **universalized across all brands in Stage 11** (previously Lenovo-only) and is a JSON-array-as-TEXT of the per-vendor SKU identifiers that merged into this product (e.g. `["16IRX10H", "16AHP10"]` for Lenovo, `["rog-strix-g16-2025", "rog-strix-g16-2025-g614"]` for ASUS); populated on every Stage-11-audited row.
+- **Plain-scalar identity columns** (`product`, `model_code`, `year`, plus `family_code` and `source_model_codes`) — stored as plain TEXT/INTEGER, no provenance bundle. `product` is the Stage 11 curated identity column (Session 48 — now part of the PK alongside `year`). `family_code` is the canonical family identifier for vendors with the multi-SKU Intel/AMD merge — Lenovo (`legion-pro-5-16-gen-10`, Stage 7 T7.0a), ASUS TUF (`asus-tuf-gaming-16-2025`), and Dell (`da15260x`, S63); NULL for unmerged rows. `source_model_codes` was **universalized across all brands in Stage 11** (previously Lenovo-only) and is a JSON-array-as-TEXT of the per-vendor SKU identifiers that merged into this product (e.g. `["16IRX10H", "16AHP10"]` for Lenovo, `["rog-strix-g16-2025", "rog-strix-g16-2025-g614"]` for ASUS); populated on every Stage-11-audited row.
 
 #### `review_queue`
 Operational table for unresolved items.
@@ -174,12 +174,15 @@ Single orchestrator: `ingest/runner.py`. CLI entry: `refresh`.
       - Candidate cell marked `needs-review` → enqueue `low_confidence_extraction`; do not write.
 4. **Print summary:** refreshed N, conflicts M, new chips K, low-confidence L.
 
-### Lenovo merge ingest (Stage 7 T7.0a)
+### Family merge ingest (Stage 7 T7.0a; extended to ASUS TUF, then Dell S63)
 
-Lenovo's PSREF gives each Intel / AMD architecture cousin its own machine code (e.g. `16IRX10H` vs `16AHP10`) under one underlying product family (`Legion Pro 5 16 Gen 10`). The merge ingest path collapses those into a single row keyed by `family_code`.
+Vendors give each Intel / AMD architecture cousin its own SKU code under one underlying product family — Lenovo PSREF machine codes (`16IRX10H` vs `16AHP10` under `Legion Pro 5 16 Gen 10`), ASUS TUF slugs (`asus-tuf-gaming-f16-2025` vs `-a16-2025`), Dell SKU codes (`da15260` vs `da15265` under Alienware 15). The merge ingest path collapses those into a single row keyed by `family_code`.
 
-1. **Bridge** (`bridge/lenovo.py`): `_derive_lenovo_family_and_arch` parses the Lenovo title to derive `family_code` (canonical kebab slug, e.g. `legion-pro-5-16-gen-10`) and per-board `arch_marker` token (`IRX` / `IAX` / `ADR` / `ARX` / `AFR`). The H suffix (Hybrid / discrete-graphics indicator) is dropped from `arch_marker` but the original code is preserved in `source_model_codes`. The parser uses a known-line allowlist (`_LENOVO_FAMILY_LINE_PREFIXES`) — when Lenovo ships a new product line, the allowlist needs updating. Non-Lenovo bridges leave `family_code` and `source_model_codes` unset.
-2. **Grouping coercion** (`cli/refresh.py`): when a candidate has `family_code`, the grouping layer coerces `model_code` to `family_code` so candidates from the same family group together regardless of source machine code. Non-Lenovo (and legacy Lenovo without `family_code`) take the legacy path.
+1. **Bridge** (per-vendor derivation; a bridge that can't recognize a code leaves `family_code`/`source_model_codes` unset and the runner skips merge dispatch):
+   - `bridge/lenovo.py::_derive_lenovo_family_and_arch` parses the Lenovo title to derive `family_code` (canonical kebab slug, e.g. `legion-pro-5-16-gen-10`) and per-board `arch_marker` token (`IRX` / `IAX` / `ADR` / `ARX` / `AFR`). The H suffix (Hybrid / discrete-graphics indicator) is dropped from `arch_marker` but the original code is preserved in `source_model_codes`. Uses a known-line allowlist (`_LENOVO_FAMILY_LINE_PREFIXES`) — new Lenovo product lines need an allowlist append.
+   - `bridge/asus.py::_derive_asus_family_and_arch` strips the F/A CPU-vendor letter from TUF slugs (`asus-tuf-gaming-f16-2025` / `-a16-2025` → `asus-tuf-gaming-16-2025`, arch `intel`/`amd`). Anchored on a family-line prefix allowlist; ROG slugs (where `g`/`m` are series letters, not arch markers) stay unmerged.
+   - `bridge/dell.py::_derive_dell_family_and_arch` (S63) uses Dell's SKU-digit convention — final digit 0 = Intel, 5 = AMD (`da15260`/`da15265` → `da15260x`). Only the verified 0↔5 pair participates: other final digits are distinct chassis (`ac16250` Aurora 16 vs `ac16251` Aurora 16X), left unmerged.
+2. **Grouping coercion** (`cli/refresh.py`): when a candidate has `family_code`, the grouping layer coerces `model_code` to `family_code` so candidates from the same family group together regardless of source SKU code. Candidates without `family_code` (and legacy rows) take the legacy path.
 3. **Multi-candidate merge** (`ingest/runner.py::_merge_candidates`): groups boards by `(label, arch_marker)` rather than label alone, unions `source_model_codes` across candidates, asserts all non-None `family_code`s agree.
 4. **Existing-row premerge** (`ingest/runner.py::_premerge_lenovo_existing_row`): handles "AMD ingest arrives after Intel row already exists" — unions boards + `source_model_codes` into the existing row before the normal diff path runs, so the second architecture appends rather than queueing every cell as a `value_disagreement`.
 
@@ -283,6 +286,22 @@ python -m competitive_database backfill-lenovo-families
 python -m competitive_database backfill-lenovo-families --db path/to/competitive.db
 ```
 
+### `backfill-dell-families`
+Dell twin of the above (S63) for legacy Dell rows ingested before the Dell family derivation. Derives from `model_code` alone (the SKU-digit rule needs no title/URL); reuses the Lenovo backfill's `_apply_single` / `_apply_merge`. One addition: unresolved `review_queue` rows keyed on a renamed/merged SKU code are re-pointed at the new `family_code` (they'd orphan otherwise — the Review UI and resolve CLI join on `products.model_code`); resolved rows keep their original code as history. Idempotent. Implementation: `cli/backfill_dell_families.py`. Applied to the live DB in S63 (backup `competitive.db.pre-s63-dell-families-backup`).
+
+```
+python -m competitive_database backfill-dell-families
+python -m competitive_database backfill-dell-families --db path/to/competitive.db
+```
+
+### `backfill-asus-families`
+ASUS twin (S63) for TUF rows ingested before the T9.3 (S42) family derivation. Same shape as the Dell backfill with one addition: ASUS rows carry Stage-11-audited `source_model_codes` (hand-merged sibling SKUs), which the shared apply helpers would overwrite — this backfill snapshots them first and restores the union after the rename. ROG and suffixed slugs derive `(None, None)` and are left untouched. Idempotent. Implementation: `cli/backfill_asus_families.py`. Applied to the live DB in S63 (backup `competitive.db.pre-s63-asus-families-backup`).
+
+```
+python -m competitive_database backfill-asus-families
+python -m competitive_database backfill-asus-families --db path/to/competitive.db
+```
+
 ---
 
 ## Repo layout
@@ -356,7 +375,9 @@ competitive-database/
 │       ├── find_empty.py
 │       ├── find_conflicts.py
 │       ├── audit_normalize.py
-│       └── backfill_lenovo_families.py   # one-time Lenovo family_code backfill
+│       ├── backfill_lenovo_families.py   # one-time Lenovo family_code backfill
+│       ├── backfill_dell_families.py     # one-time Dell family_code backfill (S63)
+│       └── backfill_asus_families.py     # one-time ASUS TUF family_code backfill (S63)
 ├── tests/
 │   ├── fixtures/              # sample ProductSnapshot JSON per vendor
 │   ├── bridge/
